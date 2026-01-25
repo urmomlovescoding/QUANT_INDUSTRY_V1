@@ -1,0 +1,218 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background-primary: #0d0d0d;
+    --background-secondary: #141414;
+    --background-tertiary: #1a1a1a;
+    --background-elevated: #1f1f1f;
+    --foreground-primary: #ffffff;
+    --foreground-secondary: #a0a0a0;
+    --foreground-muted: #666666;
+    --accent-primary: #f0b90b;
+    --bullish: #00c853;
+    --bearish: #ff1744;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  body {
+    @apply bg-background-primary text-foreground-primary font-sans;
+    overflow: hidden;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-background-secondary;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-background-hover rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-background-active;
+  }
+
+  /* Number formatting */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Card component */
+  .card {
+    @apply bg-background-elevated rounded-lg border border-border shadow-card;
+  }
+
+  /* Metric card styles */
+  .metric-card {
+    @apply card p-4;
+  }
+
+  .metric-label {
+    @apply text-xs font-medium text-foreground-muted uppercase tracking-wider;
+  }
+
+  .metric-value {
+    @apply text-2xl font-bold text-foreground-primary tabular-nums;
+  }
+
+  .metric-change {
+    @apply text-sm font-medium tabular-nums;
+  }
+
+  .metric-change.positive {
+    @apply text-bullish;
+  }
+
+  .metric-change.negative {
+    @apply text-bearish;
+  }
+
+  /* Button styles */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md transition-colors;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent-primary text-background-primary hover:bg-accent-hover;
+  }
+
+  .btn-secondary {
+    @apply btn bg-background-tertiary text-foreground-primary hover:bg-background-hover;
+  }
+
+  .btn-danger {
+    @apply btn bg-bearish text-white hover:bg-red-700;
+  }
+
+  .btn-success {
+    @apply btn bg-bullish text-white hover:bg-green-700;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full px-3 py-2 text-sm bg-background-tertiary border border-border rounded-md
+           text-foreground-primary placeholder-foreground-muted
+           focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded;
+  }
+
+  .badge-bullish {
+    @apply badge bg-bullish/20 text-bullish;
+  }
+
+  .badge-bearish {
+    @apply badge bg-bearish/20 text-bearish;
+  }
+
+  .badge-info {
+    @apply badge bg-info/20 text-info;
+  }
+
+  .badge-warning {
+    @apply badge bg-warning/20 text-warning;
+  }
+
+  /* Table styles */
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table th {
+    @apply px-4 py-3 text-left text-xs font-medium text-foreground-muted uppercase tracking-wider
+           bg-background-tertiary border-b border-border;
+  }
+
+  .data-table td {
+    @apply px-4 py-3 text-foreground-primary border-b border-border;
+  }
+
+  .data-table tr:hover td {
+    @apply bg-background-hover;
+  }
+
+  /* Sidebar nav */
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 text-sm font-medium text-foreground-secondary
+           rounded-lg transition-colors cursor-pointer;
+  }
+
+  .nav-item:hover {
+    @apply bg-background-hover text-foreground-primary;
+  }
+
+  .nav-item.active {
+    @apply bg-accent-primary/10 text-accent-primary;
+  }
+
+  /* Chart container */
+  .chart-container {
+    @apply card p-4;
+  }
+
+  .chart-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  .chart-title {
+    @apply text-sm font-medium text-foreground-primary;
+  }
+}
+
+@layer utilities {
+  /* P&L colors */
+  .text-pnl {
+    @apply tabular-nums font-medium;
+  }
+
+  .text-pnl-positive {
+    @apply text-pnl text-bullish;
+  }
+
+  .text-pnl-negative {
+    @apply text-pnl text-bearish;
+  }
+
+  /* Glow effects */
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(240, 185, 11, 0.3);
+  }
+
+  /* Grid layouts */
+  .grid-dashboard {
+    @apply grid gap-4;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+
+  /* Gradient backgrounds */
+  .bg-gradient-gold {
+    background: linear-gradient(135deg, #f0b90b 0%, #d4a50a 100%);
+  }
+
+  .bg-gradient-dark {
+    background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+  }
+}

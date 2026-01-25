@@ -1,0 +1,75 @@
+{
+  "ui": {
+    "theme": "BLOOMBERG",
+    "chart_style": "CANDLESTICK",
+    "sidebar_collapsed": false,
+    "show_ticker_tape": true,
+    "show_volume": true,
+    "show_indicators": true,
+    "default_timeframe": "1D",
+    "background_color": "#0a0a12",
+    "panel_color": "#12121a",
+    "accent_color": "#00d4aa",
+    "bullish_color": "#00c853",
+    "bearish_color": "#ff5252",
+    "text_color": "#e0e0e0",
+    "muted_color": "#6b7280",
+    "chart_grid": true,
+    "chart_crosshair": true,
+    "volume_overlay": false,
+    "animations_enabled": true,
+    "transition_duration": 200
+  },
+  "data": {
+    "refresh_rate": "NORMAL",
+    "cache_duration_minutes": 5,
+    "max_historical_days": 365,
+    "default_symbols": [
+      "SPY",
+      "QQQ",
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "GOOGL",
+      "AMZN",
+      "META",
+      "TSLA"
+    ],
+    "data_source_priority": [
+      "alpaca",
+      "yfinance",
+      "tradier",
+      "finnhub",
+      "polygon"
+    ],
+    "options_expiry_filter": "all",
+    "options_strike_range": 10
+  },
+  "trading": {
+    "paper_trading": true,
+    "default_order_type": "MARKET",
+    "confirm_orders": true,
+    "default_quantity": 100,
+    "max_position_pct": 15.0,
+    "max_daily_loss": 1000.0,
+    "auto_stop_loss": true,
+    "default_stop_loss_pct": 3.0,
+    "default_take_profit_pct": 6.0,
+    "bot_enabled": false,
+    "bot_strategy": "ML_ENSEMBLE",
+    "bot_max_positions": 5
+  },
+  "notifications": {
+    "enabled": true,
+    "sound_enabled": true,
+    "desktop_notifications": true,
+    "price_alerts": true,
+    "trade_alerts": true,
+    "risk_alerts": true,
+    "news_alerts": false,
+    "price_change_threshold": 5.0,
+    "volume_spike_threshold": 200.0
+  },
+  "version": "10.0.0",
+  "last_updated": "2026-01-24T05:53:57.657009"
+}

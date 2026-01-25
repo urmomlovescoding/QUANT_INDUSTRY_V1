@@ -1,0 +1,76 @@
+# QUANT_INDUSTRY_V1 Requirements
+# Python 3.10+
+
+# ====================
+# Core Dependencies
+# ====================
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+
+# ====================
+# Data Sources
+# ====================
+alpaca-py>=0.13.0
+yfinance>=0.2.30
+requests>=2.31.0
+
+# ====================
+# Machine Learning
+# ====================
+scikit-learn>=1.3.0
+xgboost>=2.0.0
+lightgbm>=4.0.0
+
+# Optional: Deep Learning
+# torch>=2.0.0  # Uncomment if using PyTorch
+# tensorflow>=2.13.0  # Uncomment if using TensorFlow
+
+# Optional: Reinforcement Learning
+# stable-baselines3>=2.0.0  # Uncomment if using RL
+
+# ====================
+# Statistical
+# ====================
+statsmodels>=0.14.0
+hmmlearn>=0.3.0  # Hidden Markov Models
+
+# ====================
+# Database
+# ====================
+# sqlite3 is included in Python stdlib
+
+# ====================
+# Visualization
+# ====================
+matplotlib>=3.7.0
+
+# Optional: Enhanced terminal UI
+rich>=13.0.0
+
+# ====================
+# Utilities
+# ====================
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# ====================
+# Testing
+# ====================
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+# ====================
+# Code Quality
+# ====================
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.1.0
+mypy>=1.5.0
+
+# ====================
+# Development
+# ====================
+ipython>=8.14.0
+jupyter>=1.0.0
