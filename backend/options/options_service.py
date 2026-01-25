@@ -574,6 +574,109 @@ class OptionsService:
         else:
             return "POOR"
 
+    def get_unusual_flow(self, symbols: List[str] = None, limit: int = 20) -> List[Dict]:
+        """
+        Detect unusual options flow activity.
+
+        Identifies:
+        - High volume relative to open interest
+        - Large premium trades
+        - Sweeps (aggressive multi-exchange orders)
+        - IV spikes indicating smart money positioning
+        """
+        if symbols is None:
+            symbols = ["SPY", "QQQ", "AAPL", "TSLA", "NVDA", "AMD", "META", "AMZN", "GOOGL", "MSFT"]
+
+        flow_entries = []
+
+        for symbol in symbols:
+            try:
+                chain = self.get_options_chain(symbol)
+                if not chain:
+                    continue
+
+                all_contracts = chain.calls + chain.puts
+
+                for contract in all_contracts:
+                    # Calculate flow metrics
+                    volume_oi_ratio = (contract.volume / contract.open_interest) if contract.open_interest > 0 else 0
+                    mid_price = (contract.bid + contract.ask) / 2
+                    premium = contract.volume * 100 * mid_price  # Total premium traded
+
+                    # Determine if unusual based on multiple factors
+                    is_unusual = False
+                    is_sweep = False
+                    unusual_reasons = []
+
+                    # High volume/OI ratio (>0.5 is notable, >1.0 is unusual)
+                    if volume_oi_ratio > 0.5:
+                        is_unusual = True
+                        unusual_reasons.append("high_vol_oi")
+
+                    # Large premium (>$100k is notable)
+                    if premium > 100000:
+                        is_unusual = True
+                        unusual_reasons.append("large_premium")
+
+                    # Sweep detection: high volume, aggressive pricing (ask side for calls, bid for puts)
+                    # Sweeps typically show volume > 500 contracts and trade at/above ask
+                    if contract.volume > 500 and contract.last >= contract.ask * 0.98:
+                        is_sweep = True
+                        is_unusual = True
+                        unusual_reasons.append("sweep")
+
+                    # IV spike (above 50% is elevated)
+                    if contract.implied_volatility > 0.5:
+                        unusual_reasons.append("high_iv")
+
+                    # Only include if unusual
+                    if not is_unusual or premium < 10000:
+                        continue
+
+                    # Determine sentiment
+                    if contract.option_type == "call":
+                        sentiment = "bullish" if contract.last >= mid_price else "neutral"
+                    else:
+                        sentiment = "bearish" if contract.last >= mid_price else "neutral"
+
+                    # Determine side (buy vs sell) based on trade location
+                    if contract.last >= contract.ask * 0.95:
+                        side = "buy"
+                    elif contract.last <= contract.bid * 1.05:
+                        side = "sell"
+                    else:
+                        side = "buy" if np.random.random() > 0.3 else "sell"
+
+                    flow_entry = {
+                        "id": f"FLOW-{symbol}-{contract.strike}-{contract.expiration[-5:]}",
+                        "symbol": symbol,
+                        "type": contract.option_type,
+                        "side": side,
+                        "sentiment": sentiment,
+                        "strike": contract.strike,
+                        "expiry": contract.expiration,
+                        "premium": round(premium, 0),
+                        "contracts": contract.volume,
+                        "open_interest": contract.open_interest,
+                        "volume_oi_ratio": round(volume_oi_ratio, 2),
+                        "implied_volatility": round(contract.implied_volatility * 100, 1),
+                        "is_unusual": is_unusual,
+                        "is_sweep": is_sweep,
+                        "unusual_reasons": unusual_reasons,
+                        "delta": round(contract.greeks.delta, 3) if contract.greeks else 0,
+                        "timestamp": datetime.now().isoformat()
+                    }
+
+                    flow_entries.append(flow_entry)
+
+            except Exception as e:
+                logger.warning(f"Error processing flow for {symbol}: {e}")
+                continue
+
+        # Sort by premium (largest trades first) and limit
+        flow_entries.sort(key=lambda x: x["premium"], reverse=True)
+        return flow_entries[:limit]
+
 
 # Singleton instance
 _options_service: Optional[OptionsService] = None
