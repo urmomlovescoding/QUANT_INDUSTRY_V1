@@ -3589,13 +3589,14 @@ async def websocket_flow(websocket: WebSocket):
 
     try:
         while True:
-            if random.random() > 0.7:  # 30% chance each tick
-                flow = data_engine.generate_flow_data()
+            # Only broadcast when there's actual flow data available
+            flow = data_engine.generate_flow_data()
+            if flow is not None:
                 await ws_manager.broadcast_to_channel("flow", {
                     "type": "flow_update",
                     "data": flow
                 })
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(1.0)  # Check every second for new flow data
 
     except WebSocketDisconnect:
         ws_manager.disconnect(connection_id)
@@ -3661,53 +3662,187 @@ async def optimize_portfolio(
     objective: str = "max_sharpe",
     covariance: str = "sample"
 ):
-    """Run portfolio optimization"""
+    """Run portfolio optimization using real historical data"""
     assets = ["SPY", "QQQ", "IWM", "TLT", "GLD"]
 
-    weights = {}
-    remaining = 100
-    for asset in assets[:-1]:
-        w = random.randint(10, min(40, remaining - 10))
-        weights[asset] = w
-        remaining -= w
-    weights[assets[-1]] = remaining
+    # Fetch historical data for each asset (252 trading days = 1 year)
+    returns_data = {}
+    for asset in assets:
+        try:
+            hist = data_service.get_historical(asset, "365d", "1d")
+            if hist and len(hist) >= 20:
+                closes = [bar.close for bar in hist]
+                # Calculate daily returns
+                daily_returns = []
+                for i in range(1, len(closes)):
+                    ret = (closes[i] - closes[i-1]) / closes[i-1]
+                    daily_returns.append(ret)
+                returns_data[asset] = daily_returns
+        except Exception:
+            pass
 
-    return {
-        "objective": objective,
-        "optimal_weights": weights,
-        "expected_return": round(random.uniform(10, 20), 2),
-        "expected_volatility": round(random.uniform(8, 18), 2),
-        "sharpe_ratio": round(random.uniform(1.0, 2.0), 2),
-        "rebalance_actions": [
-            {"asset": asset, "current": random.randint(15, 30), "target": w, "action": "BUY" if random.random() > 0.5 else "SELL"}
-            for asset, w in weights.items()
-        ]
-    }
+    # If we have enough data, calculate optimal weights
+    if len(returns_data) >= 3:
+        # Calculate mean returns and volatilities (annualized)
+        mean_returns = {}
+        volatilities = {}
+        for asset, rets in returns_data.items():
+            mean_returns[asset] = sum(rets) / len(rets) * 252  # Annualized
+            volatilities[asset] = (sum((r - sum(rets)/len(rets))**2 for r in rets) / len(rets))**0.5 * (252**0.5)
+
+        # Simple optimization: weight by Sharpe ratio (return/vol)
+        risk_free_rate = 0.05  # 5% risk-free rate
+        sharpe_ratios = {}
+        for asset in returns_data.keys():
+            vol = volatilities[asset] if volatilities[asset] > 0 else 0.01
+            sharpe_ratios[asset] = (mean_returns[asset] - risk_free_rate) / vol
+
+        # Normalize to weights (positive Sharpe only, minimum 5% weight)
+        total_sharpe = sum(max(0.1, s) for s in sharpe_ratios.values())
+        weights = {}
+        for asset in assets:
+            if asset in sharpe_ratios:
+                raw_weight = max(0.1, sharpe_ratios[asset]) / total_sharpe * 100
+                weights[asset] = round(max(5, min(40, raw_weight)))
+            else:
+                weights[asset] = round(100 / len(assets))
+
+        # Normalize to 100%
+        weight_sum = sum(weights.values())
+        weights = {k: round(v * 100 / weight_sum) for k, v in weights.items()}
+        # Fix rounding to exactly 100
+        diff = 100 - sum(weights.values())
+        if diff != 0:
+            weights[assets[0]] += diff
+
+        # Calculate portfolio metrics
+        port_return = sum(mean_returns.get(a, 0.10) * (w/100) for a, w in weights.items())
+        port_vol = sum(volatilities.get(a, 0.15) * (w/100) for a, w in weights.items())  # Simplified
+        port_sharpe = (port_return - risk_free_rate) / port_vol if port_vol > 0 else 0
+
+        return {
+            "objective": objective,
+            "optimal_weights": weights,
+            "expected_return": round(port_return * 100, 2),  # As percentage
+            "expected_volatility": round(port_vol * 100, 2),
+            "sharpe_ratio": round(port_sharpe, 2),
+            "data_source": "historical",
+            "calculation_method": "sharpe_weighted",
+            "rebalance_actions": [
+                {"asset": asset, "current": round(100/len(assets)), "target": w,
+                 "action": "BUY" if w > 100/len(assets) else "SELL" if w < 100/len(assets) else "HOLD"}
+                for asset, w in weights.items()
+            ]
+        }
+    else:
+        # Fallback: equal weight if insufficient data
+        equal_weight = round(100 / len(assets))
+        weights = {asset: equal_weight for asset in assets}
+        weights[assets[-1]] = 100 - equal_weight * (len(assets) - 1)
+
+        return {
+            "objective": objective,
+            "optimal_weights": weights,
+            "expected_return": None,
+            "expected_volatility": None,
+            "sharpe_ratio": None,
+            "data_source": "insufficient_data",
+            "calculation_method": "equal_weight_fallback",
+            "message": "Insufficient historical data for optimization - using equal weights",
+            "rebalance_actions": [
+                {"asset": asset, "current": equal_weight, "target": w, "action": "HOLD"}
+                for asset, w in weights.items()
+            ]
+        }
 
 @app.get("/api/quant/walkforward/{symbol}")
 async def run_walkforward(symbol: str, train_window: int = 252, test_window: int = 63):
-    """Run walk-forward analysis"""
-    folds = []
-    for i in range(5):
-        train_sharpe = random.uniform(0.8, 2.0)
-        test_sharpe = train_sharpe * random.uniform(0.5, 0.9)  # Degradation
+    """Run walk-forward analysis using real historical data"""
 
-        folds.append({
-            "fold": i + 1,
-            "train_period": f"Fold {i+1} Train",
-            "test_period": f"Fold {i+1} Test",
-            "train_sharpe": round(train_sharpe, 2),
-            "test_sharpe": round(test_sharpe, 2),
-            "degradation": round((1 - test_sharpe / train_sharpe) * 100, 1)
-        })
+    def calculate_sharpe(returns: list, risk_free_rate: float = 0.05) -> float:
+        """Calculate annualized Sharpe ratio from daily returns"""
+        if not returns or len(returns) < 5:
+            return 0.0
+        mean_ret = sum(returns) / len(returns)
+        variance = sum((r - mean_ret)**2 for r in returns) / len(returns)
+        std_ret = variance**0.5 if variance > 0 else 0.001
+        # Annualize
+        annual_ret = mean_ret * 252
+        annual_vol = std_ret * (252**0.5)
+        return (annual_ret - risk_free_rate) / annual_vol if annual_vol > 0 else 0.0
 
+    # Fetch historical data (need at least 5 folds worth of data)
+    total_days_needed = (train_window + test_window) * 5 + 100
+    try:
+        hist = data_service.get_historical(symbol.upper(), f"{total_days_needed}d", "1d")
+    except Exception:
+        hist = None
+
+    if hist and len(hist) >= train_window + test_window:
+        closes = [bar.close for bar in hist]
+        # Calculate daily returns
+        daily_returns = []
+        for i in range(1, len(closes)):
+            ret = (closes[i] - closes[i-1]) / closes[i-1]
+            daily_returns.append(ret)
+
+        # Perform walk-forward analysis
+        folds = []
+        num_folds = min(5, (len(daily_returns) - train_window) // test_window)
+
+        for i in range(num_folds):
+            start_idx = i * test_window
+            train_end = start_idx + train_window
+            test_end = train_end + test_window
+
+            if test_end > len(daily_returns):
+                break
+
+            train_returns = daily_returns[start_idx:train_end]
+            test_returns = daily_returns[train_end:test_end]
+
+            train_sharpe = calculate_sharpe(train_returns)
+            test_sharpe = calculate_sharpe(test_returns)
+
+            # Calculate degradation (avoid division by zero)
+            if abs(train_sharpe) > 0.01:
+                degradation = (1 - test_sharpe / train_sharpe) * 100
+            else:
+                degradation = 0 if abs(test_sharpe) < 0.01 else 100
+
+            folds.append({
+                "fold": i + 1,
+                "train_period": f"Days {start_idx+1}-{train_end}",
+                "test_period": f"Days {train_end+1}-{test_end}",
+                "train_sharpe": round(train_sharpe, 2),
+                "test_sharpe": round(test_sharpe, 2),
+                "degradation": round(max(-100, min(100, degradation)), 1)
+            })
+
+        if folds:
+            avg_degradation = sum(f["degradation"] for f in folds) / len(folds)
+            return {
+                "symbol": symbol.upper(),
+                "train_window": train_window,
+                "test_window": test_window,
+                "folds": folds,
+                "avg_degradation": round(avg_degradation, 1),
+                "robust": avg_degradation < 30,
+                "data_source": "historical",
+                "total_days_analyzed": len(daily_returns)
+            }
+
+    # Fallback if insufficient data
     return {
         "symbol": symbol.upper(),
         "train_window": train_window,
         "test_window": test_window,
-        "folds": folds,
-        "avg_degradation": round(sum(f["degradation"] for f in folds) / len(folds), 1),
-        "robust": sum(f["degradation"] for f in folds) / len(folds) < 30
+        "folds": [],
+        "avg_degradation": None,
+        "robust": None,
+        "data_source": "insufficient_data",
+        "message": f"Insufficient historical data for walk-forward analysis. Need at least {train_window + test_window} days.",
+        "total_days_available": len(hist) if hist else 0
     }
 
 # ============== ALGO BOT ==============
@@ -6566,6 +6701,55 @@ async def get_trading_pairs():
                             "mean": round(spread_mean, 2)
                         })
 
+                    # Calculate hypothetical performance from spread mean reversion
+                    # Simple backtest: trade when z-score crosses +/- 2, exit at mean
+                    trades = []
+                    position = None  # None, "long", or "short"
+                    entry_spread = 0
+                    for i in range(1, len(spread)):
+                        z = (spread[i] - spread_mean) / spread_std if spread_std > 0 else 0
+                        prev_z = (spread[i-1] - spread_mean) / spread_std if spread_std > 0 else 0
+
+                        # Entry signals
+                        if position is None:
+                            if prev_z < 2 and z >= 2:
+                                position = "short"
+                                entry_spread = spread[i]
+                            elif prev_z > -2 and z <= -2:
+                                position = "long"
+                                entry_spread = spread[i]
+                        # Exit signals (mean reversion)
+                        elif position == "short" and z < 0.5:
+                            trades.append(entry_spread - spread[i])  # Profit from short
+                            position = None
+                        elif position == "long" and z > -0.5:
+                            trades.append(spread[i] - entry_spread)  # Profit from long
+                            position = None
+
+                    # Calculate performance metrics from trades
+                    if trades:
+                        wins = sum(1 for t in trades if t > 0)
+                        total_return = sum(trades) / spread_std * 10 if spread_std > 0 else 0  # Normalized
+                        win_rate = int(wins / len(trades) * 100)
+                        mean_trade = sum(trades) / len(trades)
+                        trade_std = (sum((t - mean_trade)**2 for t in trades) / len(trades))**0.5 if len(trades) > 1 else 1
+                        sharpe = mean_trade / trade_std * (252 / half_life)**0.5 if trade_std > 0 else 0
+                        perf = {
+                            "totalReturn": round(max(-50, min(100, total_return)), 1),
+                            "sharpeRatio": round(max(-2, min(5, sharpe)), 2),
+                            "tradesCount": len(trades),
+                            "winRate": win_rate,
+                            "dataSource": "historical_backtest"
+                        }
+                    else:
+                        perf = {
+                            "totalReturn": None,
+                            "sharpeRatio": None,
+                            "tradesCount": 0,
+                            "winRate": None,
+                            "dataSource": "no_signals_in_period"
+                        }
+
                     pairs.append({
                         "id": f"pair_{sym_a}_{sym_b}",
                         "asset1": sym_a,
@@ -6584,12 +6768,7 @@ async def get_trading_pairs():
                         },
                         "signal": signal,
                         "confidence": int(min(100, abs(correlation) * 100)),
-                        "performance": {
-                            "totalReturn": round(random.uniform(5, 30), 1),
-                            "sharpeRatio": round(random.uniform(0.8, 2.0), 2),
-                            "tradesCount": random.randint(10, 50),
-                            "winRate": random.randint(55, 75)
-                        },
+                        "performance": perf,
                         "active": abs(correlation) > 0.7,
                         "spreadHistory": spread_history
                     })
