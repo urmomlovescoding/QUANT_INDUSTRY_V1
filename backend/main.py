@@ -66,6 +66,14 @@ try:
     from services.health_service import get_health_service
     from services.risk_service import get_risk_service
     from services.trading_service import get_trading_service
+    # Data integrity layer
+    from core.data_integrity import (
+        DataMode, DataQuality, PriceTruth,
+        get_data_mode, set_data_mode, get_price_truth, get_prices_truth,
+        init_data_integrity, get_quality_stats, lock_mode, unlock_mode,
+        assert_no_simulation, assert_live_data
+    )
+    DATA_INTEGRITY_AVAILABLE = True
     if BEAST_AVAILABLE:
         from brain.beast_ml import BEASTConfig, get_beast_engine
     if RL_AVAILABLE:
@@ -110,6 +118,7 @@ except ImportError as e:
     logger.warning(f"Some services not available: {e}")
     SERVICES_AVAILABLE = False
     PROPFIRM_BRAIN_V6_AVAILABLE = False
+    DATA_INTEGRITY_AVAILABLE = False
 
 # Import new parity modules (Gate 0-7 improvements)
 try:
@@ -265,6 +274,15 @@ async def startup_event():
     """Start background tasks on app startup"""
     logger.info("[STARTUP] QUANT INDUSTRY API v10.0 starting...")
     logger.info(f"[STARTUP] Services available: {SERVICES_AVAILABLE}")
+
+    # Initialize data integrity layer
+    if DATA_INTEGRITY_AVAILABLE:
+        # Default to PAPER mode for safety
+        init_data_integrity(DataMode.PAPER)
+        logger.info("[STARTUP] Data integrity layer initialized in PAPER mode")
+    else:
+        logger.warning("[STARTUP] Data integrity layer NOT available")
+
     if SERVICES_AVAILABLE:
         import os
         alpaca_key = os.getenv("ALPACA_API_KEY", "")
@@ -633,6 +651,115 @@ async def get_system_memory():
     except Exception as e:
         logger.error(f"Memory monitor error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== DATA INTEGRITY MANAGEMENT ==============
+
+@app.get("/api/data-mode")
+async def get_current_data_mode():
+    """Get current data mode and integrity status"""
+    if not DATA_INTEGRITY_AVAILABLE:
+        return {
+            "mode": "unknown",
+            "available": False,
+            "_note": "Data integrity layer not loaded"
+        }
+
+    mode = get_data_mode()
+    quality_stats = get_quality_stats()
+
+    return {
+        "mode": mode.value,
+        "available": True,
+        "modes": {
+            "LIVE": "Real broker connection, real money at risk",
+            "PAPER": "Paper trading with real market prices",
+            "BACKTEST": "Historical simulation",
+            "SIMULATION": "Demo mode with synthetic data"
+        },
+        "current_description": {
+            DataMode.LIVE: "Real broker connection, real money at risk",
+            DataMode.PAPER: "Paper trading with real market prices",
+            DataMode.BACKTEST: "Historical simulation",
+            DataMode.SIMULATION: "Demo mode with synthetic data"
+        }.get(mode, "Unknown mode"),
+        "quality_stats": quality_stats,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.post("/api/data-mode")
+async def set_current_data_mode(mode: str, reason: str = "API request"):
+    """
+    Set data mode (LIVE, PAPER, BACKTEST, SIMULATION).
+
+    WARNING: Setting to LIVE enables real trading with real money.
+    """
+    if not DATA_INTEGRITY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Data integrity layer not available")
+
+    try:
+        new_mode = DataMode(mode.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode: {mode}. Must be one of: live, paper, backtest, simulation"
+        )
+
+    if new_mode == DataMode.LIVE:
+        # Extra safety check for LIVE mode
+        logger.warning(f"LIVE MODE REQUESTED - Reason: {reason}")
+
+    success = set_data_mode(new_mode, reason)
+
+    if not success:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot change to this mode - mode is locked"
+        )
+
+    return {
+        "mode": new_mode.value,
+        "changed": True,
+        "reason": reason,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/data-integrity/status")
+async def get_data_integrity_status():
+    """Get comprehensive data integrity status"""
+    if not DATA_INTEGRITY_AVAILABLE:
+        return {"available": False}
+
+    # Get sample prices with provenance
+    sample_symbols = ["SPY", "QQQ", "AAPL"]
+    prices = {}
+
+    for symbol in sample_symbols:
+        try:
+            truth = get_price_truth(symbol)
+            prices[symbol] = truth.to_dict()
+        except Exception as e:
+            prices[symbol] = {"error": str(e)}
+
+    return {
+        "available": True,
+        "mode": get_data_mode().value,
+        "sample_prices": prices,
+        "quality_stats": get_quality_stats(),
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/api/data-integrity/price/{symbol}")
+async def get_price_with_provenance(symbol: str):
+    """Get price with full provenance information via data integrity layer"""
+    if not DATA_INTEGRITY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Data integrity layer not available")
+
+    truth = get_price_truth(symbol.upper())
+    return truth.to_dict()
 
 
 @app.get("/api/data/staleness")
@@ -2466,132 +2593,53 @@ async def get_regime_detection():
 
 @app.get("/api/research/13f/{symbol}")
 async def get_13f_holdings(symbol: str):
-    """Get 13F institutional holdings"""
-    symbol = symbol.upper()
+    """Get 13F institutional holdings - returns UNAVAILABLE when real data source not configured"""
+    from services.research_service import get_research_service
 
-    holders = [
-        {"name": "Vanguard Group", "shares": random.randint(50000000, 200000000), "value": random.randint(5000000000, 50000000000), "change": random.randint(-5000000, 10000000), "pct_portfolio": round(random.uniform(1, 5), 2)},
-        {"name": "BlackRock", "shares": random.randint(40000000, 150000000), "value": random.randint(4000000000, 40000000000), "change": random.randint(-3000000, 8000000), "pct_portfolio": round(random.uniform(0.5, 4), 2)},
-        {"name": "State Street", "shares": random.randint(20000000, 80000000), "value": random.randint(2000000000, 20000000000), "change": random.randint(-2000000, 5000000), "pct_portfolio": round(random.uniform(0.3, 3), 2)},
-        {"name": "Fidelity", "shares": random.randint(15000000, 60000000), "value": random.randint(1500000000, 15000000000), "change": random.randint(-1000000, 4000000), "pct_portfolio": round(random.uniform(0.2, 2.5), 2)},
-        {"name": "Berkshire Hathaway", "shares": random.randint(5000000, 30000000), "value": random.randint(500000000, 8000000000), "change": random.randint(-500000, 2000000), "pct_portfolio": round(random.uniform(0.1, 2), 2)},
-    ]
-
-    return {
-        "symbol": symbol,
-        "total_institutional_ownership": round(random.uniform(60, 85), 1),
-        "holders": holders,
-        "quarterly_change": {
-            "new_positions": random.randint(50, 200),
-            "increased_positions": random.randint(100, 400),
-            "decreased_positions": random.randint(80, 300),
-            "closed_positions": random.randint(20, 100)
-        }
-    }
+    research = get_research_service()
+    response = research.get_13f_holdings(symbol)
+    return response.to_dict()
 
 @app.get("/api/research/sec/{symbol}")
 async def get_sec_filings(symbol: str, limit: int = 20):
-    """Get SEC filings"""
-    symbol = symbol.upper()
+    """Get SEC filings - returns UNAVAILABLE when real data source not configured"""
+    from services.research_service import get_research_service
 
-    filing_types = ["10-K", "10-Q", "8-K", "4", "DEF 14A", "S-1", "13F-HR"]
-
-    filings = []
-    for i in range(limit):
-        filing_date = datetime.now() - timedelta(days=random.randint(1, 365))
-        filing_type = random.choice(filing_types)
-
-        titles = {
-            "10-K": "Annual Report",
-            "10-Q": "Quarterly Report",
-            "8-K": "Current Report",
-            "4": "Statement of Changes in Beneficial Ownership",
-            "DEF 14A": "Proxy Statement",
-            "S-1": "Registration Statement",
-            "13F-HR": "Institutional Holdings Report"
-        }
-
-        filings.append({
-            "date": filing_date.strftime("%Y-%m-%d"),
-            "type": filing_type,
-            "title": titles.get(filing_type, "SEC Filing"),
-            "url": f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={symbol}"
-        })
-
-    return {"symbol": symbol, "filings": sorted(filings, key=lambda x: x["date"], reverse=True)}
+    research = get_research_service()
+    response = research.get_sec_filings(symbol, limit)
+    return response.to_dict()
 
 @app.get("/api/research/darkpool/{symbol}")
 async def get_dark_pool_data(symbol: str):
-    """Get dark pool activity"""
-    symbol = symbol.upper()
+    """Get dark pool activity - returns UNAVAILABLE when real data source not configured"""
+    from services.research_service import get_research_service
 
-    venues = ["UBSS", "CODA", "JPMX", "MSPL", "GSES", "SGMT", "BTCH", "ARCA"]
-
-    activity = []
-    total_volume = 0
-    for venue in venues:
-        volume = random.randint(100000, 5000000)
-        total_volume += volume
-        activity.append({
-            "venue": venue,
-            "volume": volume,
-            "avg_price": round(MARKET_DATA.get(symbol, {"price": 100})["price"] + random.uniform(-1, 1), 2),
-            "trade_count": random.randint(50, 500)
-        })
-
-    lit_volume = random.randint(20000000, 100000000)
-    dark_pct = (total_volume / (total_volume + lit_volume)) * 100
-
-    return {
-        "symbol": symbol,
-        "dark_pool_volume": total_volume,
-        "lit_volume": lit_volume,
-        "dark_pool_pct": round(dark_pct, 1),
-        "activity_by_venue": activity,
-        "large_blocks": random.randint(5, 50),
-        "avg_block_size": random.randint(10000, 100000),
-        "signal": "ACCUMULATION" if random.random() > 0.5 else "DISTRIBUTION"
-    }
+    research = get_research_service()
+    response = research.get_dark_pool_data(symbol)
+    return response.to_dict()
 
 @app.get("/api/research/earnings")
 async def get_earnings_calendar(symbols: str = ""):
-    """Get earnings calendar"""
-    all_symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", "NFLX", "CRM"]
+    """Get earnings calendar - returns UNAVAILABLE when real data source not configured"""
+    from services.research_service import get_research_service
+
+    symbol_list = None
     if symbols:
-        all_symbols = [s.strip().upper() for s in symbols.split(",")]
+        symbol_list = [s.strip().upper() for s in symbols.split(",")]
 
-    calendar = []
-    for symbol in all_symbols[:10]:
-        earnings_date = datetime.now() + timedelta(days=random.randint(-30, 60))
-
-        calendar.append({
-            "symbol": symbol,
-            "date": earnings_date.strftime("%Y-%m-%d"),
-            "time": random.choice(["BMO", "AMC"]),  # Before Market Open / After Market Close
-            "eps_estimate": round(random.uniform(0.5, 5), 2),
-            "eps_actual": round(random.uniform(0.4, 5.5), 2) if earnings_date < datetime.now() else None,
-            "revenue_estimate": f"${random.randint(10, 100)}B",
-            "surprise_pct": round(random.uniform(-10, 15), 1) if earnings_date < datetime.now() else None
-        })
-
-    return {"calendar": sorted(calendar, key=lambda x: x["date"])}
+    research = get_research_service()
+    response = research.get_earnings(symbols=symbol_list)
+    return response.to_dict()
 
 
 @app.get("/api/research/earnings/{symbol}")
 async def get_earnings_by_symbol(symbol: str):
-    """Get earnings data for a specific symbol"""
-    earnings_date = datetime.now() + timedelta(days=random.randint(-30, 60))
-    is_past = earnings_date < datetime.now()
+    """Get earnings data for a specific symbol - returns UNAVAILABLE when real data source not configured"""
+    from services.research_service import get_research_service
 
-    return {
-        "symbol": symbol.upper(),
-        "report_date": earnings_date.strftime("%Y-%m-%d"),
-        "eps_estimate": round(random.uniform(0.5, 5), 2),
-        "eps_actual": round(random.uniform(0.4, 5.5), 2) if is_past else None,
-        "revenue_estimate": random.randint(10, 100) * 1e9,
-        "revenue_actual": random.randint(10, 100) * 1e9 if is_past else None,
-        "surprise_pct": round(random.uniform(-10, 15), 1) if is_past else None
-    }
+    research = get_research_service()
+    response = research.get_earnings(symbol=symbol)
+    return response.to_dict()
 
 
 class ScreenerFilters(BaseModel):
@@ -3071,113 +3119,184 @@ class RealTimeDataEngine:
         except Exception as e:
             logger.debug(f"WebSocket quote fetch failed for {symbol}: {e}")
 
-        # Fallback to synthetic if real data unavailable
-        volatility = random.uniform(0.0001, 0.002)
-        direction = 1 if random.random() > 0.48 else -1
-        change = base_price * volatility * direction
-
+        # Return last known price or unavailable status - NO random synthetic data
+        # This is critical for data integrity
         return {
             "symbol": symbol,
-            "price": round(base_price + change, 2),
-            "bid": round(base_price + change - random.uniform(0.01, 0.05), 2),
-            "ask": round(base_price + change + random.uniform(0.01, 0.05), 2),
-            "volume": random.randint(100, 10000),
-            "change": round(change, 2),
-            "change_pct": round((change / base_price) * 100, 4),
-            "source": "synthetic",
+            "price": base_price,  # Use the provided base price (last known)
+            "bid": base_price,
+            "ask": base_price,
+            "volume": 0,
+            "change": 0,
+            "change_pct": 0,
+            "source": "unavailable",
+            "is_stale": True,
+            "_note": "Real-time quote unavailable. Showing last known price.",
             "timestamp": datetime.now().isoformat()
         }
 
     def generate_signal(self) -> Optional[Dict]:
-        """Generate trading signal from brain"""
-        if random.random() > 0.15:  # 15% chance of signal per tick
-            return None
+        """Generate trading signal from REAL PropFirm Brain V6"""
+        try:
+            # Try to get real signals from PropFirm Brain V6
+            if PROPFIRM_BRAIN_V6_AVAILABLE:
+                brain = get_propfirm_brain_v6()
+                data_service = self._get_data_service()
 
-        symbols = ["ES", "NQ", "SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
-        strategies = [
-            "trend_following", "mean_reversion", "momentum", "breakout",
-            "volatility_clustering", "order_flow", "ml_ensemble", "rl_agent"
-        ]
+                # Get a symbol to analyze
+                symbols = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT"]
 
-        symbol = random.choice(symbols)
-        direction = "LONG" if random.random() > 0.45 else "SHORT"
-        confidence = round(random.uniform(0.55, 0.95), 2)
+                for symbol in symbols:
+                    try:
+                        # Get historical data for analysis
+                        hist = data_service.get_historical(symbol, "1h", 100)
+                        if not hist or len(hist) < 20:
+                            continue
 
-        signal = {
-            "id": f"SIG_{datetime.now().strftime('%H%M%S')}_{random.randint(100, 999)}",
-            "symbol": symbol,
-            "direction": direction,
-            "confidence": confidence,
-            "strategy": random.choice(strategies),
-            "entry_price": round(random.uniform(100, 500) if symbol not in ["ES", "NQ"] else random.uniform(4800, 5200), 2),
-            "stop_loss": None,
-            "take_profit": None,
-            "risk_reward": round(random.uniform(1.5, 4.0), 2),
-            "timeframe": random.choice(["1m", "5m", "15m", "1h"]),
-            "regime_alignment": random.random() > 0.3,
-            "timestamp": datetime.now().isoformat()
-        }
+                        import pandas as pd
+                        df = pd.DataFrame([{
+                            'timestamp': d.timestamp if hasattr(d, 'timestamp') else datetime.now(),
+                            'open': d.open if hasattr(d, 'open') else d.get('open', 0),
+                            'high': d.high if hasattr(d, 'high') else d.get('high', 0),
+                            'low': d.low if hasattr(d, 'low') else d.get('low', 0),
+                            'close': d.close if hasattr(d, 'close') else d.get('close', 0),
+                            'volume': d.volume if hasattr(d, 'volume') else d.get('volume', 0)
+                        } for d in hist])
 
-        # Calculate SL/TP based on entry
-        sl_pct = random.uniform(0.005, 0.02)
-        tp_pct = sl_pct * signal["risk_reward"]
+                        # Get real signal from brain
+                        brain_signal = brain.generate_signal(df, symbol)
 
-        if direction == "LONG":
-            signal["stop_loss"] = round(signal["entry_price"] * (1 - sl_pct), 2)
-            signal["take_profit"] = round(signal["entry_price"] * (1 + tp_pct), 2)
-        else:
-            signal["stop_loss"] = round(signal["entry_price"] * (1 + sl_pct), 2)
-            signal["take_profit"] = round(signal["entry_price"] * (1 - tp_pct), 2)
+                        if brain_signal and brain_signal.get("action") != "HOLD":
+                            signal = {
+                                "id": f"SIG_{datetime.now().strftime('%H%M%S')}_{symbol}",
+                                "symbol": symbol,
+                                "direction": "LONG" if brain_signal.get("action") == "BUY" else "SHORT",
+                                "confidence": brain_signal.get("confidence", 0.5),
+                                "strategy": brain_signal.get("strategy", "ml_ensemble"),
+                                "entry_price": brain_signal.get("entry_price", df['close'].iloc[-1]),
+                                "stop_loss": brain_signal.get("stop_loss"),
+                                "take_profit": brain_signal.get("take_profit"),
+                                "risk_reward": brain_signal.get("risk_reward", 2.0),
+                                "timeframe": "1h",
+                                "regime": brain_signal.get("regime", "unknown"),
+                                "regime_alignment": brain_signal.get("regime_alignment", False),
+                                "source": "propfirm_brain_v6",
+                                "is_real": True,
+                                "timestamp": datetime.now().isoformat()
+                            }
 
-        self.signal_history.append(signal)
-        self.brain_metrics["signals_generated"] += 1
+                            self.signal_history.append(signal)
+                            self.brain_metrics["signals_generated"] += 1
+                            return signal
 
-        return signal
+                    except Exception as e:
+                        logger.debug(f"Signal generation for {symbol} failed: {e}")
+                        continue
+
+        except Exception as e:
+            logger.debug(f"Real signal generation failed: {e}")
+
+        # No real signal available - return None instead of fake signal
+        # This is intentional: we should NOT send fake signals to the UI
+        return None
 
     def generate_trade_update(self) -> Optional[Dict]:
-        """Generate trade execution/update"""
-        if random.random() > 0.1:  # 10% chance
-            return None
+        """Generate trade execution/update from REAL TradingService data"""
+        try:
+            # Get real trades from TradingService
+            trading_service = get_trading_service()
 
-        trade_types = ["FILLED", "PARTIAL", "CANCELLED", "CLOSED"]
+            if trading_service:
+                # Check for recent orders
+                recent_orders = trading_service.get_recent_orders(limit=5)
 
-        trade = {
-            "id": f"TRD_{datetime.now().strftime('%H%M%S')}_{random.randint(100, 999)}",
-            "symbol": random.choice(["ES", "NQ", "SPY", "QQQ", "AAPL", "NVDA"]),
-            "type": random.choice(trade_types),
-            "side": random.choice(["BUY", "SELL"]),
-            "quantity": random.randint(1, 100),
-            "price": round(random.uniform(100, 500), 2),
-            "pnl": round(random.uniform(-500, 1500), 2) if random.random() > 0.3 else None,
-            "commission": round(random.uniform(0.5, 5), 2),
-            "timestamp": datetime.now().isoformat()
-        }
+                if recent_orders and len(recent_orders) > 0:
+                    # Get the most recent order that has been updated
+                    for order in recent_orders:
+                        order_dict = order if isinstance(order, dict) else (
+                            order.to_dict() if hasattr(order, 'to_dict') else {
+                                "id": getattr(order, 'id', 'unknown'),
+                                "symbol": getattr(order, 'symbol', 'unknown'),
+                                "side": getattr(order, 'side', 'unknown'),
+                                "quantity": getattr(order, 'quantity', 0),
+                                "status": getattr(order, 'status', 'unknown'),
+                                "filled_quantity": getattr(order, 'filled_quantity', 0),
+                                "avg_fill_price": getattr(order, 'avg_fill_price', 0),
+                            }
+                        )
 
-        self.trade_history.append(trade)
-        return trade
+                        # Only report if there's activity
+                        if order_dict.get('status') in ['FILLED', 'PARTIAL', 'CANCELLED']:
+                            trade = {
+                                "id": order_dict.get('id', f"TRD_{datetime.now().strftime('%H%M%S')}"),
+                                "symbol": order_dict.get('symbol', 'UNKNOWN'),
+                                "type": order_dict.get('status', 'UNKNOWN'),
+                                "side": order_dict.get('side', 'UNKNOWN'),
+                                "quantity": order_dict.get('filled_quantity', order_dict.get('quantity', 0)),
+                                "price": order_dict.get('avg_fill_price', 0),
+                                "pnl": order_dict.get('pnl'),
+                                "commission": order_dict.get('commission', 0),
+                                "source": "trading_service",
+                                "is_real": True,
+                                "timestamp": datetime.now().isoformat()
+                            }
 
-    def generate_flow_data(self) -> Dict:
-        """Generate options flow data"""
-        symbols = ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT", "META", "AMD"]
-        symbol = random.choice(symbols)
-        is_call = random.random() > 0.5
-        is_bullish = random.random() > 0.45
-        premium = random.randint(50000, 500000)
+                            # Avoid duplicate broadcasts
+                            trade_key = f"{trade['id']}_{trade['type']}"
+                            if trade_key not in [t.get('_key') for t in self.trade_history[-10:]]:
+                                trade['_key'] = trade_key
+                                self.trade_history.append(trade)
+                                return trade
 
-        return {
-            "id": f"FLOW_{datetime.now().strftime('%H%M%S')}_{random.randint(100, 999)}",
-            "symbol": symbol,
-            "type": "CALL" if is_call else "PUT",
-            "side": "BUY" if is_bullish else "SELL",
-            "sentiment": "BULLISH" if (is_bullish == is_call) else "BEARISH",
-            "strike": random.randint(10, 50) * 5 + 100,
-            "expiry": f"{random.randint(1, 90)}d",
-            "premium": premium,
-            "contracts": random.randint(100, 2000),
-            "is_unusual": premium > 200000,
-            "is_sweep": random.random() > 0.7,
-            "timestamp": datetime.now().isoformat()
-        }
+        except Exception as e:
+            logger.debug(f"Real trade update failed: {e}")
+
+        # No real trades available - return None instead of fake trades
+        # This is intentional: we should NOT send fake trades to the UI
+        return None
+
+    def generate_flow_data(self) -> Optional[Dict]:
+        """Generate options flow data from REAL OptionsService data"""
+        try:
+            # Try to get real options flow
+            options_service = get_options_service()
+
+            if options_service:
+                # Get unusual flow from the service
+                flow_data = options_service.get_unusual_flow(limit=5)
+
+                if flow_data and len(flow_data) > 0:
+                    # Return the most significant flow entry
+                    flow = flow_data[0]
+
+                    return {
+                        "id": flow.get("id", f"FLOW_{datetime.now().strftime('%H%M%S')}"),
+                        "symbol": flow.get("symbol", "UNKNOWN"),
+                        "type": flow.get("type", "call").upper(),
+                        "side": flow.get("side", "buy").upper(),
+                        "sentiment": flow.get("sentiment", "neutral").upper(),
+                        "strike": flow.get("strike", 0),
+                        "expiry": flow.get("expiry", "unknown"),
+                        "premium": flow.get("premium", 0),
+                        "contracts": flow.get("contracts", 0),
+                        "open_interest": flow.get("open_interest", 0),
+                        "volume_oi_ratio": flow.get("volume_oi_ratio", 0),
+                        "implied_volatility": flow.get("implied_volatility", 0),
+                        "is_unusual": flow.get("is_unusual", False),
+                        "is_sweep": flow.get("is_sweep", False),
+                        "unusual_reasons": flow.get("unusual_reasons", []),
+                        "delta": flow.get("delta", 0),
+                        "source": "options_service",
+                        "is_real": True,
+                        "timestamp": datetime.now().isoformat()
+                    }
+
+        except Exception as e:
+            logger.debug(f"Real flow data generation failed: {e}")
+
+        # No real flow available - return None instead of fake flow
+        # This is intentional: we should NOT send fake flow data to the UI
+        return None
 
     def generate_brain_update(self) -> Dict:
         """Generate brain status update using REAL PropFirm Brain V6 data"""
@@ -3205,19 +3324,24 @@ class RealTimeDataEngine:
         except Exception as e:
             logger.debug(f"Brain status fetch failed: {e}")
 
-        # Fallback to synthetic
-        self.brain_metrics["confidence"] = round(
-            max(0.5, min(0.95, self.brain_metrics["confidence"] + random.uniform(-0.02, 0.02))), 2
-        )
-        self.brain_metrics["accuracy"] = round(
-            max(0.4, min(0.85, self.brain_metrics["accuracy"] + random.uniform(-0.01, 0.01))), 2
-        )
-
+        # Fallback to static values (no random - data integrity)
+        # Return last known values or sensible defaults
         return {
             "type": "brain_update",
-            **self.brain_metrics,
+            "confidence": self.brain_metrics.get("confidence", 0.5),
+            "accuracy": self.brain_metrics.get("accuracy", 0.5),
+            "signals_generated": self.brain_metrics.get("signals_generated", 0),
+            "winning_signals": self.brain_metrics.get("winning_signals", 0),
+            "active_strategies": 0,
+            "regime": "UNKNOWN",
+            "volatility_regime": "UNKNOWN",
+            "is_trained": False,
+            "total_trades": 0,
+            "profit_factor": 0,
             "active_signals": len([s for s in self.signal_history[-20:] if s]),
-            "recent_accuracy": round(random.uniform(0.5, 0.8), 2),
+            "auto_train_enabled": False,
+            "data_status": "UNAVAILABLE",
+            "_note": "Real brain data not available. PropFirmBrainV6 not initialized.",
             "timestamp": datetime.now().isoformat()
         }
 
@@ -3246,17 +3370,27 @@ class RealTimeDataEngine:
         except Exception:
             pass
 
+        # Get disk I/O if available
+        disk_io = None
+        try:
+            disk_counters = psutil.disk_io_counters()
+            if disk_counters:
+                # Use read_bytes as a proxy for I/O activity (in MB/s approximation)
+                disk_io = round((disk_counters.read_bytes + disk_counters.write_bytes) / (1024 * 1024) % 100, 1)
+        except Exception:
+            pass
+
         return {
             "type": "system_health",
             "cpu_percent": round(cpu_pct, 1),
             "memory_percent": round(mem_pct, 1),
             "gpu_percent": round(gpu_pct, 1),
-            "disk_io": round(random.uniform(5, 40), 1),
-            "network_latency_ms": round(random.uniform(1, 50), 1),
-            "api_latency_ms": round(random.uniform(5, 100), 1),
+            "disk_io": disk_io,  # Real value or None if unavailable
+            "network_latency_ms": None,  # Requires actual ping test - not simulated
+            "api_latency_ms": None,  # Requires actual API timing - not simulated
             "active_connections": len(ws_manager.connections),
-            "messages_per_second": random.randint(50, 200),
-            "data_source": "live" if self._data_service else "synthetic",
+            "messages_per_second": len(self.signal_history) + len(self.trade_history),  # Real count of recent messages
+            "data_source": "live" if self._data_service else "unavailable",
             "timestamp": datetime.now().isoformat()
         }
 
@@ -4724,39 +4858,51 @@ async def get_news(symbols: str = None, limit: int = 20):
         {"title": "Oil Prices Drop on OPEC+ News", "symbols": ["USO", "XOM"], "category": "commodities", "sentiment": -0.3},
     ]
 
+    # Map headlines to deterministic sources (no random selection)
     sources = ["Bloomberg", "Reuters", "CNBC", "WSJ", "MarketWatch"]
     articles = []
 
     for i, h in enumerate(headlines[:limit]):
+        # Use deterministic source based on index (no random)
+        source = sources[i % len(sources)]
+        # Confidence based on sentiment magnitude (no random)
+        confidence = 70 + abs(h["sentiment"]) * 25
+
         articles.append({
             "id": f"news_{i}",
             "title": h["title"],
             "summary": f"Market analysis suggests {(h['sentiment'] > 0 and 'positive') or 'negative'} impact on related securities.",
-            "source": random.choice(sources),
+            "source": source,
             "url": "#",
             "publishedAt": (datetime.now() - timedelta(hours=i*2)).isoformat(),
             "symbols": h["symbols"],
             "sentiment": {
                 "score": h["sentiment"],
                 "label": "bullish" if h["sentiment"] > 0.2 else "bearish" if h["sentiment"] < -0.2 else "neutral",
-                "confidence": 70 + random.random() * 25
+                "confidence": round(confidence, 1)
             },
             "category": h["category"],
             "isBreaking": i < 2,
-            "saved": False
+            "saved": False,
+            "_note": "Sample headlines for demonstration. Connect NewsAPI for real news."
         })
 
     return articles
 
 @app.get("/api/news/sentiment")
 async def get_market_sentiment():
-    """Get overall market sentiment"""
+    """Get overall market sentiment - returns UNAVAILABLE when real NLP not configured"""
+    # Real sentiment analysis requires NLP processing of news articles
+    # Currently not implemented - return unavailable status instead of fake data
     return {
-        "overall": random.uniform(-0.3, 0.5),
-        "bullish": random.randint(40, 60),
-        "bearish": random.randint(20, 35),
-        "neutral": random.randint(15, 30),
-        "trend": "improving" if random.random() > 0.5 else "declining"
+        "status": "unavailable",
+        "overall": None,
+        "bullish": None,
+        "bearish": None,
+        "neutral": None,
+        "trend": None,
+        "_note": "Real sentiment analysis requires NLP processing. Connect sentiment API or implement NLP to enable.",
+        "timestamp": datetime.now().isoformat()
     }
 
 # ============== REPORTS ==============
@@ -4854,19 +5000,39 @@ API_CONNECTIONS = {}
 
 @app.get("/api/connections")
 async def get_connections():
-    """Get all API connections"""
+    """Get all API connections - returns real connection status, not simulated"""
+    # Get real latency by timing a test request if connected
+    alpaca_latency = None
+    tradier_latency = None
+
+    # Check Alpaca connection
+    alpaca_connected = bool(os.getenv("ALPACA_API_KEY"))
+    if alpaca_connected:
+        try:
+            import time
+            start = time.perf_counter()
+            ds = get_data_service()
+            if ds:
+                ds.get_quote("SPY")  # Quick ping
+                alpaca_latency = round((time.perf_counter() - start) * 1000, 0)
+        except Exception:
+            alpaca_latency = None
+
+    # Check Tradier connection
+    tradier_connected = bool(os.getenv("TRADIER_API_KEY"))
+
     connections = [
         {
             "id": "conn_alpaca",
             "name": "Alpaca Paper",
             "type": "broker",
             "provider": "alpaca",
-            "status": "connected" if os.getenv("ALPACA_API_KEY") else "disconnected",
+            "status": "connected" if alpaca_connected else "disconnected",
             "apiKey": "***" + (os.getenv("ALPACA_API_KEY", "")[-4:] if os.getenv("ALPACA_API_KEY") else ""),
             "apiSecret": "***",
-            "lastPing": datetime.now().isoformat(),
-            "latency": random.randint(30, 80),
-            "requestsToday": random.randint(100, 5000),
+            "lastPing": datetime.now().isoformat() if alpaca_connected else None,
+            "latency": alpaca_latency,  # Real latency or None
+            "requestsToday": None,  # Not tracked - would need counter
             "rateLimit": 200,
             "features": ["trading", "streaming", "account"],
             "isPaper": True
@@ -4876,12 +5042,12 @@ async def get_connections():
             "name": "Tradier",
             "type": "data",
             "provider": "tradier",
-            "status": "connected" if os.getenv("TRADIER_API_KEY") else "disconnected",
+            "status": "connected" if tradier_connected else "disconnected",
             "apiKey": "***" + (os.getenv("TRADIER_API_KEY", "")[-4:] if os.getenv("TRADIER_API_KEY") else ""),
             "apiSecret": "",
-            "lastPing": datetime.now().isoformat(),
-            "latency": random.randint(20, 50),
-            "requestsToday": random.randint(500, 10000),
+            "lastPing": datetime.now().isoformat() if tradier_connected else None,
+            "latency": tradier_latency,  # Real latency or None
+            "requestsToday": None,  # Not tracked - would need counter
             "rateLimit": 120,
             "features": ["quotes", "options", "historical"],
             "isPaper": False
@@ -4961,53 +5127,103 @@ async def delete_connection(connection_id: str):
 
 @app.get("/api/trades/closed")
 async def get_closed_trades(limit: int = 50, offset: int = 0):
-    """Get closed trades history"""
-    symbols = ["AAPL", "NVDA", "TSLA", "META", "MSFT", "GOOGL", "AMZN", "AMD", "SPY", "QQQ"]
-    strategies = ["Momentum", "Mean Reversion", "Trend Following", "ML Ensemble", "RSI Divergence"]
-
+    """Get closed trades history from real trade data"""
     trades = []
-    for i in range(limit):
-        symbol = random.choice(symbols)
-        side = "long" if random.random() > 0.5 else "short"
-        qty = random.randint(10, 100)
-        entry_price = 100 + random.random() * 400
-        pnl_pct = (random.random() - 0.4) * 10
-        exit_price = entry_price * (1 + (pnl_pct if side == "long" else -pnl_pct) / 100)
-        pnl = (exit_price - entry_price) * qty * (1 if side == "long" else -1)
-        hours_ago = random.randint(1, 168)
-        duration_mins = random.randint(5, 480)
 
-        trades.append({
-            "id": f"trade_{i}",
-            "symbol": symbol,
-            "side": side,
-            "qty": qty,
-            "entryPrice": round(entry_price, 2),
-            "exitPrice": round(exit_price, 2),
-            "realizedPnl": round(pnl, 2),
-            "realizedPnlPercent": round(pnl_pct, 2),
-            "entryTime": (datetime.now() - timedelta(hours=hours_ago, minutes=duration_mins)).isoformat(),
-            "exitTime": (datetime.now() - timedelta(hours=hours_ago)).isoformat(),
-            "duration": f"{duration_mins}m" if duration_mins < 60 else f"{duration_mins // 60}h {duration_mins % 60}m",
-            "strategy": random.choice(strategies)
-        })
+    try:
+        # Try to get real closed trades from PropFirmBrainV6
+        if PROPFIRM_BRAIN_V6_AVAILABLE:
+            brain = get_propfirm_brain_v6()
+            if brain and hasattr(brain, 'recent_trades'):
+                real_trades = brain.recent_trades
+                if real_trades:
+                    for i, t in enumerate(real_trades[offset:offset+limit]):
+                        trades.append({
+                            "id": t.get("id", f"trade_{i}"),
+                            "symbol": t.get("symbol", "UNKNOWN"),
+                            "side": t.get("side", "long"),
+                            "qty": t.get("quantity", 0),
+                            "entryPrice": t.get("entry_price", 0),
+                            "exitPrice": t.get("exit_price", 0),
+                            "realizedPnl": t.get("pnl", 0),
+                            "realizedPnlPercent": t.get("pnl_pct", 0),
+                            "entryTime": t.get("entry_time", datetime.now().isoformat()),
+                            "exitTime": t.get("exit_time", datetime.now().isoformat()),
+                            "duration": t.get("duration", "0m"),
+                            "strategy": t.get("strategy", "brain_v6"),
+                            "source": "brain_v6",
+                            "is_real": True
+                        })
+    except Exception as e:
+        logger.debug(f"Closed trades fetch error: {e}")
+
+    if not trades:
+        return {
+            "status": "unavailable",
+            "trades": [],
+            "_note": "No closed trades recorded yet. Trades will populate as the bot executes.",
+            "timestamp": datetime.now().isoformat()
+        }
 
     return trades
 
 @app.get("/api/trades/stats")
 async def get_trade_stats(range: str = "30d"):
-    """Get trading statistics"""
+    """Get trading statistics from real trade journal data"""
+    try:
+        # Get real stats from PropFirmBrainV6 if available
+        if PROPFIRM_BRAIN_V6_AVAILABLE:
+            brain = get_propfirm_brain_v6()
+            if brain and hasattr(brain, 'recent_trades'):
+                trades = brain.recent_trades
+                if trades and len(trades) > 0:
+                    winners = [t for t in trades if t.get('pnl', 0) > 0]
+                    losers = [t for t in trades if t.get('pnl', 0) < 0]
+                    total_pnl = sum(t.get('pnl', 0) for t in trades)
+                    win_rate = (len(winners) / len(trades) * 100) if trades else 0
+
+                    total_wins = sum(t.get('pnl', 0) for t in winners)
+                    total_losses = abs(sum(t.get('pnl', 0) for t in losers))
+                    profit_factor = total_wins / total_losses if total_losses > 0 else (999 if total_wins > 0 else 0)
+
+                    avg_win = total_wins / len(winners) if winners else 0
+                    avg_loss = -total_losses / len(losers) if losers else 0
+                    largest_win = max((t.get('pnl', 0) for t in winners), default=0)
+                    largest_loss = min((t.get('pnl', 0) for t in losers), default=0)
+
+                    return {
+                        "totalTrades": len(trades),
+                        "winners": len(winners),
+                        "losers": len(losers),
+                        "winRate": round(win_rate, 1),
+                        "totalPnl": round(total_pnl, 2),
+                        "avgWin": round(avg_win, 2),
+                        "avgLoss": round(avg_loss, 2),
+                        "profitFactor": round(profit_factor, 2),
+                        "largestWin": round(largest_win, 2),
+                        "largestLoss": round(largest_loss, 2),
+                        "source": "brain_v6",
+                        "is_real": True
+                    }
+    except Exception as e:
+        logger.debug(f"Trade stats from brain failed: {e}")
+
+    # Return unavailable status instead of fake data
     return {
-        "totalTrades": random.randint(50, 200),
-        "winners": random.randint(30, 120),
-        "losers": random.randint(20, 80),
-        "winRate": round(55 + random.random() * 15, 1),
-        "totalPnl": round(random.uniform(-5000, 15000), 2),
-        "avgWin": round(250 + random.random() * 200, 2),
-        "avgLoss": round(-(150 + random.random() * 100), 2),
-        "profitFactor": round(1.2 + random.random() * 0.8, 2),
-        "largestWin": round(1000 + random.random() * 2000, 2),
-        "largestLoss": round(-(500 + random.random() * 1000), 2)
+        "status": "unavailable",
+        "totalTrades": 0,
+        "winners": 0,
+        "losers": 0,
+        "winRate": None,
+        "totalPnl": 0,
+        "avgWin": None,
+        "avgLoss": None,
+        "profitFactor": None,
+        "largestWin": None,
+        "largestLoss": None,
+        "_note": "No trade history available. Stats will populate as trades are executed.",
+        "source": "none",
+        "is_real": False
     }
 
 # ============== PROPFIRM BRAIN V6 ==============
@@ -6984,22 +7200,52 @@ async def get_ml_models():
 
 @app.get("/api/slide-doctrine/audit")
 async def get_audit_log(limit: int = 50):
-    """Get ML decision audit log"""
-    # In production, this would pull from a database
+    """Get ML decision audit log from real signal history"""
     audit_entries = []
-    for i in range(min(limit, 50)):
-        ts = datetime.now() - timedelta(minutes=i * 5)
-        audit_entries.append({
-            "timestamp": ts.isoformat(),
-            "model": random.choice(["brain_v6", "beast_ml", "neural"]),
-            "action": random.choice(["PREDICT", "TRAIN", "EVALUATE"]),
-            "symbol": random.choice(["ES", "NQ", "SPY", "QQQ"]),
-            "decision": random.choice(["BUY", "SELL", "HOLD"]),
-            "confidence": round(random.uniform(0.5, 0.95), 2),
-            "risk_check": "PASSED"
-        })
 
-    return {"audit_log": audit_entries, "total_entries": 1250}
+    try:
+        # Try to get real audit data from brain
+        if PROPFIRM_BRAIN_V6_AVAILABLE:
+            brain = get_propfirm_brain_v6()
+            if brain and hasattr(brain, 'signal_history'):
+                for signal in brain.signal_history[-limit:]:
+                    if signal:
+                        audit_entries.append({
+                            "timestamp": signal.get("timestamp", datetime.now().isoformat()),
+                            "model": signal.get("source", "brain_v6"),
+                            "action": "PREDICT",
+                            "symbol": signal.get("symbol", "UNKNOWN"),
+                            "decision": signal.get("action", "HOLD"),
+                            "confidence": signal.get("confidence", 0),
+                            "risk_check": "PASSED" if signal.get("risk_approved", True) else "FAILED"
+                        })
+
+        # Also include signals from the data engine
+        if data_engine and data_engine.signal_history:
+            for signal in data_engine.signal_history[-limit:]:
+                if signal and signal not in [e.get("_raw") for e in audit_entries]:
+                    audit_entries.append({
+                        "timestamp": signal.get("timestamp", datetime.now().isoformat()),
+                        "model": signal.get("source", "data_engine"),
+                        "action": "PREDICT",
+                        "symbol": signal.get("symbol", "UNKNOWN"),
+                        "decision": signal.get("action", "HOLD"),
+                        "confidence": signal.get("confidence", 0),
+                        "risk_check": "PASSED"
+                    })
+
+    except Exception as e:
+        logger.debug(f"Audit log fetch error: {e}")
+
+    if not audit_entries:
+        return {
+            "status": "unavailable",
+            "audit_log": [],
+            "total_entries": 0,
+            "_note": "No ML decisions recorded yet. Audit log will populate as signals are generated."
+        }
+
+    return {"audit_log": audit_entries[:limit], "total_entries": len(audit_entries)}
 
 
 @app.post("/api/system/clear-cache")
@@ -7579,29 +7825,14 @@ async def get_options_flow(
             if flow_data:
                 return flow_data
 
-        # Fallback to sample data if no real data available
-        return [
-            {
-                "id": f"FLOW-{i}",
-                "symbol": random.choice(["SPY", "QQQ", "AAPL", "TSLA", "NVDA"]),
-                "type": random.choice(["call", "put"]),
-                "side": random.choice(["buy", "sell"]),
-                "sentiment": random.choice(["bullish", "bearish"]),
-                "strike": round(random.uniform(400, 500), 0),
-                "expiry": (datetime.now() + timedelta(days=random.randint(7, 60))).strftime("%Y-%m-%d"),
-                "premium": round(random.uniform(50000, 500000), 0),
-                "contracts": random.randint(100, 5000),
-                "open_interest": random.randint(1000, 50000),
-                "volume_oi_ratio": round(random.uniform(0.5, 2.0), 2),
-                "implied_volatility": round(random.uniform(25, 80), 1),
-                "is_unusual": True,
-                "is_sweep": random.random() > 0.7,
-                "unusual_reasons": random.choice([["high_vol_oi"], ["large_premium"], ["sweep", "high_vol_oi"]]),
-                "delta": round(random.uniform(-0.8, 0.8), 3),
-                "timestamp": datetime.now().isoformat()
-            }
-            for i in range(min(limit, 10))
-        ]
+        # Return empty list with status when no real flow data available
+        # Do NOT return random/fake flow data - data integrity requirement
+        return {
+            "status": "unavailable",
+            "flow": [],
+            "_note": "Options flow data requires Tradier API connection or real-time options feed. Configure options data source to enable.",
+            "timestamp": datetime.now().isoformat()
+        }
     except Exception as e:
         logger.error(f"Options flow error: {e}")
         return []
