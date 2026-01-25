@@ -434,6 +434,9 @@ MARKET_DATA = {}
 MARKET_SYMBOLS = ["SPY", "QQQ", "DIA", "IWM", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", "^VIX"]
 _last_data_refresh = None
 
+# Active trading signals (populated by brain/strategies)
+ACTIVE_SIGNALS: Dict[str, Dict] = {}
+
 def _init_market_data():
     """Initialize market data from live sources - includes VIX"""
     global MARKET_DATA, _last_data_refresh
@@ -2679,12 +2682,36 @@ async def screener_scan_post(filters: ScreenerFilters):
                 if filters.max_change_pct and quote.change_pct > filters.max_change_pct:
                     continue
 
+                # Try to get real RSI from historical data
+                rsi_value = None
+                try:
+                    hist = data_service.get_historical(symbol, "14d", "1d")
+                    if hist and len(hist) >= 14:
+                        closes = [bar.close for bar in hist[-14:]]
+                        # Simple RSI calculation
+                        gains = []
+                        losses = []
+                        for i in range(1, len(closes)):
+                            change = closes[i] - closes[i-1]
+                            if change > 0:
+                                gains.append(change)
+                                losses.append(0)
+                            else:
+                                gains.append(0)
+                                losses.append(abs(change))
+                        avg_gain = sum(gains) / len(gains) if gains else 0
+                        avg_loss = sum(losses) / len(losses) if losses else 0.001
+                        rs = avg_gain / avg_loss if avg_loss > 0 else 100
+                        rsi_value = 100 - (100 / (1 + rs))
+                except Exception:
+                    pass  # RSI unavailable
+
                 results.append({
                     "symbol": symbol,
                     "price": quote.price,
                     "change_pct": quote.change_pct,
                     "volume": quote.volume,
-                    "rsi": random.uniform(30, 70),
+                    "rsi": round(rsi_value, 2) if rsi_value is not None else None,
                     "trend": "bullish" if quote.change_pct > 0 else "bearish",
                     "signal": "buy" if quote.change_pct > 1 else "sell" if quote.change_pct < -1 else "hold"
                 })

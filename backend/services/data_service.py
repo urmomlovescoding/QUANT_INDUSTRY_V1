@@ -329,15 +329,16 @@ def get_staleness_tracker() -> StalenessTracker:
 
 
 # ============== FALLBACK PRICE ESTIMATES (Jan 2026) ==============
+# Updated 2026-01-25 with current market prices
 
 FALLBACK_PRICES = {
     # Major Indices ETFs
-    "SPY": 688.98, "QQQ": 620.76, "DIA": 493.69, "IWM": 269.79,
+    "SPY": 688.44, "QQQ": 621.55, "DIA": 490.03, "IWM": 263.96,
     # Mag 7
-    "AAPL": 235.48, "MSFT": 442.35, "GOOGL": 198.72, "AMZN": 228.65,
-    "NVDA": 142.85, "META": 612.45, "TSLA": 412.50,
+    "AAPL": 247.38, "MSFT": 232.62, "GOOGL": 325.95, "AMZN": 239.83,
+    "NVDA": 187.62, "META": 312.96, "TSLA": 447.56,
     # Semiconductors
-    "AMD": 125.30, "INTC": 22.45, "AVGO": 185.50, "QCOM": 172.30,
+    "AMD": 258.73, "INTC": 22.45, "AVGO": 185.50, "QCOM": 172.30,
     "MU": 98.45, "AMAT": 192.80, "LRCX": 78.50, "KLAC": 720.30,
     # Tech
     "CRM": 328.90, "ORCL": 168.45, "ADBE": 485.20, "NOW": 892.50,
