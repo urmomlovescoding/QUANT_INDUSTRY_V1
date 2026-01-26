@@ -8,6 +8,8 @@ export function Charts() {
   const [ticker, setTicker] = useState('SPY')
   const [interval, setInterval] = useState('1D')
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [chartData, setChartData] = useState<any[]>([])
+  const [error, setError] = useState<string | null>(null)
   const [indicators, setIndicators] = useState({
     sma_20: 0,
     sma_50: 0,
@@ -18,17 +20,48 @@ export function Charts() {
     trend: 'UP' as 'UP' | 'DOWN' | 'FLAT'
   })
 
+  // Fetch chart data and indicators from API
   useEffect(() => {
-    // Simulate indicator data
-    setIndicators({
-      sma_20: 680 + Math.random() * 20,
-      sma_50: 670 + Math.random() * 20,
-      rsi: 40 + Math.random() * 30,
-      macd: (Math.random() - 0.5) * 5,
-      adx: 20 + Math.random() * 30,
-      atr: 5 + Math.random() * 10,
-      trend: ['UP', 'DOWN', 'FLAT'][Math.floor(Math.random() * 3)] as 'UP' | 'DOWN' | 'FLAT'
-    })
+    const fetchChartData = async () => {
+      setError(null)
+      try {
+        // Fetch OHLCV data
+        const response = await fetch(`/api/market/history/${ticker}?interval=${interval}`)
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.detail || 'Failed to fetch chart data')
+        }
+
+        if (data.status === 'unavailable') {
+          setError(data.message || 'Chart data not available.')
+          return
+        }
+
+        const bars = data.data?.bars || data.bars || data.data || []
+        setChartData(bars)
+
+        // Fetch indicators
+        const indicatorRes = await fetch(`/api/market/indicators/${ticker}?interval=${interval}`)
+        const indicatorData = await indicatorRes.json()
+
+        if (indicatorRes.ok && indicatorData.status !== 'unavailable') {
+          const ind = indicatorData.data || indicatorData
+          setIndicators({
+            sma_20: ind.sma_20 || ind.sma20 || 0,
+            sma_50: ind.sma_50 || ind.sma50 || 0,
+            rsi: ind.rsi || ind.rsi14 || 50,
+            macd: ind.macd || 0,
+            adx: ind.adx || 25,
+            atr: ind.atr || 0,
+            trend: ind.trend || (ind.rsi > 50 ? 'UP' : ind.rsi < 50 ? 'DOWN' : 'FLAT')
+          })
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch chart data')
+      }
+    }
+    fetchChartData()
   }, [ticker, interval])
 
   useEffect(() => {
@@ -51,20 +84,31 @@ export function Charts() {
     ctx.fillStyle = '#0d1117'
     ctx.fillRect(0, 0, width, height)
 
-    // Generate candlestick data
-    const numCandles = 100
+    // Use API data or fallback
+    const bars = chartData.length > 0 ? chartData : []
+    if (bars.length === 0) {
+      ctx.fillStyle = '#666'
+      ctx.font = '14px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('No chart data available', width / 2, height / 2)
+      return
+    }
+
+    const numCandles = Math.min(bars.length, 100)
     const candleWidth = (width - 60) / numCandles
     const padding = 40
 
-    let prices: number[] = []
-    let price = 680
-    for (let i = 0; i < numCandles; i++) {
-      price += (Math.random() - 0.48) * 5
-      prices.push(price)
-    }
+    // Extract prices from API data
+    const prices = bars.slice(-numCandles).map((bar: any) => ({
+      open: bar.open || bar.o || 0,
+      high: bar.high || bar.h || 0,
+      low: bar.low || bar.l || 0,
+      close: bar.close || bar.c || 0
+    }))
 
-    const minPrice = Math.min(...prices) - 10
-    const maxPrice = Math.max(...prices) + 10
+    const allPrices = prices.flatMap((p: any) => [p.high, p.low])
+    const minPrice = Math.min(...allPrices) - 5
+    const maxPrice = Math.max(...allPrices) + 5
     const priceRange = maxPrice - minPrice
 
     // Draw grid
@@ -85,13 +129,10 @@ export function Charts() {
     }
 
     // Draw candlesticks
-    let prevClose = prices[0]
     for (let i = 0; i < numCandles; i++) {
       const x = padding + i * candleWidth
-      const close = prices[i]
-      const open = prevClose
-      const high = Math.max(open, close) + Math.random() * 3
-      const low = Math.min(open, close) - Math.random() * 3
+      const bar = prices[i]
+      const { open, high, low, close } = bar
 
       const isGreen = close >= open
 
@@ -107,24 +148,23 @@ export function Charts() {
       const bodyTop = padding + (1 - (Math.max(open, close) - minPrice) / priceRange) * (height - 2 * padding)
       const bodyBottom = padding + (1 - (Math.min(open, close) - minPrice) / priceRange) * (height - 2 * padding)
       ctx.fillRect(x + 2, bodyTop, candleWidth - 4, Math.max(1, bodyBottom - bodyTop))
-
-      prevClose = close
     }
 
-    // Draw SMA lines
+    // Draw SMA line using close prices
+    const closePrices = prices.map((p: any) => p.close)
     ctx.strokeStyle = '#f0b90b'
     ctx.lineWidth = 1.5
     ctx.beginPath()
     for (let i = 0; i < numCandles; i++) {
       const x = padding + i * candleWidth + candleWidth / 2
-      const smaValue = prices.slice(Math.max(0, i - 20), i + 1).reduce((a, b) => a + b, 0) / Math.min(i + 1, 20)
+      const smaValue = closePrices.slice(Math.max(0, i - 20), i + 1).reduce((a: number, b: number) => a + b, 0) / Math.min(i + 1, 20)
       const y = padding + (1 - (smaValue - minPrice) / priceRange) * (height - 2 * padding)
       if (i === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     }
     ctx.stroke()
 
-  }, [ticker, interval])
+  }, [ticker, interval, chartData])
 
   return (
     <div className="space-y-4">
@@ -165,6 +205,12 @@ export function Charts() {
           </button>
         ))}
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-4">
         {/* Chart */}

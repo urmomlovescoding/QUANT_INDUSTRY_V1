@@ -20,66 +20,49 @@ export function Backtesting() {
   const [capital, setCapital] = useState(100000)
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('equity')
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  const runBacktest = () => {
+  const runBacktest = async () => {
     setRunning(true)
-    setTimeout(() => {
-      const totalReturn = 15 + Math.random() * 25
-      const sharpe = 1 + Math.random() * 1.5
-      const maxDD = -(5 + Math.random() * 15)
-      const winRate = 50 + Math.random() * 25
-      const trades = Math.floor(50 + Math.random() * 150)
-      const profitFactor = 1.2 + Math.random() * 1.3
+    setError(null)
 
-      // Generate equity curve
-      const days = period === '6M' ? 126 : period === '1Y' ? 252 : period === '2Y' ? 504 : 1000
-      const equityCurve = []
-      let equity = capital
-      let buyHold = capital
-
-      for (let i = 0; i < days; i++) {
-        equity *= (1 + (Math.random() - 0.48) * 0.02)
-        buyHold *= (1 + (Math.random() - 0.49) * 0.015)
-        equityCurve.push({
-          day: i,
-          equity,
-          buyHold
-        })
-      }
-
-      // Generate trades
-      const recentTrades = []
-      for (let i = 0; i < 10; i++) {
-        const entryDate = new Date(Date.now() - Math.random() * 90 * 24 * 60 * 60 * 1000)
-        const exitDate = new Date(entryDate.getTime() + Math.random() * 10 * 24 * 60 * 60 * 1000)
-        const pnl = (Math.random() - 0.4) * 1000
-        recentTrades.push({
-          symbol: ticker,
-          entry_date: entryDate.toISOString().split('T')[0],
-          exit_date: exitDate.toISOString().split('T')[0],
-          entry_price: 400 + Math.random() * 300,
-          exit_price: 400 + Math.random() * 300,
-          pnl,
-          pnl_pct: pnl / 1000 * 100
-        })
-      }
-
-      setResults({
-        totalReturn,
-        sharpe,
-        maxDD,
-        winRate,
-        trades,
-        profitFactor,
-        equityCurve,
-        recentTrades,
-        finalEquity: equity,
-        buyHoldReturn: ((buyHold - capital) / capital) * 100
+    try {
+      const response = await fetch(`/api/backtest/run?strategy=${strategy}&symbol=${ticker}&period=${period}&capital=${capital}`, {
+        method: 'POST',
       })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to run backtest')
+      }
+
+      if (data.status === 'unavailable') {
+        setError(data.message || 'Backtesting not available. Configure backtest service to enable.')
+        setResults(null)
+        return
+      }
+
+      const result = data.data || data
+      setResults({
+        totalReturn: result.total_return || result.totalReturn || 0,
+        sharpe: result.sharpe_ratio || result.sharpe || 0,
+        maxDD: result.max_drawdown || result.maxDD || 0,
+        winRate: result.win_rate || result.winRate || 0,
+        trades: result.total_trades || result.trades || 0,
+        profitFactor: result.profit_factor || result.profitFactor || 1,
+        equityCurve: result.equity_curve || result.equityCurve || [],
+        recentTrades: result.trades_list || result.recentTrades || [],
+        finalEquity: result.final_equity || result.finalEquity || capital,
+        buyHoldReturn: result.buy_hold_return || result.buyHoldReturn || 0
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run backtest')
+      setResults(null)
+    } finally {
       setRunning(false)
-    }, 1500)
+    }
   }
 
   useEffect(() => {
@@ -250,6 +233,12 @@ export function Backtesting() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {results && (
         <div className="grid grid-cols-12 gap-4">
