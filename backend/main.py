@@ -290,6 +290,31 @@ async def startup_event():
     asyncio.create_task(refresh_market_data())
     logger.info("[STARTUP] Background market data refresh task started")
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on app shutdown"""
+    logger.info("[SHUTDOWN] QUANT INDUSTRY API shutting down...")
+
+    # Clean up data service executor
+    if SERVICES_AVAILABLE:
+        try:
+            ds = get_data_service()
+            if ds and hasattr(ds, 'executor'):
+                ds.executor.shutdown(wait=False)
+                logger.info("[SHUTDOWN] Data service executor shut down")
+        except Exception as e:
+            logger.warning(f"[SHUTDOWN] Error cleaning up data service: {e}")
+
+    # Clean up WebSocket connections
+    try:
+        for conn_id in list(ws_manager.active_connections.keys()):
+            ws_manager.disconnect(conn_id)
+        logger.info("[SHUTDOWN] WebSocket connections closed")
+    except Exception as e:
+        logger.warning(f"[SHUTDOWN] Error closing WebSocket connections: {e}")
+
+    logger.info("[SHUTDOWN] Cleanup complete")
+
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
