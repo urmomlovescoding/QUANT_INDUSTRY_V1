@@ -36,88 +36,121 @@ const FUTURES_CONTRACTS = [
   { symbol: 'GC', name: 'Gold', multiplier: 100, tickSize: 0.1 },
 ]
 
-// Generate mock price data
-const generatePriceData = (basePrice: number, count: number) => {
-  const data = []
-  let price = basePrice
-  for (let i = 0; i < count; i++) {
-    price = price + (Math.random() - 0.48) * basePrice * 0.001
-    data.push({
-      time: new Date(Date.now() - (count - i) * 60000).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-      price: price,
-      volume: Math.floor(Math.random() * 1000) + 500,
-    })
-  }
-  return data
+// Transform API price data
+const transformPriceData = (apiData: any[]) => {
+  return apiData.map((item: any) => ({
+    time: item.time || new Date(item.timestamp || item.t).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+    price: item.price || item.close || item.c || 0,
+    volume: item.volume || item.v || 0,
+  }))
 }
 
-// Generate signal history
-const generateSignals = () => {
-  const signals = []
-  const types = ['LONG', 'SHORT', 'FLAT'] as const
-  for (let i = 0; i < 10; i++) {
-    const type = types[Math.floor(Math.random() * types.length)]
-    signals.push({
-      time: new Date(Date.now() - i * 300000).toLocaleTimeString('en-US', { hour12: false }),
-      type,
-      confidence: 0.65 + Math.random() * 0.3,
-      target: type !== 'FLAT' ? (Math.random() * 20).toFixed(2) : null,
-      stop: type !== 'FLAT' ? (Math.random() * 10).toFixed(2) : null,
-    })
-  }
-  return signals.reverse()
+// Transform API signals
+const transformSignals = (apiData: any[]) => {
+  return apiData.map((item: any) => ({
+    time: item.time || new Date(item.timestamp).toLocaleTimeString('en-US', { hour12: false }),
+    type: item.type || item.signal || 'FLAT',
+    confidence: item.confidence || 0.5,
+    target: item.target || null,
+    stop: item.stop || item.stop_loss || null,
+  }))
 }
 
 export function FuturesBrain() {
   const [selectedContract, setSelectedContract] = useState(FUTURES_CONTRACTS[0])
-  const [priceData, setPriceData] = useState(() => generatePriceData(5800, 60))
-  const [signals, setSignals] = useState(() => generateSignals())
+  const [priceData, setPriceData] = useState<any[]>([])
+  const [signals, setSignals] = useState<any[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [brainStatus, setBrainStatus] = useState<'IDLE' | 'ANALYZING' | 'READY'>('IDLE')
   const [currentSignal, setCurrentSignal] = useState<'LONG' | 'SHORT' | 'FLAT'>('FLAT')
   const [confidence, setConfidence] = useState(0.72)
+  const [error, setError] = useState<string | null>(null)
 
-  // Simulated real-time updates
+  // Fetch initial data from API
+  const fetchData = async () => {
+    setError(null)
+    try {
+      // Fetch price data
+      const priceRes = await fetch(`/api/futures/${selectedContract.symbol}/prices`)
+      const priceResult = await priceRes.json()
+
+      if (priceRes.ok && priceResult.status !== 'unavailable') {
+        const prices = priceResult.data?.prices || priceResult.prices || []
+        if (prices.length > 0) {
+          setPriceData(transformPriceData(prices))
+        }
+      }
+
+      // Fetch signals
+      const signalRes = await fetch(`/api/futures/${selectedContract.symbol}/signals`)
+      const signalResult = await signalRes.json()
+
+      if (signalRes.ok && signalResult.status !== 'unavailable') {
+        const sigs = signalResult.data?.signals || signalResult.signals || []
+        if (sigs.length > 0) {
+          setSignals(transformSignals(sigs))
+          const latestSignal = sigs[sigs.length - 1]
+          setCurrentSignal(latestSignal.type || latestSignal.signal || 'FLAT')
+          setConfidence(latestSignal.confidence || 0.5)
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch futures data')
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [selectedContract])
+
+  // Real-time updates when running - fetch from WebSocket or polling
   useEffect(() => {
     if (!isRunning) return
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       setBrainStatus('ANALYZING')
 
-      setTimeout(() => {
-        setPriceData(prev => {
-          const lastPrice = prev[prev.length - 1].price
-          const newPrice = lastPrice + (Math.random() - 0.48) * lastPrice * 0.0005
-          return [
-            ...prev.slice(1),
-            {
-              time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
-              price: newPrice,
-              volume: Math.floor(Math.random() * 1000) + 500,
-            }
-          ]
-        })
+      try {
+        // Fetch latest price
+        const res = await fetch(`/api/futures/${selectedContract.symbol}/latest`)
+        const data = await res.json()
 
-        // Random signal change
-        if (Math.random() > 0.85) {
-          const types = ['LONG', 'SHORT', 'FLAT'] as const
-          const newSignal = types[Math.floor(Math.random() * types.length)]
-          setCurrentSignal(newSignal)
-          setConfidence(0.65 + Math.random() * 0.3)
-          setSignals(prev => [
-            ...prev.slice(1),
-            {
-              time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-              type: newSignal,
-              confidence: 0.65 + Math.random() * 0.3,
-              target: newSignal !== 'FLAT' ? (Math.random() * 20).toFixed(2) : null,
-              stop: newSignal !== 'FLAT' ? (Math.random() * 10).toFixed(2) : null,
+        if (res.ok && data.price) {
+          setPriceData(prev => {
+            if (prev.length === 0) return prev
+            return [
+              ...prev.slice(1),
+              {
+                time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+                price: data.price,
+                volume: data.volume || 0,
+              }
+            ]
+          })
+
+          // Update signal if provided
+          if (data.signal) {
+            setCurrentSignal(data.signal.type || 'FLAT')
+            setConfidence(data.signal.confidence || 0.5)
+            if (data.signal.type !== currentSignal) {
+              setSignals(prev => [
+                ...prev.slice(1),
+                {
+                  time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+                  type: data.signal.type,
+                  confidence: data.signal.confidence || 0.5,
+                  target: data.signal.target || null,
+                  stop: data.signal.stop || null,
+                }
+              ])
             }
-          ])
+          }
         }
+      } catch {
+        // Silently handle errors during real-time updates
+      }
 
-        setBrainStatus('READY')
-      }, 500)
+      setBrainStatus('READY')
     }, 3000)
 
     return () => clearInterval(interval)
@@ -171,6 +204,12 @@ export function FuturesBrain() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Main Grid */}
       <div className="grid grid-cols-12 gap-4">
