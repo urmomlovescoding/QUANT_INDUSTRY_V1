@@ -29,40 +29,78 @@ export function OptionsLab() {
   const [chain, setChain] = useState<OptionRow[]>([])
   const [selectedOption, setSelectedOption] = useState<OptionRow | null>(null)
 
-  const handleSearch = () => {
-    // Generate mock options chain
-    const basePrice = 688.98
-    const strikes = Array.from({ length: 15 }, (_, i) => basePrice - 30 + i * 5)
-    const mockChain: OptionRow[] = []
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-    strikes.forEach(strike => {
-      ['CALL', 'PUT'].forEach(type => {
-        if (activeFilter !== 'ALL' && activeFilter !== type + 'S') {
-          if (activeFilter === 'CALLS' && type !== 'CALL') return
-          if (activeFilter === 'PUTS' && type !== 'PUT') return
-        }
+  const handleSearch = async () => {
+    setLoading(true)
+    setError(null)
 
-        const iv = 15 + Math.random() * 35
-        const score = Math.floor(50 + Math.random() * 50)
-        mockChain.push({
-          expiration: '2026-02-21',
-          strike,
-          type,
-          bid: Math.max(0.01, (type === 'CALL' ? Math.max(0, basePrice - strike) : Math.max(0, strike - basePrice)) + Math.random() * 5),
-          ask: Math.max(0.05, (type === 'CALL' ? Math.max(0, basePrice - strike) : Math.max(0, strike - basePrice)) + Math.random() * 5 + 0.05),
-          iv,
-          delta: type === 'CALL' ? 0.5 - (strike - basePrice) / 100 : -0.5 + (strike - basePrice) / 100,
-          gamma: 0.01 + Math.random() * 0.04,
-          theta: -(0.05 + Math.random() * 0.15),
-          vega: 0.1 + Math.random() * 0.3,
-          oi: Math.floor(100 + Math.random() * 10000),
-          rating: score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 70 ? 'B+' : 'B',
-          score
+    try {
+      const response = await fetch(`/api/options/chain/${ticker}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to fetch options chain')
+      }
+
+      // Transform API data to our format
+      const optionsChain: OptionRow[] = []
+
+      if (data.calls) {
+        data.calls.forEach((opt: any) => {
+          if (activeFilter !== 'ALL' && activeFilter !== 'CALLS') return
+          const score = Math.floor((opt.volume || 0) / 100 + (opt.open_interest || 0) / 1000)
+          optionsChain.push({
+            expiration: opt.expiration || 'N/A',
+            strike: opt.strike,
+            type: 'CALL',
+            bid: opt.bid || 0,
+            ask: opt.ask || 0,
+            iv: (opt.implied_volatility || 0) * 100,
+            delta: opt.delta || 0,
+            gamma: opt.gamma || 0,
+            theta: opt.theta || 0,
+            vega: opt.vega || 0,
+            oi: opt.open_interest || 0,
+            rating: score >= 90 ? 'A+' : score >= 70 ? 'A' : score >= 50 ? 'B+' : 'B',
+            score: Math.min(100, score)
+          })
         })
-      })
-    })
+      }
 
-    setChain(mockChain)
+      if (data.puts) {
+        data.puts.forEach((opt: any) => {
+          if (activeFilter !== 'ALL' && activeFilter !== 'PUTS') return
+          const score = Math.floor((opt.volume || 0) / 100 + (opt.open_interest || 0) / 1000)
+          optionsChain.push({
+            expiration: opt.expiration || 'N/A',
+            strike: opt.strike,
+            type: 'PUT',
+            bid: opt.bid || 0,
+            ask: opt.ask || 0,
+            iv: (opt.implied_volatility || 0) * 100,
+            delta: opt.delta || 0,
+            gamma: opt.gamma || 0,
+            theta: opt.theta || 0,
+            vega: opt.vega || 0,
+            oi: opt.open_interest || 0,
+            rating: score >= 90 ? 'A+' : score >= 70 ? 'A' : score >= 50 ? 'B+' : 'B',
+            score: Math.min(100, score)
+          })
+        })
+      }
+
+      // Sort by strike price
+      optionsChain.sort((a, b) => a.strike - b.strike)
+      setChain(optionsChain)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch options data')
+      setChain([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const getRatingColor = (rating: string) => {
@@ -125,9 +163,9 @@ export function OptionsLab() {
               ))}
             </select>
           </div>
-          <button onClick={handleSearch} className="btn-primary flex items-center gap-2">
-            <Search className="w-4 h-4" />
-            Analyze
+          <button onClick={handleSearch} disabled={loading} className="btn-primary flex items-center gap-2">
+            <Search className={cn('w-4 h-4', loading && 'animate-spin')} />
+            {loading ? 'Loading...' : 'Analyze'}
           </button>
         </div>
 
@@ -170,10 +208,16 @@ export function OptionsLab() {
                 </tr>
               </thead>
               <tbody>
-                {chain.length === 0 ? (
+                {error ? (
+                  <tr>
+                    <td colSpan={10} className="text-center py-12 text-bearish">
+                      {error}
+                    </td>
+                  </tr>
+                ) : chain.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="text-center py-12 text-foreground-muted">
-                      Enter a ticker and click Analyze
+                      {loading ? 'Loading options chain...' : 'Enter a ticker and click Analyze'}
                     </td>
                   </tr>
                 ) : (

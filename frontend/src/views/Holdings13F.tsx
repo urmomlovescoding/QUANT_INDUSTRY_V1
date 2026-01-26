@@ -7,31 +7,48 @@ export function Holdings13F() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<any>(null)
 
-  const search = () => {
+  const [error, setError] = useState<string | null>(null)
+
+  const search = async () => {
     setLoading(true)
-    setTimeout(() => {
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/research/13f/${ticker}`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to fetch 13F data')
+      }
+
+      // Check if data is unavailable
+      if (result.status === 'unavailable') {
+        setError(result.message || '13F data not available. Configure SEC EDGAR API to enable.')
+        setData(null)
+        return
+      }
+
+      // Use API data
+      const apiData = result.data || result
       setData({
         symbol: ticker,
-        institutional_ownership: 78.5,
-        holders: [
-          { name: 'Vanguard Group', shares: 185000000, value: 43500000000, change: 5200000, pct: 4.2 },
-          { name: 'BlackRock', shares: 152000000, value: 35800000000, change: -2100000, pct: 3.5 },
-          { name: 'State Street', shares: 68000000, value: 16000000000, change: 1800000, pct: 1.6 },
-          { name: 'Fidelity', shares: 52000000, value: 12200000000, change: 3400000, pct: 1.2 },
-          { name: 'Berkshire Hathaway', shares: 25000000, value: 5900000000, change: 0, pct: 0.6 },
-          { name: 'Geode Capital', shares: 42000000, value: 9900000000, change: 1100000, pct: 1.0 },
-          { name: 'Morgan Stanley', shares: 38000000, value: 8900000000, change: -800000, pct: 0.9 },
-          { name: 'Northern Trust', shares: 31000000, value: 7300000000, change: 600000, pct: 0.7 },
-        ],
-        quarterly_change: {
-          new: 145,
-          increased: 312,
-          decreased: 189,
-          closed: 67
-        }
+        institutional_ownership: apiData.institutional_ownership || 0,
+        holders: apiData.holders || [],
+        quarterly_change: apiData.quarterly_change || {
+          new: 0,
+          increased: 0,
+          decreased: 0,
+          closed: 0
+        },
+        _note: result._note
       })
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch 13F data')
+      setData(null)
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   return (
@@ -65,6 +82,12 @@ export function Holdings13F() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {data && (
         <div className="grid grid-cols-12 gap-4">

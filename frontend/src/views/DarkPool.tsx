@@ -7,33 +7,51 @@ export function DarkPool() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<any>(null)
 
-  const search = () => {
+  const [error, setError] = useState<string | null>(null)
+
+  const search = async () => {
     setLoading(true)
-    setTimeout(() => {
-      const darkVolume = Math.floor(5000000 + Math.random() * 20000000)
-      const litVolume = Math.floor(30000000 + Math.random() * 70000000)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/research/darkpool/${ticker}`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to fetch dark pool data')
+      }
+
+      // Check if data is unavailable
+      if (result.status === 'unavailable') {
+        setError(result.message || 'Dark pool data not available. Configure FINRA ATS API to enable.')
+        setData(null)
+        return
+      }
+
+      // Use API data or transform it
+      const apiData = result.data || result
+      const darkVolume = apiData.dark_pool_volume || 0
+      const litVolume = apiData.lit_volume || 0
+      const totalVolume = darkVolume + litVolume
 
       setData({
         symbol: ticker,
         dark_pool_volume: darkVolume,
         lit_volume: litVolume,
-        dark_pool_pct: (darkVolume / (darkVolume + litVolume) * 100).toFixed(1),
-        signal: Math.random() > 0.5 ? 'ACCUMULATION' : 'DISTRIBUTION',
-        large_blocks: Math.floor(10 + Math.random() * 40),
-        avg_block_size: Math.floor(10000 + Math.random() * 50000),
-        venues: [
-          { name: 'UBSS', volume: Math.floor(1000000 + Math.random() * 3000000), trades: Math.floor(100 + Math.random() * 400) },
-          { name: 'CODA', volume: Math.floor(800000 + Math.random() * 2500000), trades: Math.floor(80 + Math.random() * 350) },
-          { name: 'JPMX', volume: Math.floor(700000 + Math.random() * 2000000), trades: Math.floor(70 + Math.random() * 300) },
-          { name: 'MSPL', volume: Math.floor(600000 + Math.random() * 1800000), trades: Math.floor(60 + Math.random() * 280) },
-          { name: 'GSES', volume: Math.floor(500000 + Math.random() * 1500000), trades: Math.floor(50 + Math.random() * 250) },
-          { name: 'SGMT', volume: Math.floor(400000 + Math.random() * 1200000), trades: Math.floor(40 + Math.random() * 200) },
-          { name: 'BTCH', volume: Math.floor(300000 + Math.random() * 1000000), trades: Math.floor(30 + Math.random() * 180) },
-          { name: 'ARCA', volume: Math.floor(200000 + Math.random() * 800000), trades: Math.floor(20 + Math.random() * 150) },
-        ]
+        dark_pool_pct: totalVolume > 0 ? (darkVolume / totalVolume * 100).toFixed(1) : '0',
+        signal: apiData.signal || (darkVolume > litVolume * 0.4 ? 'ACCUMULATION' : 'DISTRIBUTION'),
+        large_blocks: apiData.large_blocks || 0,
+        avg_block_size: apiData.avg_block_size || 0,
+        venues: apiData.venues || [],
+        _note: result._note
       })
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch dark pool data')
+      setData(null)
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   return (
@@ -67,6 +85,12 @@ export function DarkPool() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {data && (
         <div className="grid grid-cols-12 gap-4">

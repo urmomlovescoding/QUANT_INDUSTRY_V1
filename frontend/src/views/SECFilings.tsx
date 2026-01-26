@@ -7,32 +7,42 @@ export function SECFilings() {
   const [loading, setLoading] = useState(false)
   const [filings, setFilings] = useState<any[]>([])
 
-  const search = () => {
+  const [error, setError] = useState<string | null>(null)
+
+  const search = async () => {
     setLoading(true)
-    setTimeout(() => {
-      const types = ['10-K', '10-Q', '8-K', '4', 'DEF 14A', '13F-HR']
-      const titles: Record<string, string> = {
-        '10-K': 'Annual Report',
-        '10-Q': 'Quarterly Report',
-        '8-K': 'Current Report',
-        '4': 'Statement of Changes in Beneficial Ownership',
-        'DEF 14A': 'Proxy Statement',
-        '13F-HR': 'Institutional Holdings Report'
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/research/sec/${ticker}`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to fetch SEC filings')
       }
 
-      const mockFilings = Array.from({ length: 25 }, (_, i) => {
-        const type = types[Math.floor(Math.random() * types.length)]
-        return {
-          date: new Date(Date.now() - i * 7 * 24 * 60 * 60 * 1000 - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          type,
-          title: titles[type],
-          url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}`
-        }
-      }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      // Check if data is unavailable
+      if (result.status === 'unavailable') {
+        setError(result.message || 'SEC filings data not available. Configure SEC EDGAR API to enable.')
+        setFilings([])
+        return
+      }
 
-      setFilings(mockFilings)
+      // Use API data
+      const apiFilings = result.data?.filings || result.filings || []
+      setFilings(apiFilings.map((f: any) => ({
+        date: f.date || f.filed_date || 'N/A',
+        type: f.type || f.form_type || 'N/A',
+        title: f.title || f.description || 'SEC Filing',
+        url: f.url || f.link || `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}`
+      })))
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch SEC filings')
+      setFilings([])
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   const getTypeBadgeColor = (type: string) => {
@@ -86,6 +96,13 @@ export function SECFilings() {
           </span>
         ))}
       </div>
+
+      {/* Error display */}
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Filings Table */}
       {filings.length > 0 && (

@@ -17,23 +17,39 @@ export function Screener() {
   const [results, setResults] = useState<ScreenerResult[]>([])
   const [loading, setLoading] = useState(false)
 
+  const [error, setError] = useState<string | null>(null)
+
   const handleScan = async () => {
     setLoading(true)
-    // Simulate API call
-    setTimeout(() => {
-      const symbols = tickers.split(',').map(s => s.trim().toUpperCase())
-      const mockResults: ScreenerResult[] = symbols.map(symbol => ({
-        symbol,
-        price: Math.random() * 400 + 50,
-        change_pct: (Math.random() - 0.5) * 10,
-        volume: Math.floor(Math.random() * 100000000),
-        rsi: Math.random() * 50 + 25,
-        trend: ['UP', 'DOWN', 'FLAT'][Math.floor(Math.random() * 3)],
-        signal: ['BUY', 'SELL', 'HOLD', 'OVERBOUGHT', 'OVERSOLD'][Math.floor(Math.random() * 5)],
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/screener/scan?tickers=${encodeURIComponent(tickers)}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to scan stocks')
+      }
+
+      // Transform API data to our format
+      const scanResults: ScreenerResult[] = (data || []).map((item: any) => ({
+        symbol: item.symbol,
+        price: item.price || 0,
+        change_pct: item.change_pct || item.change_percent || 0,
+        volume: item.volume || 0,
+        rsi: item.rsi || 50,
+        trend: item.trend || (item.change_pct > 0 ? 'UP' : item.change_pct < 0 ? 'DOWN' : 'FLAT'),
+        signal: item.signal || 'HOLD',
       }))
-      setResults(mockResults)
+
+      setResults(scanResults)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to scan stocks')
+      setResults([])
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   const getTrendColor = (trend: string) => {
@@ -90,6 +106,13 @@ export function Screener() {
         </div>
       </div>
 
+      {/* Error display */}
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
+
       {/* Results table */}
       <div className="card overflow-hidden">
         <table className="data-table">
@@ -108,7 +131,7 @@ export function Screener() {
             {results.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center py-12 text-foreground-muted">
-                  Enter tickers and click SCAN to analyze
+                  {loading ? 'Scanning stocks...' : 'Enter tickers and click SCAN to analyze'}
                 </td>
               </tr>
             ) : (
