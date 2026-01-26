@@ -53,41 +53,50 @@ interface SymbolFlow {
   net: number
 }
 
-// Initial mock data generator (fallback when not connected)
-const generateInitialFlows = (): Flow[] => {
-  const symbols = ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'META', 'AMZN', 'GOOGL', 'SPY', 'QQQ', 'AMD']
-  const flows: Flow[] = []
+// Fetch initial flow data from API
+const fetchInitialFlows = async (): Promise<Flow[]> => {
+  try {
+    const response = await fetch('/api/options/flow')
+    if (!response.ok) return []
+    const data = await response.json()
 
-  for (let i = 0; i < 30; i++) {
-    const symbol = symbols[Math.floor(Math.random() * symbols.length)]
-    const isBullish = Math.random() > 0.45
-    const isCall = Math.random() > 0.5
-    const premium = Math.floor(Math.random() * 500000) + 50000
+    if (data.status === 'unavailable') return []
 
-    flows.push({
-      id: `init_${i}`,
-      time: new Date(Date.now() - i * 60000).toLocaleTimeString('en-US', { hour12: false }),
-      symbol,
-      type: isCall ? 'CALL' : 'PUT',
-      side: isBullish ? 'BUY' : 'SELL',
-      sentiment: isBullish === isCall ? 'BULLISH' : 'BEARISH',
-      strike: Math.floor(Math.random() * 50) * 5 + 100,
-      expiry: `${Math.floor(Math.random() * 90) + 1}d`,
-      premium,
-      contracts: Math.floor(Math.random() * 1000) + 100,
-      openInterest: Math.floor(Math.random() * 50000) + 1000,
-      volume: Math.floor(Math.random() * 3000) + 100,
-      isUnusual: premium > 200000,
-      isSweep: Math.random() > 0.7,
-    })
+    const flowData = data.data?.flows || data.flows || []
+    return flowData.map((f: any, i: number) => ({
+      id: f.id || `flow_${i}`,
+      time: f.time || new Date(f.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false }),
+      symbol: f.symbol,
+      type: f.type || (f.option_type === 'call' ? 'CALL' : 'PUT'),
+      side: f.side || 'BUY',
+      sentiment: f.sentiment || 'BULLISH',
+      strike: f.strike || 0,
+      expiry: f.expiry || f.expiration || 'N/A',
+      premium: f.premium || f.total_value || 0,
+      contracts: f.contracts || f.volume || 0,
+      openInterest: f.open_interest || f.openInterest || 0,
+      volume: f.volume || 0,
+      isUnusual: f.is_unusual || f.isUnusual || f.premium > 200000,
+      isSweep: f.is_sweep || f.isSweep || false,
+    }))
+  } catch (error) {
+    console.error('Failed to fetch initial flows:', error)
+    return []
   }
-
-  return flows
 }
 
 export function FlowScanner() {
-  const [flows, setFlows] = useState<Flow[]>(() => generateInitialFlows())
+  const [flows, setFlows] = useState<Flow[]>([])
   const [filter, setFilter] = useState<'ALL' | 'BULLISH' | 'BEARISH' | 'UNUSUAL' | 'SWEEPS'>('ALL')
+
+  // Fetch initial flows on mount
+  useEffect(() => {
+    fetchInitialFlows().then(initialFlows => {
+      if (initialFlows.length > 0) {
+        setFlows(initialFlows)
+      }
+    })
+  }, [])
   const [alertsEnabled, setAlertsEnabled] = useState(true)
   const [flowHistory, setFlowHistory] = useState<{ time: string; bullish: number; bearish: number }[]>([])
 

@@ -58,129 +58,79 @@ interface TradingPair {
   spreadHistory: { date: string; spread: number; upper: number; lower: number; mean: number }[]
 }
 
-// Generate mock spread history
-const generateSpreadHistory = (days: number, mean: number, std: number) => {
-  const data = []
-  let spread = mean
-  for (let i = 0; i < days; i++) {
-    const noise = (Math.random() - 0.5) * std * 2
-    spread = spread * 0.95 + mean * 0.05 + noise // Mean reversion + noise
-    data.push({
-      date: new Date(Date.now() - (days - i) * 24 * 60 * 60 * 1000).toLocaleDateString(),
-      spread: spread,
-      upper: mean + 2 * std,
-      lower: mean - 2 * std,
-      mean: mean,
-    })
+// Transform API pairs data
+const transformPairData = (apiPair: any, index: number): TradingPair => {
+  const mean = apiPair.spread?.mean || apiPair.mean || 1
+  const std = apiPair.spread?.std || apiPair.std || 0.1
+
+  return {
+    id: apiPair.id || `pair_${index}`,
+    asset1: apiPair.asset1 || apiPair.symbol1 || 'N/A',
+    asset2: apiPair.asset2 || apiPair.symbol2 || 'N/A',
+    correlation: apiPair.correlation || 0,
+    cointegration: {
+      pValue: apiPair.cointegration?.pValue || apiPair.p_value || 0.1,
+      isCointegrated: apiPair.cointegration?.isCointegrated ?? apiPair.is_cointegrated ?? (apiPair.p_value < 0.05),
+      halfLife: apiPair.cointegration?.halfLife || apiPair.half_life || 10,
+    },
+    spread: {
+      current: apiPair.spread?.current || apiPair.current_spread || mean,
+      mean,
+      std,
+      zScore: apiPair.spread?.zScore || apiPair.z_score || 0,
+    },
+    signal: apiPair.signal || 'NEUTRAL',
+    confidence: apiPair.confidence || 50,
+    performance: {
+      totalReturn: apiPair.performance?.totalReturn || apiPair.total_return || 0,
+      sharpeRatio: apiPair.performance?.sharpeRatio || apiPair.sharpe_ratio || 0,
+      tradesCount: apiPair.performance?.tradesCount || apiPair.trades_count || 0,
+      winRate: apiPair.performance?.winRate || apiPair.win_rate || 0,
+    },
+    active: apiPair.active ?? true,
+    spreadHistory: apiPair.spread_history || apiPair.spreadHistory || [],
   }
-  return data
 }
 
-// Mock pairs data
-const mockPairs: TradingPair[] = [
-  {
-    id: 'pair_1',
-    asset1: 'XOM',
-    asset2: 'CVX',
-    correlation: 0.92,
-    cointegration: { pValue: 0.02, isCointegrated: true, halfLife: 12 },
-    spread: { current: 1.23, mean: 1.15, std: 0.18, zScore: 0.44 },
-    signal: 'NEUTRAL',
-    confidence: 65,
-    performance: { totalReturn: 18.5, sharpeRatio: 1.42, tradesCount: 34, winRate: 68 },
-    active: true,
-    spreadHistory: generateSpreadHistory(60, 1.15, 0.18),
-  },
-  {
-    id: 'pair_2',
-    asset1: 'KO',
-    asset2: 'PEP',
-    correlation: 0.89,
-    cointegration: { pValue: 0.01, isCointegrated: true, halfLife: 8 },
-    spread: { current: 0.78, mean: 0.85, std: 0.12, zScore: -0.58 },
-    signal: 'LONG_SPREAD',
-    confidence: 72,
-    performance: { totalReturn: 22.3, sharpeRatio: 1.65, tradesCount: 42, winRate: 71 },
-    active: true,
-    spreadHistory: generateSpreadHistory(60, 0.85, 0.12),
-  },
-  {
-    id: 'pair_3',
-    asset1: 'GS',
-    asset2: 'MS',
-    correlation: 0.87,
-    cointegration: { pValue: 0.03, isCointegrated: true, halfLife: 15 },
-    spread: { current: 2.45, mean: 2.10, std: 0.22, zScore: 1.59 },
-    signal: 'SHORT_SPREAD',
-    confidence: 78,
-    performance: { totalReturn: 15.8, sharpeRatio: 1.28, tradesCount: 28, winRate: 64 },
-    active: true,
-    spreadHistory: generateSpreadHistory(60, 2.10, 0.22),
-  },
-  {
-    id: 'pair_4',
-    asset1: 'MSFT',
-    asset2: 'GOOGL',
-    correlation: 0.85,
-    cointegration: { pValue: 0.08, isCointegrated: false, halfLife: 25 },
-    spread: { current: 0.52, mean: 0.48, std: 0.08, zScore: 0.50 },
-    signal: 'NEUTRAL',
-    confidence: 45,
-    performance: { totalReturn: 8.2, sharpeRatio: 0.95, tradesCount: 18, winRate: 56 },
-    active: false,
-    spreadHistory: generateSpreadHistory(60, 0.48, 0.08),
-  },
-  {
-    id: 'pair_5',
-    asset1: 'HD',
-    asset2: 'LOW',
-    correlation: 0.91,
-    cointegration: { pValue: 0.015, isCointegrated: true, halfLife: 10 },
-    spread: { current: 1.85, mean: 1.92, std: 0.15, zScore: -0.47 },
-    signal: 'LONG_SPREAD',
-    confidence: 68,
-    performance: { totalReturn: 19.7, sharpeRatio: 1.48, tradesCount: 38, winRate: 66 },
-    active: true,
-    spreadHistory: generateSpreadHistory(60, 1.92, 0.15),
-  },
-  {
-    id: 'pair_6',
-    asset1: 'V',
-    asset2: 'MA',
-    correlation: 0.94,
-    cointegration: { pValue: 0.005, isCointegrated: true, halfLife: 6 },
-    spread: { current: 0.68, mean: 0.65, std: 0.09, zScore: 0.33 },
-    signal: 'NEUTRAL',
-    confidence: 55,
-    performance: { totalReturn: 24.1, sharpeRatio: 1.72, tradesCount: 52, winRate: 73 },
-    active: true,
-    spreadHistory: generateSpreadHistory(60, 0.65, 0.09),
-  },
-]
-
 export function PairsTrading() {
-  const [pairs, setPairs] = useState<TradingPair[]>(mockPairs)
+  const [pairs, setPairs] = useState<TradingPair[]>([])
   const [selectedPair, setSelectedPair] = useState<TradingPair | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [signalFilter, setSignalFilter] = useState<string>('all')
   const [isLoading, setIsLoading] = useState(false)
   const [scanningPairs, setScanningPairs] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Fetch pairs from API
-  useEffect(() => {
-    const fetchPairs = async () => {
-      try {
-        const response = await fetch('/api/pairs')
-        if (response.ok) {
-          const data = await response.json()
-          if (Array.isArray(data) && data.length > 0) {
-            setPairs(data)
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch pairs:', error)
+  const fetchPairs = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/pairs')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to fetch pairs')
       }
+
+      if (data.status === 'unavailable') {
+        setError(data.message || 'Pairs trading data not available. Configure pairs trading API to enable.')
+        setPairs([])
+        return
+      }
+
+      const pairsData = data.data?.pairs || data.pairs || (Array.isArray(data) ? data : [])
+      if (pairsData.length > 0) {
+        setPairs(pairsData.map(transformPairData))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch pairs')
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchPairs()
   }, [])
 
@@ -201,8 +151,22 @@ export function PairsTrading() {
 
   const scanForPairs = async () => {
     setScanningPairs(true)
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setScanningPairs(false)
+    setError(null)
+    try {
+      const response = await fetch('/api/pairs/scan', { method: 'POST' })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to scan for pairs')
+      }
+
+      // Refresh pairs after scan
+      await fetchPairs()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to scan for pairs')
+    } finally {
+      setScanningPairs(false)
+    }
   }
 
   const stats = useMemo(() => {
@@ -251,6 +215,12 @@ export function PairsTrading() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Stats Overview */}
       <div className="grid grid-cols-5 gap-3">

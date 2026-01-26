@@ -24,44 +24,60 @@ export function GEXAnalysis() {
     max_pain: 0
   })
   const [currentPrice, setCurrentPrice] = useState(688.98)
+  const [error, setError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  const analyze = () => {
+  const analyze = async () => {
     setLoading(true)
-    setTimeout(() => {
-      // Generate mock GEX data
-      const basePrice = ticker === 'SPY' ? 688.98 : ticker === 'QQQ' ? 620.76 : 100 + Math.random() * 400
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/options/gex/${ticker}?max_dte=${maxDte}`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to fetch GEX data')
+      }
+
+      // Get current price
+      const priceRes = await fetch(`/api/market/quote/${ticker}`)
+      const priceData = await priceRes.json()
+      const basePrice = priceData.price || 0
       setCurrentPrice(basePrice)
 
-      const strikes = Array.from({ length: 21 }, (_, i) => basePrice * (0.8 + i * 0.02))
-      const mockData: GEXData[] = strikes.map(strike => {
-        const distance = Math.abs(strike - basePrice)
-        const magnitude = Math.max(0.1, 1 - (distance / (basePrice * 0.2)))
+      // Transform API data to our format
+      const gexData: GEXData[] = (result.strikes || []).map((item: any) => ({
+        strike: item.strike,
+        call_gex: item.call_gex || 0,
+        put_gex: item.put_gex || 0,
+        total_gex: (item.call_gex || 0) + (item.put_gex || 0)
+      }))
 
-        const call_gex = magnitude * (0.5 + Math.random() * 1.5) * 1000000000
-        const put_gex = magnitude * (-0.3 - Math.random() * 1.2) * 1000000000
+      if (gexData.length === 0) {
+        // Fallback if no data
+        setError('No GEX data available for this symbol')
+        setData([])
+        return
+      }
 
-        return {
-          strike: Math.round(strike),
-          call_gex: Math.round(call_gex),
-          put_gex: Math.round(put_gex),
-          total_gex: Math.round(call_gex + put_gex)
-        }
-      })
+      const totalCall = gexData.reduce((sum, d) => sum + d.call_gex, 0)
+      const totalPut = gexData.reduce((sum, d) => sum + d.put_gex, 0)
 
-      const totalCall = mockData.reduce((sum, d) => sum + d.call_gex, 0)
-      const totalPut = mockData.reduce((sum, d) => sum + d.put_gex, 0)
-
-      setData(mockData)
+      setData(gexData)
       setSummary({
         total_call_gex: totalCall / 1e9,
         total_put_gex: totalPut / 1e9,
         net_gex: (totalCall + totalPut) / 1e9,
-        gex_flip_point: basePrice * (0.98 + Math.random() * 0.04),
-        max_pain: basePrice * (0.97 + Math.random() * 0.06)
+        gex_flip_point: result.gex_flip_point || basePrice,
+        max_pain: result.max_pain || basePrice
       })
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch GEX data')
+      setData([])
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   useEffect(() => {
@@ -228,6 +244,12 @@ export function GEXAnalysis() {
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-4">
         {/* Chart */}

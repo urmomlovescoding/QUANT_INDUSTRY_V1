@@ -62,85 +62,75 @@ const categoryColors: Record<string, string> = {
   commodities: 'bg-green-500/20 text-green-400',
 }
 
-// Mock news data
-const generateMockNews = (): NewsArticle[] => {
-  const headlines = [
-    { title: 'Fed Signals Potential Rate Cut in Q2 as Inflation Cools', symbols: ['SPY', 'QQQ', 'TLT'], category: 'economy', sentiment: 0.6 },
-    { title: 'NVIDIA Reports Record Revenue, AI Demand Surges', symbols: ['NVDA', 'AMD', 'SMCI'], category: 'earnings', sentiment: 0.85 },
-    { title: 'Apple Announces New AI Features for iPhone 16', symbols: ['AAPL'], category: 'company', sentiment: 0.55 },
-    { title: 'Tesla Cuts Prices Again Amid EV Competition', symbols: ['TSLA', 'RIVN', 'LCID'], category: 'company', sentiment: -0.45 },
-    { title: 'Oil Prices Drop on OPEC+ Production Increase', symbols: ['USO', 'XOM', 'CVX'], category: 'commodities', sentiment: -0.3 },
-    { title: 'Bitcoin Breaks $100K Milestone on ETF Inflows', symbols: ['BTC', 'MSTR', 'COIN'], category: 'crypto', sentiment: 0.75 },
-    { title: 'Microsoft Azure Growth Beats Expectations', symbols: ['MSFT', 'AMZN', 'GOOGL'], category: 'earnings', sentiment: 0.7 },
-    { title: 'Regional Banks Face Renewed Pressure on CRE Exposure', symbols: ['KRE', 'NYCB', 'PACW'], category: 'market', sentiment: -0.6 },
-    { title: 'Meta Platforms Unveils Next-Gen VR Headset', symbols: ['META'], category: 'company', sentiment: 0.4 },
-    { title: 'Jobs Report Shows Cooling Labor Market', symbols: ['SPY', 'DIA', 'IWM'], category: 'economy', sentiment: 0.2 },
-    { title: 'Semiconductor Stocks Rally on China Export Relief', symbols: ['NVDA', 'AMD', 'INTC', 'TSM'], category: 'market', sentiment: 0.65 },
-    { title: 'Amazon Web Services Announces Price Cuts', symbols: ['AMZN', 'MSFT', 'GOOGL'], category: 'company', sentiment: -0.1 },
-    { title: 'Gold Reaches All-Time High on Geopolitical Tensions', symbols: ['GLD', 'NEM', 'GOLD'], category: 'commodities', sentiment: 0.5 },
-    { title: 'JPMorgan Warns of Commercial Real Estate Risks', symbols: ['JPM', 'BAC', 'C'], category: 'market', sentiment: -0.4 },
-    { title: 'Palantir Wins Major Government Contract', symbols: ['PLTR'], category: 'company', sentiment: 0.72 },
-  ]
-
-  const sources = ['Bloomberg', 'Reuters', 'CNBC', 'WSJ', 'MarketWatch', 'Yahoo Finance', 'Benzinga']
-
-  return headlines.map((h, i) => ({
-    id: `news_${i}`,
-    title: h.title,
-    summary: `Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Analysis suggests ${h.sentiment > 0 ? 'positive' : h.sentiment < 0 ? 'negative' : 'neutral'} market impact.`,
-    source: sources[Math.floor(Math.random() * sources.length)],
-    url: '#',
-    publishedAt: new Date(Date.now() - i * 1800000).toISOString(),
-    symbols: h.symbols,
-    sentiment: {
-      score: h.sentiment,
-      label: h.sentiment > 0.2 ? 'bullish' : h.sentiment < -0.2 ? 'bearish' : 'neutral',
-      confidence: 70 + Math.random() * 25,
-    },
-    category: h.category as NewsArticle['category'],
-    isBreaking: i < 2,
-    saved: false,
-  }))
-}
-
-// Generate sentiment trend data
-const generateSentimentTrend = (): SentimentTrend[] => {
-  const data = []
-  for (let i = 23; i >= 0; i--) {
-    const hour = new Date(Date.now() - i * 3600000).getHours()
-    data.push({
-      time: `${hour}:00`,
-      bullish: 30 + Math.random() * 30,
-      bearish: 20 + Math.random() * 25,
-      neutral: 25 + Math.random() * 20,
-    })
-  }
-  return data
+// Transform API news data to our format
+const transformNewsData = (apiNews: any[]): NewsArticle[] => {
+  return apiNews.map((article: any, i: number) => {
+    const sentimentScore = article.sentiment?.score ?? article.sentiment_score ?? 0
+    return {
+      id: article.id || `news_${i}`,
+      title: article.title || article.headline || 'Untitled',
+      summary: article.summary || article.description || article.content?.substring(0, 200) || '',
+      source: article.source || article.publisher || 'Unknown',
+      url: article.url || article.link || '#',
+      publishedAt: article.publishedAt || article.published_at || article.datetime || new Date().toISOString(),
+      symbols: article.symbols || article.tickers || [],
+      sentiment: {
+        score: sentimentScore,
+        label: sentimentScore > 0.2 ? 'bullish' : sentimentScore < -0.2 ? 'bearish' : 'neutral',
+        confidence: article.sentiment?.confidence || 75,
+      },
+      category: article.category || 'market',
+      isBreaking: article.is_breaking || article.isBreaking || false,
+      saved: false,
+    }
+  })
 }
 
 export function News() {
-  const [news, setNews] = useState<NewsArticle[]>(() => generateMockNews())
+  const [news, setNews] = useState<NewsArticle[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [sentimentFilter, setSentimentFilter] = useState<string>('all')
   const [isLoading, setIsLoading] = useState(false)
-  const [sentimentTrend] = useState<SentimentTrend[]>(() => generateSentimentTrend())
+  const [error, setError] = useState<string | null>(null)
+  const [sentimentTrend, setSentimentTrend] = useState<SentimentTrend[]>([])
 
   // Fetch news from API
-  useEffect(() => {
-    const fetchNews = async () => {
-      try {
-        const response = await fetch('/api/news')
-        if (response.ok) {
-          const data = await response.json()
-          if (Array.isArray(data) && data.length > 0) {
-            setNews(data)
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch news:', error)
+  const fetchNews = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/news')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to fetch news')
       }
+
+      if (data.status === 'unavailable') {
+        setError(data.message || 'News data not available. Configure news API to enable.')
+        setNews([])
+        return
+      }
+
+      const newsData = data.data?.articles || data.articles || data.news || (Array.isArray(data) ? data : [])
+      if (newsData.length > 0) {
+        setNews(transformNewsData(newsData))
+      }
+
+      // Fetch sentiment trend data
+      const trendData = data.data?.sentiment_trend || data.sentiment_trend || []
+      if (trendData.length > 0) {
+        setSentimentTrend(trendData)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch news')
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchNews()
   }, [])
 
@@ -179,10 +169,7 @@ export function News() {
   }
 
   const refreshNews = async () => {
-    setIsLoading(true)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setNews(generateMockNews())
-    setIsLoading(false)
+    await fetchNews()
   }
 
   const pieData = [
@@ -215,6 +202,12 @@ export function News() {
           Refresh
         </button>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Sentiment Overview */}
       <div className="grid grid-cols-4 gap-4">

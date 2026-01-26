@@ -66,179 +66,69 @@ const categoryLabels: Record<string, string> = {
   ml: 'Machine Learning',
 }
 
-// Generate mock equity curve
-const generateEquityCurve = (days: number, finalReturn: number) => {
-  const data = []
-  let value = 10000
-  const dailyReturn = Math.pow(1 + finalReturn / 100, 1 / days) - 1
-
-  for (let i = 0; i < days; i++) {
-    const noise = (Math.random() - 0.5) * 0.02
-    value *= 1 + dailyReturn + noise
-    data.push({
-      date: new Date(Date.now() - (days - i) * 24 * 60 * 60 * 1000).toLocaleDateString(),
-      value: Math.round(value),
-    })
+// Transform API strategy data
+const transformStrategyData = (apiStrategy: any, index: number): Strategy => {
+  return {
+    id: apiStrategy.id || `strategy_${index}`,
+    name: apiStrategy.name || 'Unknown Strategy',
+    description: apiStrategy.description || '',
+    category: apiStrategy.category || 'trend',
+    active: apiStrategy.active ?? true,
+    weight: apiStrategy.weight || 10,
+    performance: {
+      totalReturn: apiStrategy.performance?.totalReturn || apiStrategy.total_return || 0,
+      sharpeRatio: apiStrategy.performance?.sharpeRatio || apiStrategy.sharpe_ratio || 0,
+      maxDrawdown: apiStrategy.performance?.maxDrawdown || apiStrategy.max_drawdown || 0,
+      winRate: apiStrategy.performance?.winRate || apiStrategy.win_rate || 0,
+      profitFactor: apiStrategy.performance?.profitFactor || apiStrategy.profit_factor || 1,
+      tradesCount: apiStrategy.performance?.tradesCount || apiStrategy.trades_count || 0,
+    },
+    signals: {
+      current: apiStrategy.signals?.current || apiStrategy.signal || 'HOLD',
+      confidence: apiStrategy.signals?.confidence || apiStrategy.confidence || 50,
+    },
+    equity: apiStrategy.equity || apiStrategy.equity_curve || [],
   }
-  return data
 }
 
-// Mock strategies data
-const mockStrategies: Strategy[] = [
-  {
-    id: 'ma_crossover',
-    name: 'MA Crossover',
-    description: 'Buy when fast MA crosses above slow MA, sell on cross below. Uses 10/30 period EMAs.',
-    category: 'trend',
-    active: true,
-    weight: 20,
-    performance: {
-      totalReturn: 24.5,
-      sharpeRatio: 1.42,
-      maxDrawdown: -8.3,
-      winRate: 58.2,
-      profitFactor: 1.65,
-      tradesCount: 156,
-    },
-    signals: { current: 'BUY', confidence: 72 },
-    equity: generateEquityCurve(90, 24.5),
-  },
-  {
-    id: 'rsi_reversal',
-    name: 'RSI Reversal',
-    description: 'Trade oversold/overbought RSI levels with divergence confirmation.',
-    category: 'mean_reversion',
-    active: true,
-    weight: 15,
-    performance: {
-      totalReturn: 18.2,
-      sharpeRatio: 1.28,
-      maxDrawdown: -6.1,
-      winRate: 62.4,
-      profitFactor: 1.48,
-      tradesCount: 203,
-    },
-    signals: { current: 'HOLD', confidence: 45 },
-    equity: generateEquityCurve(90, 18.2),
-  },
-  {
-    id: 'momentum_breakout',
-    name: 'Momentum Breakout',
-    description: 'Capture breakouts from consolidation with volume confirmation.',
-    category: 'momentum',
-    active: true,
-    weight: 25,
-    performance: {
-      totalReturn: 31.8,
-      sharpeRatio: 1.56,
-      maxDrawdown: -11.2,
-      winRate: 52.1,
-      profitFactor: 1.82,
-      tradesCount: 89,
-    },
-    signals: { current: 'BUY', confidence: 85 },
-    equity: generateEquityCurve(90, 31.8),
-  },
-  {
-    id: 'bollinger_squeeze',
-    name: 'Bollinger Squeeze',
-    description: 'Trade volatility expansions after Bollinger Band contractions.',
-    category: 'volatility',
-    active: false,
-    weight: 10,
-    performance: {
-      totalReturn: 12.4,
-      sharpeRatio: 0.98,
-      maxDrawdown: -9.8,
-      winRate: 55.3,
-      profitFactor: 1.35,
-      tradesCount: 67,
-    },
-    signals: { current: 'HOLD', confidence: 30 },
-    equity: generateEquityCurve(90, 12.4),
-  },
-  {
-    id: 'macd_divergence',
-    name: 'MACD Divergence',
-    description: 'Identify trend reversals using MACD histogram divergence.',
-    category: 'momentum',
-    active: true,
-    weight: 15,
-    performance: {
-      totalReturn: 19.7,
-      sharpeRatio: 1.31,
-      maxDrawdown: -7.4,
-      winRate: 59.8,
-      profitFactor: 1.52,
-      tradesCount: 124,
-    },
-    signals: { current: 'SELL', confidence: 68 },
-    equity: generateEquityCurve(90, 19.7),
-  },
-  {
-    id: 'neural_ensemble',
-    name: 'Neural Ensemble',
-    description: 'Deep learning model combining multiple technical indicators with LSTM.',
-    category: 'ml',
-    active: true,
-    weight: 15,
-    performance: {
-      totalReturn: 28.3,
-      sharpeRatio: 1.68,
-      maxDrawdown: -5.9,
-      winRate: 64.2,
-      profitFactor: 1.91,
-      tradesCount: 78,
-    },
-    signals: { current: 'BUY', confidence: 91 },
-    equity: generateEquityCurve(90, 28.3),
-  },
-  {
-    id: 'trend_following',
-    name: 'Trend Following',
-    description: 'Multi-timeframe trend detection with ADX filter and trailing stops.',
-    category: 'trend',
-    active: true,
-    weight: 20,
-    performance: {
-      totalReturn: 22.1,
-      sharpeRatio: 1.38,
-      maxDrawdown: -10.5,
-      winRate: 48.9,
-      profitFactor: 1.72,
-      tradesCount: 95,
-    },
-    signals: { current: 'BUY', confidence: 76 },
-    equity: generateEquityCurve(90, 22.1),
-  },
-]
-
 export function Strategies() {
-  const [strategies, setStrategies] = useState<Strategy[]>(mockStrategies)
+  const [strategies, setStrategies] = useState<Strategy[]>([])
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Fetch strategies from API
-  useEffect(() => {
-    const fetchStrategies = async () => {
-      try {
-        const response = await fetch('/api/quant/strategies')
-        if (response.ok) {
-          const data = await response.json()
-          // Merge API data with mock performance data
-          if (Array.isArray(data)) {
-            setStrategies(prev => prev.map(s => {
-              const apiStrategy = data.find((d: { id: string }) => d.id === s.id)
-              return apiStrategy ? { ...s, active: apiStrategy.active, weight: apiStrategy.weight } : s
-            }))
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch strategies:', error)
+  const fetchStrategies = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/quant/strategies')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to fetch strategies')
       }
+
+      if (data.status === 'unavailable') {
+        setError(data.message || 'Strategies not available. Configure quant service to enable.')
+        setStrategies([])
+        return
+      }
+
+      const strategiesData = data.data?.strategies || data.strategies || (Array.isArray(data) ? data : [])
+      if (strategiesData.length > 0) {
+        setStrategies(strategiesData.map(transformStrategyData))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch strategies')
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchStrategies()
   }, [])
 
@@ -320,6 +210,12 @@ export function Strategies() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Aggregate Stats */}
       {aggregateStats && (

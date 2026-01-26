@@ -5,34 +5,53 @@ import { cn } from '@/utils/cn'
 export function RegimeDetect() {
   const [analyzing, setAnalyzing] = useState(false)
   const [regime, setRegime] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const analyze = () => {
+  const analyze = async () => {
     setAnalyzing(true)
-    setTimeout(() => {
-      const regimes = ['BULL', 'BEAR', 'RANGING']
-      const current = regimes[Math.floor(Math.random() * 3)]
+    setError(null)
+
+    try {
+      const response = await fetch('/api/market/regime')
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to detect regime')
+      }
+
+      if (result.status === 'unavailable') {
+        setError(result.message || 'Regime detection not available. Configure market data API to enable.')
+        setRegime(null)
+        return
+      }
+
+      const data = result.data || result
+      const current = data.regime || data.current || 'RANGING'
 
       setRegime({
-        current,
-        confidence: 65 + Math.random() * 30,
-        indicators: {
-          trend_strength: 30 + Math.random() * 50,
-          volatility: Math.random() > 0.5 ? 'HIGH' : 'LOW',
-          momentum: Math.random() > 0.4 ? 'POSITIVE' : 'NEGATIVE',
-          mean_reversion_prob: 0.2 + Math.random() * 0.4
+        current: current.toUpperCase(),
+        confidence: data.confidence || 75,
+        indicators: data.indicators || {
+          trend_strength: data.trend_strength || 50,
+          volatility: data.volatility || 'LOW',
+          momentum: data.momentum || 'NEUTRAL',
+          mean_reversion_prob: data.mean_reversion_prob || 0.3
         },
-        history: Array.from({ length: 12 }, (_, i) => ({
-          month: new Date(Date.now() - i * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7),
-          regime: regimes[Math.floor(Math.random() * 3)]
-        })).reverse(),
-        strategies: current === 'BULL'
-          ? ['Momentum', 'Trend Following', 'Breakout']
-          : current === 'BEAR'
-          ? ['Mean Reversion', 'Hedging', 'Short Selling']
-          : ['Range Trading', 'Iron Condors', 'Pairs Trading']
+        history: data.history || [],
+        strategies: data.strategies || (
+          current === 'BULL' || current === 'bull'
+            ? ['Momentum', 'Trend Following', 'Breakout']
+            : current === 'BEAR' || current === 'bear'
+            ? ['Mean Reversion', 'Hedging', 'Short Selling']
+            : ['Range Trading', 'Iron Condors', 'Pairs Trading']
+        )
       })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to detect regime')
+      setRegime(null)
+    } finally {
       setAnalyzing(false)
-    }, 800)
+    }
   }
 
   const getRegimeColor = (r: string) => {
@@ -61,6 +80,12 @@ export function RegimeDetect() {
           Detect Regime
         </button>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {regime && (
         <div className="grid grid-cols-12 gap-4">

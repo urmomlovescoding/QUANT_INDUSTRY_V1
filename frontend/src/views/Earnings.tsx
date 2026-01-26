@@ -5,28 +5,57 @@ import { cn } from '@/utils/cn'
 export function Earnings() {
   const [calendar, setCalendar] = useState<any[]>([])
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'recent'>('upcoming')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchEarnings = async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/research/earnings')
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to fetch earnings data')
+      }
+
+      // Check if data is unavailable
+      if (result.status === 'unavailable') {
+        setError(result.message || 'Earnings data not available. Configure earnings data API to enable.')
+        setCalendar([])
+        return
+      }
+
+      // Transform API data
+      const earningsData = (result.data?.calendar || result.calendar || []).map((e: any) => {
+        const earningsDate = new Date(e.date || e.earnings_date)
+        const isPast = earningsDate < new Date()
+
+        return {
+          symbol: e.symbol,
+          date: e.date || e.earnings_date,
+          time: e.time || e.report_time || 'N/A',
+          eps_estimate: e.eps_estimate || e.estimate || 'N/A',
+          eps_actual: e.eps_actual || e.actual || null,
+          revenue_estimate: e.revenue_estimate || 'N/A',
+          surprise_pct: e.surprise_pct || e.surprise || null,
+          isPast
+        }
+      }).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+      setCalendar(earningsData)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch earnings data')
+      setCalendar([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'AMD', 'NFLX', 'CRM', 'ORCL', 'INTC']
-
-    const mockCalendar = symbols.map(symbol => {
-      const daysOffset = Math.floor(Math.random() * 60) - 30
-      const date = new Date(Date.now() + daysOffset * 24 * 60 * 60 * 1000)
-      const isPast = daysOffset < 0
-
-      return {
-        symbol,
-        date: date.toISOString().split('T')[0],
-        time: Math.random() > 0.5 ? 'BMO' : 'AMC',
-        eps_estimate: (0.5 + Math.random() * 4).toFixed(2),
-        eps_actual: isPast ? (0.4 + Math.random() * 4.5).toFixed(2) : null,
-        revenue_estimate: `$${Math.floor(10 + Math.random() * 90)}B`,
-        surprise_pct: isPast ? ((Math.random() - 0.4) * 20).toFixed(1) : null,
-        isPast
-      }
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
-    setCalendar(mockCalendar)
+    fetchEarnings()
   }, [])
 
   const filteredCalendar = calendar.filter(e => {

@@ -19,39 +19,53 @@ export function MLPredictions() {
   const [horizon, setHorizon] = useState('5d')
   const [predicting, setPredicting] = useState(false)
   const [prediction, setPrediction] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  const predict = () => {
+  const predict = async () => {
     setPredicting(true)
-    setTimeout(() => {
-      const currentPrice = 688.98
-      const horizonDays = parseInt(horizon)
-      const change = (Math.random() - 0.45) * 0.05 * horizonDays
-      const predictedPrice = currentPrice * (1 + change)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/ml/predict/${ticker}?model=${model}&horizon=${horizon}`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to get prediction')
+      }
+
+      if (result.status === 'unavailable') {
+        setError(result.message || 'ML predictions not available. Configure ML service to enable.')
+        setPrediction(null)
+        return
+      }
+
+      const data = result.data || result
+      const currentPrice = data.current_price || data.currentPrice || 0
+      const predictedPrice = data.predicted_price || data.predictedPrice || currentPrice
+      const change = currentPrice > 0 ? ((predictedPrice - currentPrice) / currentPrice) * 100 : 0
 
       setPrediction({
         currentPrice,
         predictedPrice,
-        change: change * 100,
-        direction: change > 0.005 ? 'UP' : change < -0.005 ? 'DOWN' : 'NEUTRAL',
-        confidence: 55 + Math.random() * 30,
-        metrics: {
-          r2: 0.3 + Math.random() * 0.4,
-          rmse: 1 + Math.random() * 4,
-          mae: 0.8 + Math.random() * 3,
-          directional: 0.52 + Math.random() * 0.16,
-          profit_factor: 1.1 + Math.random() * 0.9
+        change,
+        direction: change > 0.5 ? 'UP' : change < -0.5 ? 'DOWN' : 'NEUTRAL',
+        confidence: data.confidence || 75,
+        metrics: data.metrics || {
+          r2: data.r2_score || 0,
+          rmse: data.rmse || 0,
+          mae: data.mae || 0,
+          directional: data.directional_accuracy || 0.5,
+          profit_factor: data.profit_factor || 1.0
         },
-        features: [
-          { name: 'Price Momentum', importance: 0.15 + Math.random() * 0.1 },
-          { name: 'Volume Profile', importance: 0.10 + Math.random() * 0.1 },
-          { name: 'RSI', importance: 0.08 + Math.random() * 0.07 },
-          { name: 'MACD', importance: 0.08 + Math.random() * 0.07 },
-          { name: 'Volatility', importance: 0.05 + Math.random() * 0.07 },
-        ]
+        features: data.features || data.feature_importance || []
       })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to get prediction')
+      setPrediction(null)
+    } finally {
       setPredicting(false)
-    }, 800)
+    }
   }
 
   useEffect(() => {
@@ -221,6 +235,12 @@ export function MLPredictions() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {prediction && (
         <div className="grid grid-cols-12 gap-4">
