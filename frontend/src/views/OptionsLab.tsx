@@ -47,7 +47,36 @@ export function OptionsLab() {
       // Transform API data to our format
       const optionsChain: OptionRow[] = []
 
-      if (data.calls) {
+      // API returns data in 'chain' array with option_type field
+      const chainData = data.chain || data.calls || data.puts || []
+
+      chainData.forEach((opt: any) => {
+        const optType = (opt.option_type || opt.type || 'CALL').toUpperCase()
+
+        // Apply filter
+        if (activeFilter === 'CALLS' && optType !== 'CALL') return
+        if (activeFilter === 'PUTS' && optType !== 'PUT') return
+
+        const score = Math.floor((opt.volume || 0) / 100 + (opt.oi || opt.open_interest || 0) / 1000)
+        optionsChain.push({
+          expiration: opt.expiration || 'N/A',
+          strike: opt.strike,
+          type: optType,
+          bid: opt.bid || 0,
+          ask: opt.ask || 0,
+          iv: opt.iv || (opt.implied_volatility || 0) * 100,
+          delta: opt.delta || 0,
+          gamma: opt.gamma || 0,
+          theta: opt.theta || 0,
+          vega: opt.vega || 0,
+          oi: opt.oi || opt.open_interest || 0,
+          rating: score >= 90 ? 'A+' : score >= 70 ? 'A' : score >= 50 ? 'B+' : 'B',
+          score: Math.min(100, score)
+        })
+      })
+
+      // Also handle legacy format with separate calls/puts arrays
+      if (data.calls && Array.isArray(data.calls)) {
         data.calls.forEach((opt: any) => {
           if (activeFilter !== 'ALL' && activeFilter !== 'CALLS') return
           const score = Math.floor((opt.volume || 0) / 100 + (opt.open_interest || 0) / 1000)
@@ -57,7 +86,7 @@ export function OptionsLab() {
             type: 'CALL',
             bid: opt.bid || 0,
             ask: opt.ask || 0,
-            iv: (opt.implied_volatility || 0) * 100,
+            iv: opt.iv || (opt.implied_volatility || 0) * 100,
             delta: opt.delta || 0,
             gamma: opt.gamma || 0,
             theta: opt.theta || 0,
@@ -69,7 +98,7 @@ export function OptionsLab() {
         })
       }
 
-      if (data.puts) {
+      if (data.puts && Array.isArray(data.puts)) {
         data.puts.forEach((opt: any) => {
           if (activeFilter !== 'ALL' && activeFilter !== 'PUTS') return
           const score = Math.floor((opt.volume || 0) / 100 + (opt.open_interest || 0) / 1000)
@@ -79,7 +108,7 @@ export function OptionsLab() {
             type: 'PUT',
             bid: opt.bid || 0,
             ask: opt.ask || 0,
-            iv: (opt.implied_volatility || 0) * 100,
+            iv: opt.iv || (opt.implied_volatility || 0) * 100,
             delta: opt.delta || 0,
             gamma: opt.gamma || 0,
             theta: opt.theta || 0,

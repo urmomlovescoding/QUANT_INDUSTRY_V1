@@ -25,27 +25,44 @@ interface CorrelationData {
 
 export function Correlation() {
   const [data, setData] = useState<CorrelationData | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [symbols, setSymbols] = useState('SPY,QQQ,AAPL,MSFT,NVDA,TSLA,GOOGL,AMZN')
 
   const fetchCorrelation = async () => {
+    if (!symbols.trim()) {
+      setError('Please enter at least 2 symbols')
+      return
+    }
+
     setIsLoading(true)
+    setError(null)
+
     try {
       const response = await fetch(`/api/correlation/matrix?symbols=${encodeURIComponent(symbols)}`)
-      if (response.ok) {
-        const result = await response.json()
-        setData(result)
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to fetch correlation data')
       }
-    } catch (error) {
-      console.error('Failed to fetch correlation:', error)
+
+      if (result.status === 'unavailable') {
+        setError(result.message || 'Correlation data not available')
+        setData(null)
+        return
+      }
+
+      setData(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch correlation')
+      setData(null)
     } finally {
       setIsLoading(false)
     }
   }
 
-  useEffect(() => {
-    fetchCorrelation()
-  }, [])
+  // Don't auto-fetch on mount - wait for user to click Analyze
+  // useEffect(() => { fetchCorrelation() }, [])
 
   const getCorrelationColor = (corr: number) => {
     if (corr >= 0.7) return 'bg-bullish/80 text-white'
@@ -102,6 +119,12 @@ export function Correlation() {
         </div>
       </div>
 
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <RefreshCw className="w-8 h-8 animate-spin text-accent-primary" />
@@ -109,7 +132,8 @@ export function Correlation() {
       ) : !data ? (
         <div className="card p-8 text-center text-foreground-muted">
           <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p className="text-lg font-medium">Unable to load correlation data</p>
+          <p className="text-lg font-medium">Enter symbols and click Analyze</p>
+          <p className="text-sm mt-2">Example: SPY,QQQ,AAPL,MSFT</p>
         </div>
       ) : (
         <>

@@ -1,5 +1,5 @@
-import { Briefcase, Plus, Trash2, Save, Upload } from 'lucide-react'
-import { useState } from 'react'
+import { Briefcase, Plus, Trash2, Save, Upload, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
 import { cn } from '@/utils/cn'
 import { DonutChart } from '@/components/charts/DonutChart'
 
@@ -11,28 +11,73 @@ interface Holding {
 }
 
 export function Portfolio() {
-  const [holdings, setHoldings] = useState<Holding[]>([
-    { symbol: 'NVDA', shares: 100, costBasis: 135.00, currentPrice: 142.85 },
-    { symbol: 'AAPL', shares: 80, costBasis: 225.00, currentPrice: 235.48 },
-    { symbol: 'MSFT', shares: 40, costBasis: 420.00, currentPrice: 442.35 },
-    { symbol: 'AMD', shares: 100, costBasis: 130.00, currentPrice: 125.30 },
-  ])
+  // Start with empty portfolio - user enters their own data
+  const [holdings, setHoldings] = useState<Holding[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const [newTicker, setNewTicker] = useState('')
   const [newShares, setNewShares] = useState('')
   const [newCost, setNewCost] = useState('')
 
-  const addPosition = () => {
-    if (newTicker && newShares && newCost) {
+  // Fetch current price when adding a position
+  const addPosition = async () => {
+    if (!newTicker || !newShares || !newCost) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      // Fetch current price from API
+      const response = await fetch(`/api/market/quote/${newTicker.toUpperCase()}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to fetch price')
+      }
+
+      const currentPrice = data.price || parseFloat(newCost)
+
       setHoldings([...holdings, {
         symbol: newTicker.toUpperCase(),
         shares: parseInt(newShares),
         costBasis: parseFloat(newCost),
-        currentPrice: parseFloat(newCost) * (0.9 + Math.random() * 0.2)
+        currentPrice
       }])
       setNewTicker('')
       setNewShares('')
       setNewCost('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add position')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Refresh all prices
+  const refreshPrices = async () => {
+    if (holdings.length === 0) return
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const updatedHoldings = await Promise.all(
+        holdings.map(async (h) => {
+          try {
+            const response = await fetch(`/api/market/quote/${h.symbol}`)
+            const data = await response.json()
+            return { ...h, currentPrice: data.price || h.currentPrice }
+          } catch {
+            return h
+          }
+        })
+      )
+      setHoldings(updatedHoldings)
+    } catch (err) {
+      setError('Failed to refresh prices')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -40,15 +85,46 @@ export function Portfolio() {
     setHoldings(holdings.filter(h => h.symbol !== symbol))
   }
 
+  // Calculate totals only if we have holdings
   const totalValue = holdings.reduce((sum, h) => sum + h.shares * h.currentPrice, 0)
   const totalCost = holdings.reduce((sum, h) => sum + h.shares * h.costBasis, 0)
   const totalPnL = totalValue - totalCost
-  const totalPnLPct = (totalPnL / totalCost) * 100
+  const totalPnLPct = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0
 
-  const sectorData = [
-    { name: 'Technology', value: 65, color: '#f0b90b' },
-    { name: 'Semis', value: 35, color: '#00c853' },
-  ]
+  // Calculate sector breakdown dynamically from holdings
+  const sectorData = useMemo(() => {
+    if (holdings.length === 0) return []
+
+    // Group by symbol for now (could integrate sector data from API)
+    return holdings.map(h => ({
+      name: h.symbol,
+      value: totalValue > 0 ? (h.shares * h.currentPrice / totalValue) * 100 : 0,
+      color: ['#f0b90b', '#00c853', '#ff5252', '#2196f3', '#9c27b0', '#ff9800'][holdings.indexOf(h) % 6]
+    }))
+  }, [holdings, totalValue])
+
+  // Save portfolio to localStorage
+  const savePortfolio = () => {
+    localStorage.setItem('portfolio_holdings', JSON.stringify(holdings))
+    alert('Portfolio saved!')
+  }
+
+  // Load portfolio from localStorage
+  const loadPortfolio = () => {
+    const saved = localStorage.getItem('portfolio_holdings')
+    if (saved) {
+      try {
+        setHoldings(JSON.parse(saved))
+      } catch {
+        setError('Failed to load saved portfolio')
+      }
+    }
+  }
+
+  // Load saved portfolio on mount
+  useEffect(() => {
+    loadPortfolio()
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -64,16 +140,26 @@ export function Portfolio() {
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="btn-secondary flex items-center gap-2">
+          <button onClick={refreshPrices} disabled={loading || holdings.length === 0} className="btn-secondary flex items-center gap-2">
+            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            Refresh
+          </button>
+          <button onClick={savePortfolio} className="btn-secondary flex items-center gap-2">
             <Save className="w-4 h-4" />
             Save
           </button>
-          <button className="btn-secondary flex items-center gap-2">
+          <button onClick={loadPortfolio} className="btn-secondary flex items-center gap-2">
             <Upload className="w-4 h-4" />
             Load
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-4">
         {/* Add Position */}
@@ -111,9 +197,9 @@ export function Portfolio() {
                 step={0.01}
               />
             </div>
-            <button onClick={addPosition} className="btn-primary flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Add
+            <button onClick={addPosition} disabled={loading} className="btn-primary flex items-center gap-2">
+              <Plus className={cn('w-4 h-4', loading && 'animate-spin')} />
+              {loading ? 'Adding...' : 'Add'}
             </button>
           </div>
         </div>
@@ -123,128 +209,132 @@ export function Portfolio() {
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-bold">Holdings</h3>
           </div>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Shares</th>
-                <th>Cost</th>
-                <th>Price</th>
-                <th>Value</th>
-                <th>P&L $</th>
-                <th>P&L %</th>
-                <th>Weight</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.map((h) => {
-                const value = h.shares * h.currentPrice
-                const cost = h.shares * h.costBasis
-                const pnl = value - cost
-                const pnlPct = (pnl / cost) * 100
-                const weight = (value / totalValue) * 100
+          {holdings.length === 0 ? (
+            <div className="p-8 text-center text-foreground-muted">
+              <p className="text-sm">No holdings yet</p>
+              <p className="text-xs mt-1">Add your first position above to get started</p>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Shares</th>
+                  <th>Cost</th>
+                  <th>Price</th>
+                  <th>Value</th>
+                  <th>P&L $</th>
+                  <th>P&L %</th>
+                  <th>Weight</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {holdings.map((h) => {
+                  const value = h.shares * h.currentPrice
+                  const cost = h.shares * h.costBasis
+                  const pnl = value - cost
+                  const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0
+                  const weight = totalValue > 0 ? (value / totalValue) * 100 : 0
 
-                return (
-                  <tr key={h.symbol}>
-                    <td className="font-medium">{h.symbol}</td>
-                    <td className="font-mono">{h.shares}</td>
-                    <td className="font-mono">${h.costBasis.toFixed(2)}</td>
-                    <td className="font-mono">${h.currentPrice.toFixed(2)}</td>
-                    <td className="font-mono">${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                    <td className={cn('font-mono', pnl >= 0 ? 'text-bullish' : 'text-bearish')}>
-                      {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
-                    </td>
-                    <td className={cn('font-mono', pnlPct >= 0 ? 'text-bullish' : 'text-bearish')}>
-                      {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
-                    </td>
-                    <td className="font-mono">{weight.toFixed(1)}%</td>
-                    <td>
-                      <button
-                        onClick={() => removePosition(h.symbol)}
-                        className="p-1 text-foreground-muted hover:text-bearish transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={h.symbol}>
+                      <td className="font-medium">{h.symbol}</td>
+                      <td className="font-mono">{h.shares}</td>
+                      <td className="font-mono">${h.costBasis.toFixed(2)}</td>
+                      <td className="font-mono">${h.currentPrice.toFixed(2)}</td>
+                      <td className="font-mono">${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                      <td className={cn('font-mono', pnl >= 0 ? 'text-bullish' : 'text-bearish')}>
+                        {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                      </td>
+                      <td className={cn('font-mono', pnlPct >= 0 ? 'text-bullish' : 'text-bearish')}>
+                        {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                      </td>
+                      <td className="font-mono">{weight.toFixed(1)}%</td>
+                      <td>
+                        <button
+                          onClick={() => removePosition(h.symbol)}
+                          className="p-1 text-foreground-muted hover:text-bearish transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* Summary */}
         <div className="col-span-4 space-y-4">
           <div className="card p-4">
             <h3 className="text-xs font-bold text-foreground-muted mb-3">PORTFOLIO SUMMARY</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-xs text-foreground-muted">Total Value</span>
-                <span className="text-lg font-mono font-bold">
-                  ${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-foreground-muted">Total Cost</span>
-                <span className="text-sm font-mono">
-                  ${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>
-              </div>
-              <div className="border-t border-border pt-3">
+            {holdings.length === 0 ? (
+              <p className="text-xs text-foreground-muted text-center py-4">Add positions to see summary</p>
+            ) : (
+              <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-xs text-foreground-muted">Total P&L</span>
-                  <span className={cn(
-                    'text-lg font-mono font-bold',
-                    totalPnL >= 0 ? 'text-bullish' : 'text-bearish'
-                  )}>
-                    {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
+                  <span className="text-xs text-foreground-muted">Total Value</span>
+                  <span className="text-lg font-mono font-bold">
+                    ${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </span>
                 </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-xs text-foreground-muted">Return</span>
-                  <span className={cn(
-                    'text-sm font-mono font-bold',
-                    totalPnLPct >= 0 ? 'text-bullish' : 'text-bearish'
-                  )}>
-                    {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
+                <div className="flex justify-between">
+                  <span className="text-xs text-foreground-muted">Total Cost</span>
+                  <span className="text-sm font-mono">
+                    ${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </span>
+                </div>
+                <div className="border-t border-border pt-3">
+                  <div className="flex justify-between">
+                    <span className="text-xs text-foreground-muted">Total P&L</span>
+                    <span className={cn(
+                      'text-lg font-mono font-bold',
+                      totalPnL >= 0 ? 'text-bullish' : 'text-bearish'
+                    )}>
+                      {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-xs text-foreground-muted">Return</span>
+                    <span className={cn(
+                      'text-sm font-mono font-bold',
+                      totalPnLPct >= 0 ? 'text-bullish' : 'text-bearish'
+                    )}>
+                      {totalPnLPct >= 0 ? '+' : ''}{totalPnLPct.toFixed(2)}%
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="card p-4">
-            <h3 className="text-xs font-bold text-foreground-muted mb-3">SECTOR BREAKDOWN</h3>
-            <div className="flex justify-center">
-              <DonutChart data={sectorData} size={120} />
-            </div>
+            <h3 className="text-xs font-bold text-foreground-muted mb-3">ALLOCATION</h3>
+            {sectorData.length === 0 ? (
+              <p className="text-xs text-foreground-muted text-center py-4">Add positions to see allocation</p>
+            ) : (
+              <div className="flex justify-center">
+                <DonutChart data={sectorData} size={120} />
+              </div>
+            )}
           </div>
 
           <div className="card p-4">
             <h3 className="text-xs font-bold text-foreground-muted mb-3">RISK METRICS</h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-foreground-muted">Sharpe Ratio</span>
-                <span className="font-mono">1.85</span>
+            {holdings.length === 0 ? (
+              <p className="text-xs text-foreground-muted text-center py-4">Add positions to calculate metrics</p>
+            ) : (
+              <div className="space-y-2 text-xs">
+                <p className="text-foreground-muted text-center">
+                  Risk metrics require historical data.
+                  <br />
+                  Connect to a data provider to calculate.
+                </p>
               </div>
-              <div className="flex justify-between">
-                <span className="text-foreground-muted">Sortino Ratio</span>
-                <span className="font-mono">2.34</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-foreground-muted">Beta</span>
-                <span className="font-mono">1.15</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-foreground-muted">Max Drawdown</span>
-                <span className="font-mono text-bearish">-8.5%</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-foreground-muted">VaR 95%</span>
-                <span className="font-mono">3.2%</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

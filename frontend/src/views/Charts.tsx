@@ -25,8 +25,8 @@ export function Charts() {
     const fetchChartData = async () => {
       setError(null)
       try {
-        // Fetch OHLCV data
-        const response = await fetch(`/api/market/history/${ticker}?interval=${interval}`)
+        // Fetch OHLCV data - use correct endpoint
+        const response = await fetch(`/api/charts/ohlcv/${ticker}?timeframe=${interval}`)
         const data = await response.json()
 
         if (!response.ok) {
@@ -38,22 +38,23 @@ export function Charts() {
           return
         }
 
-        const bars = data.data?.bars || data.bars || data.data || []
+        // Handle different response formats
+        const bars = data.bars || data.data?.bars || data.ohlcv || data.data || []
         setChartData(bars)
 
-        // Fetch indicators
-        const indicatorRes = await fetch(`/api/market/indicators/${ticker}?interval=${interval}`)
+        // Fetch indicators - use correct endpoint
+        const indicatorRes = await fetch(`/api/charts/indicators/${ticker}?timeframe=${interval}`)
         const indicatorData = await indicatorRes.json()
 
         if (indicatorRes.ok && indicatorData.status !== 'unavailable') {
-          const ind = indicatorData.data || indicatorData
+          const ind = indicatorData.indicators || indicatorData.data || indicatorData
           setIndicators({
-            sma_20: ind.sma_20 || ind.sma20 || 0,
-            sma_50: ind.sma_50 || ind.sma50 || 0,
-            rsi: ind.rsi || ind.rsi14 || 50,
-            macd: ind.macd || 0,
-            adx: ind.adx || 25,
-            atr: ind.atr || 0,
+            sma_20: ind.sma_20 || ind.sma20 || ind.SMA_20 || 0,
+            sma_50: ind.sma_50 || ind.sma50 || ind.SMA_50 || 0,
+            rsi: ind.rsi || ind.rsi14 || ind.RSI || 50,
+            macd: ind.macd || ind.MACD || 0,
+            adx: ind.adx || ind.ADX || 25,
+            atr: ind.atr || ind.ATR || 0,
             trend: ind.trend || (ind.rsi > 50 ? 'UP' : ind.rsi < 50 ? 'DOWN' : 'FLAT')
           })
         }

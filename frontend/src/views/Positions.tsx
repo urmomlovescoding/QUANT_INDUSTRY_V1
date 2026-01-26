@@ -42,76 +42,78 @@ interface ClosedTrade {
   strategy: string
 }
 
-const positions: Position[] = [
-  { id: '1', symbol: 'AAPL', side: 'long', qty: 100, entryPrice: 182.50, currentPrice: 185.92, unrealizedPnl: 342.00, unrealizedPnlPercent: 1.87, stopLoss: 178.00, takeProfit: 195.00 },
-  { id: '2', symbol: 'NVDA', side: 'long', qty: 25, entryPrice: 865.00, currentPrice: 878.45, unrealizedPnl: 336.25, unrealizedPnlPercent: 1.56, stopLoss: 840.00, takeProfit: 920.00 },
-  { id: '3', symbol: 'TSLA', side: 'short', qty: 50, entryPrice: 255.00, currentPrice: 248.32, unrealizedPnl: 334.00, unrealizedPnlPercent: 2.62, stopLoss: 265.00, takeProfit: 230.00 },
-  { id: '4', symbol: 'META', side: 'long', qty: 40, entryPrice: 498.00, currentPrice: 505.23, unrealizedPnl: 289.20, unrealizedPnlPercent: 1.45, stopLoss: 485.00, takeProfit: 530.00 },
-  { id: '5', symbol: 'MSFT', side: 'long', qty: 30, entryPrice: 420.00, currentPrice: 415.67, unrealizedPnl: -129.90, unrealizedPnlPercent: -1.03, stopLoss: 405.00, takeProfit: 445.00 },
-]
-
-// Generate mock closed trades
-const generateClosedTrades = (): ClosedTrade[] => {
-  const symbols = ['AAPL', 'NVDA', 'TSLA', 'META', 'MSFT', 'GOOGL', 'AMZN', 'AMD', 'SPY', 'QQQ']
-  const strategies = ['Momentum', 'Mean Reversion', 'Trend Following', 'ML Ensemble', 'RSI Divergence']
-  const trades: ClosedTrade[] = []
-
-  for (let i = 0; i < 20; i++) {
-    const symbol = symbols[Math.floor(Math.random() * symbols.length)]
-    const side = Math.random() > 0.5 ? 'long' : 'short'
-    const qty = Math.floor(Math.random() * 100) + 10
-    const entryPrice = 100 + Math.random() * 400
-    const pnlPercent = (Math.random() - 0.4) * 10
-    const exitPrice = entryPrice * (1 + (side === 'long' ? pnlPercent : -pnlPercent) / 100)
-    const pnl = (exitPrice - entryPrice) * qty * (side === 'long' ? 1 : -1)
-    const hoursAgo = Math.floor(Math.random() * 168) + 1
-    const durationMinutes = Math.floor(Math.random() * 480) + 5
-
-    trades.push({
-      id: `trade_${i}`,
-      symbol,
-      side,
-      qty,
-      entryPrice,
-      exitPrice,
-      realizedPnl: pnl,
-      realizedPnlPercent: pnlPercent,
-      entryTime: new Date(Date.now() - hoursAgo * 3600000 - durationMinutes * 60000).toISOString(),
-      exitTime: new Date(Date.now() - hoursAgo * 3600000).toISOString(),
-      duration: durationMinutes < 60 ? `${durationMinutes}m` : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`,
-      strategy: strategies[Math.floor(Math.random() * strategies.length)],
-    })
-  }
-
-  return trades.sort((a, b) => new Date(b.exitTime).getTime() - new Date(a.exitTime).getTime())
-}
+// Transform API position data
+const transformPosition = (p: any): Position => ({
+  id: p.id || p.asset_id || String(Math.random()),
+  symbol: p.symbol,
+  side: p.side || (parseFloat(p.qty || p.quantity) >= 0 ? 'long' : 'short'),
+  qty: Math.abs(parseFloat(p.qty || p.quantity || 0)),
+  entryPrice: parseFloat(p.avg_entry_price || p.entryPrice || p.cost_basis || 0),
+  currentPrice: parseFloat(p.current_price || p.currentPrice || p.market_value / Math.abs(p.qty || 1) || 0),
+  unrealizedPnl: parseFloat(p.unrealized_pl || p.unrealizedPnl || 0),
+  unrealizedPnlPercent: parseFloat(p.unrealized_plpc || p.unrealizedPnlPercent || 0) * 100,
+  stopLoss: p.stop_loss || p.stopLoss || null,
+  takeProfit: p.take_profit || p.takeProfit || null,
+})
 
 export function Positions() {
-  const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>(() => generateClosedTrades())
+  const [positions, setPositions] = useState<Position[]>([])
+  const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([])
   const [activeTab, setActiveTab] = useState<'open' | 'closed'>('open')
   const [tradeFilter, setTradeFilter] = useState<'all' | 'winners' | 'losers'>('all')
   const [currentPage, setCurrentPage] = useState(1)
   const tradesPerPage = 10
 
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   const totalPnl = positions.reduce((sum, p) => sum + p.unrealizedPnl, 0)
   const totalValue = positions.reduce((sum, p) => sum + (p.qty * p.currentPrice), 0)
 
-  // Fetch closed trades from API
+  // Fetch positions and closed trades from API
   useEffect(() => {
-    const fetchTrades = async () => {
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
+
       try {
-        const response = await fetch('/api/trades/closed')
-        if (response.ok) {
-          const data = await response.json()
-          if (Array.isArray(data) && data.length > 0) {
-            setClosedTrades(data)
+        // Fetch open positions
+        const posResponse = await fetch('/api/positions')
+        if (posResponse.ok) {
+          const posData = await posResponse.json()
+          const posList = Array.isArray(posData) ? posData : (posData.positions || [])
+          setPositions(posList.map(transformPosition))
+        }
+
+        // Fetch closed trades
+        const tradesResponse = await fetch('/api/algobot/trades')
+        if (tradesResponse.ok) {
+          const tradesData = await tradesResponse.json()
+          const tradesList = Array.isArray(tradesData) ? tradesData : (tradesData.trades || [])
+          if (tradesList.length > 0) {
+            setClosedTrades(tradesList.map((t: any) => ({
+              id: t.id || String(Math.random()),
+              symbol: t.symbol,
+              side: t.side || 'long',
+              qty: t.qty || t.quantity || 0,
+              entryPrice: t.entry_price || t.entryPrice || 0,
+              exitPrice: t.exit_price || t.exitPrice || 0,
+              realizedPnl: t.realized_pnl || t.realizedPnl || t.pnl || 0,
+              realizedPnlPercent: t.realized_pnl_percent || t.realizedPnlPercent || 0,
+              entryTime: t.entry_time || t.entryTime || new Date().toISOString(),
+              exitTime: t.exit_time || t.exitTime || new Date().toISOString(),
+              duration: t.duration || 'N/A',
+              strategy: t.strategy || 'Manual',
+            })))
           }
         }
-      } catch (error) {
-        console.error('Failed to fetch closed trades:', error)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch data')
+      } finally {
+        setLoading(false)
       }
     }
-    fetchTrades()
+    fetchData()
   }, [])
 
   const filteredTrades = useMemo(() => {

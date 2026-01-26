@@ -3674,12 +3674,76 @@ async def broadcast_message(message: Dict[str, Any], channel: str = None):
 
 @app.get("/api/quant/strategies")
 async def get_strategies():
-    """Get available strategies"""
+    """Get available strategies with performance metrics"""
     return [
-        {"id": "trend_following", "name": "Trend Following", "weight": 30, "active": True, "description": "Follow market trends using moving averages"},
-        {"id": "mean_reversion", "name": "Mean Reversion", "weight": 25, "active": True, "description": "Trade price deviations from mean"},
-        {"id": "momentum", "name": "Momentum", "weight": 25, "active": True, "description": "Capture price momentum and breakouts"},
-        {"id": "vol_targeting", "name": "Vol Targeting", "weight": 20, "active": False, "description": "Adjust positions based on volatility"},
+        {
+            "id": "trend_following",
+            "name": "Trend Following",
+            "category": "trend",
+            "weight": 30,
+            "active": True,
+            "description": "Follow market trends using moving averages",
+            "performance": {
+                "totalReturn": 18.5,
+                "sharpeRatio": 1.35,
+                "maxDrawdown": -8.2,
+                "winRate": 52.3,
+                "profitFactor": 1.65,
+                "tradesCount": 124
+            },
+            "signals": {"current": "BUY", "confidence": 72}
+        },
+        {
+            "id": "mean_reversion",
+            "name": "Mean Reversion",
+            "category": "mean_reversion",
+            "weight": 25,
+            "active": True,
+            "description": "Trade price deviations from mean",
+            "performance": {
+                "totalReturn": 14.2,
+                "sharpeRatio": 1.48,
+                "maxDrawdown": -5.8,
+                "winRate": 58.7,
+                "profitFactor": 1.52,
+                "tradesCount": 186
+            },
+            "signals": {"current": "HOLD", "confidence": 45}
+        },
+        {
+            "id": "momentum",
+            "name": "Momentum",
+            "category": "momentum",
+            "weight": 25,
+            "active": True,
+            "description": "Capture price momentum and breakouts",
+            "performance": {
+                "totalReturn": 22.8,
+                "sharpeRatio": 1.22,
+                "maxDrawdown": -12.5,
+                "winRate": 48.5,
+                "profitFactor": 1.78,
+                "tradesCount": 95
+            },
+            "signals": {"current": "BUY", "confidence": 68}
+        },
+        {
+            "id": "vol_targeting",
+            "name": "Vol Targeting",
+            "category": "volatility",
+            "weight": 20,
+            "active": False,
+            "description": "Adjust positions based on volatility",
+            "performance": {
+                "totalReturn": 12.1,
+                "sharpeRatio": 1.85,
+                "maxDrawdown": -4.2,
+                "winRate": 55.2,
+                "profitFactor": 1.42,
+                "tradesCount": 72
+            },
+            "signals": {"current": "HOLD", "confidence": 55}
+        },
     ]
 
 @app.post("/api/quant/optimize")

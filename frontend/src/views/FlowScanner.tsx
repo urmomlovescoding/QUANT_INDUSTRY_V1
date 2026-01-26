@@ -62,14 +62,15 @@ const fetchInitialFlows = async (): Promise<Flow[]> => {
 
     if (data.status === 'unavailable') return []
 
-    const flowData = data.data?.flows || data.flows || []
+    // Handle both array response and nested response formats
+    const flowData = Array.isArray(data) ? data : (data.data?.flows || data.flows || [])
     return flowData.map((f: any, i: number) => ({
       id: f.id || `flow_${i}`,
       time: f.time || new Date(f.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false }),
       symbol: f.symbol,
-      type: f.type || (f.option_type === 'call' ? 'CALL' : 'PUT'),
-      side: f.side || 'BUY',
-      sentiment: f.sentiment || 'BULLISH',
+      type: (f.type || f.option_type || 'call').toUpperCase() === 'CALL' ? 'CALL' : 'PUT',
+      side: (f.side || 'buy').toUpperCase() as 'BUY' | 'SELL',
+      sentiment: (f.sentiment || 'bullish').toUpperCase() as 'BULLISH' | 'BEARISH',
       strike: f.strike || 0,
       expiry: f.expiry || f.expiration || 'N/A',
       premium: f.premium || f.total_value || 0,
