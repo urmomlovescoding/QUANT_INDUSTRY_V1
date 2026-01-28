@@ -46,12 +46,11 @@ export function SignalsTable({
         setSignals(response.data)
       } else {
         setError(response.error?.message || 'Failed to fetch signals')
-        // Use demo data on error
-        setSignals(DEMO_SIGNALS)
+        setSignals([])
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
-      setSignals(DEMO_SIGNALS)
+      setSignals([])
     }
     setIsLoading(false)
   }, [externalSignals])
@@ -298,81 +297,4 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
   )
 }
 
-// Demo data for when API is unavailable
-const DEMO_SIGNALS: Signal[] = [
-  {
-    id: '1',
-    symbol: 'AAPL',
-    direction: 'LONG',
-    confidence: 0.85,
-    strategy: 'Momentum',
-    entry_price: 185.50,
-    stop_loss: 182.00,
-    take_profit: 195.00,
-    risk_reward: 2.7,
-    timeframe: '1H',
-    regime_alignment: true,
-    timestamp: new Date(Date.now() - 10 * 60000).toISOString(),
-    status: 'active',
-  },
-  {
-    id: '2',
-    symbol: 'TSLA',
-    direction: 'SHORT',
-    confidence: 0.72,
-    strategy: 'Mean Reversion',
-    entry_price: 248.00,
-    stop_loss: 255.00,
-    take_profit: 230.00,
-    risk_reward: 2.6,
-    timeframe: '4H',
-    regime_alignment: true,
-    timestamp: new Date(Date.now() - 25 * 60000).toISOString(),
-    status: 'active',
-  },
-  {
-    id: '3',
-    symbol: 'NVDA',
-    direction: 'LONG',
-    confidence: 0.91,
-    strategy: 'Breakout',
-    entry_price: 878.00,
-    stop_loss: 860.00,
-    take_profit: 920.00,
-    risk_reward: 2.3,
-    timeframe: '1D',
-    regime_alignment: true,
-    timestamp: new Date(Date.now() - 35 * 60000).toISOString(),
-    status: 'active',
-  },
-  {
-    id: '4',
-    symbol: 'MSFT',
-    direction: 'LONG',
-    confidence: 0.68,
-    strategy: 'Trend Follow',
-    entry_price: 415.00,
-    stop_loss: 408.00,
-    take_profit: 430.00,
-    risk_reward: 2.1,
-    timeframe: '1H',
-    regime_alignment: false,
-    timestamp: new Date(Date.now() - 45 * 60000).toISOString(),
-    status: 'active',
-  },
-  {
-    id: '5',
-    symbol: 'META',
-    direction: 'LONG',
-    confidence: 0.79,
-    strategy: 'Momentum',
-    entry_price: 505.00,
-    stop_loss: 495.00,
-    take_profit: 530.00,
-    risk_reward: 2.5,
-    timeframe: '4H',
-    regime_alignment: true,
-    timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
-    status: 'active',
-  },
-]
+// No demo data - signals come from real API only

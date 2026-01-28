@@ -64,22 +64,30 @@ const fetchInitialFlows = async (): Promise<Flow[]> => {
 
     // Handle both array response and nested response formats
     const flowData = Array.isArray(data) ? data : (data.data?.flows || data.flows || [])
-    return flowData.map((f: any, i: number) => ({
-      id: f.id || `flow_${i}`,
-      time: f.time || new Date(f.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false }),
-      symbol: f.symbol,
-      type: (f.type || f.option_type || 'call').toUpperCase() === 'CALL' ? 'CALL' : 'PUT',
-      side: (f.side || 'buy').toUpperCase() as 'BUY' | 'SELL',
-      sentiment: (f.sentiment || 'bullish').toUpperCase() as 'BULLISH' | 'BEARISH',
-      strike: f.strike || 0,
-      expiry: f.expiry || f.expiration || 'N/A',
-      premium: f.premium || f.total_value || 0,
-      contracts: f.contracts || f.volume || 0,
-      openInterest: f.open_interest || f.openInterest || 0,
-      volume: f.volume || 0,
-      isUnusual: f.is_unusual || f.isUnusual || f.premium > 200000,
-      isSweep: f.is_sweep || f.isSweep || false,
-    }))
+    return flowData.map((f: any, i: number) => {
+      // Map sentiment - neutral becomes based on option type (call=bullish, put=bearish)
+      let sentiment = (f.sentiment || 'bullish').toUpperCase()
+      if (sentiment === 'NEUTRAL') {
+        sentiment = (f.type || 'call').toUpperCase() === 'CALL' ? 'BULLISH' : 'BEARISH'
+      }
+
+      return {
+        id: f.id || `flow_${i}`,
+        time: f.time || new Date(f.timestamp || Date.now()).toLocaleTimeString('en-US', { hour12: false }),
+        symbol: f.symbol,
+        type: (f.type || f.option_type || 'call').toUpperCase() === 'CALL' ? 'CALL' : 'PUT',
+        side: (f.side || 'buy').toUpperCase() as 'BUY' | 'SELL',
+        sentiment: sentiment as 'BULLISH' | 'BEARISH',
+        strike: f.strike || 0,
+        expiry: f.expiry || f.expiration || 'N/A',
+        premium: f.premium || f.total_value || 0,
+        contracts: f.contracts || f.volume || 0,
+        openInterest: f.open_interest || f.openInterest || 0,
+        volume: f.volume || 0,
+        isUnusual: f.is_unusual || f.isUnusual || f.premium > 200000,
+        isSweep: f.is_sweep || f.isSweep || false,
+      }
+    })
   } catch (error) {
     console.error('Failed to fetch initial flows:', error)
     return []

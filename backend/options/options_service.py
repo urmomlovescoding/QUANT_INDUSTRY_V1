@@ -413,15 +413,35 @@ class OptionsService:
             return None
 
     def _generate_chain(self, symbol: str) -> OptionsChain:
-        """Generate synthetic options chain"""
-        try:
-            from ..services.data_service import get_data_service
-            data_service = get_data_service()
+        """Generate options chain using Black-Scholes with REAL underlying price from Alpaca"""
+        underlying_price = None
 
+        # Method 1: Try data_service directly
+        try:
+            from services.data_service import get_data_service
+            data_service = get_data_service()
             quote = data_service.get_quote(symbol)
-            underlying_price = quote.get("price", 100) if quote else 100
-        except Exception:
-            underlying_price = 100
+            if quote and hasattr(quote, 'price') and quote.price > 0:
+                underlying_price = quote.price
+                logger.info(f"Options chain using REAL price for {symbol}: ${underlying_price:.2f}")
+        except Exception as e:
+            logger.warning(f"Method 1 failed for {symbol}: {e}")
+
+        # Method 2: Try internal API call
+        if underlying_price is None:
+            try:
+                response = requests.get(f"http://localhost:8000/api/market/quote/{symbol}", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("price") and data["price"] > 0:
+                        underlying_price = data["price"]
+                        logger.info(f"Options chain using API price for {symbol}: ${underlying_price:.2f}")
+            except Exception as e:
+                logger.warning(f"Method 2 API call failed for {symbol}: {e}")
+
+        # If still no price, raise error - do NOT use fake $100 default
+        if underlying_price is None or underlying_price <= 0:
+            raise ValueError(f"Cannot generate options chain for {symbol}: unable to get real underlying price")
 
         # Generate expirations (weekly for 2 months)
         expirations = []
@@ -440,9 +460,11 @@ class OptionsService:
         strike_range = int(underlying_price * 0.15)
         strike_step = max(1, strike_range // 10)
 
-        for exp in expirations[:4]:  # First 4 expirations
+        for exp_idx, exp in enumerate(expirations[:4]):  # First 4 expirations
             T = self._calculate_time_to_expiry(exp)
-            base_iv = 0.25 + np.random.uniform(-0.05, 0.05)
+            # Deterministic IV based on symbol and expiration (no random)
+            symbol_hash = sum(ord(c) for c in symbol)
+            base_iv = 0.22 + (symbol_hash % 10) * 0.01 + exp_idx * 0.005
 
             for i in range(-10, 11):
                 strike = round(underlying_price + i * strike_step)
@@ -470,10 +492,11 @@ class OptionsService:
                 put_bid = max(0, put_price - spread / 2)
                 put_ask = put_price + spread / 2
 
-                # Generate volume and OI
+                # Generate volume and OI (deterministic based on strike)
                 atm_factor = 1 / (1 + abs(moneyness - 1) * 10)
-                volume = int(1000 * atm_factor * np.random.uniform(0.5, 1.5))
-                oi = int(10000 * atm_factor * np.random.uniform(0.5, 1.5))
+                strike_hash = (int(strike) % 17) / 17  # 0.0 to 1.0 deterministic
+                volume = int(1000 * atm_factor * (0.7 + strike_hash * 0.6))
+                oi = int(10000 * atm_factor * (0.7 + strike_hash * 0.6))
 
                 call_contract = OptionContract(
                     symbol=f"{symbol}{exp.replace('-', '')}C{strike:08.0f}",

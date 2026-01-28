@@ -1,0 +1,155 @@
+{
+  "passed": true,
+  "total_checks": 9,
+  "passed_checks": 9,
+  "failed_checks": 0,
+  "total_time_ms": 13751.847,
+  "timestamp": "2026-01-26T01:11:21.697818",
+  "results": [
+    {
+      "name": "1. App Startup",
+      "passed": true,
+      "duration_ms": 11655.27,
+      "error": null,
+      "details": {
+        "status": "healthy",
+        "services_loaded": 4
+      }
+    },
+    {
+      "name": "2. Price Fetch",
+      "passed": true,
+      "duration_ms": 0.05,
+      "error": null,
+      "details": {
+        "quotes": {
+          "SPY": {
+            "price": 688.44,
+            "source": "alpaca"
+          },
+          "AAPL": {
+            "price": 247.38,
+            "source": "alpaca"
+          },
+          "QQQ": {
+            "price": 621.5450000000001,
+            "source": "alpaca"
+          }
+        },
+        "count": 3
+      }
+    },
+    {
+      "name": "3. Data Sources",
+      "passed": true,
+      "duration_ms": 0.01,
+      "error": null,
+      "details": {
+        "sources": {
+          "alpaca": {
+            "available": true,
+            "priority": "unknown"
+          },
+          "tradier": {
+            "available": true,
+            "priority": "unknown"
+          },
+          "yahoo": {
+            "available": true,
+            "priority": "unknown"
+          },
+          "fallback": {
+            "available": true,
+            "priority": "unknown"
+          }
+        }
+      }
+    },
+    {
+      "name": "4. Chart Data",
+      "passed": true,
+      "duration_ms": 282.78,
+      "error": null,
+      "details": {
+        "timeframes_tested": 5,
+        "results": {
+          "1m": {
+            "status": 200,
+            "has_data": true
+          },
+          "5m": {
+            "status": 200,
+            "has_data": true
+          },
+          "15m": {
+            "status": 200,
+            "has_data": true
+          },
+          "1h": {
+            "status": 200,
+            "has_data": true
+          },
+          "1d": {
+            "status": 200,
+            "has_data": true
+          }
+        }
+      }
+    },
+    {
+      "name": "5. Bot Ticks",
+      "passed": true,
+      "duration_ms": 0.97,
+      "error": null,
+      "details": {
+        "ticks_executed": 10,
+        "avg_tick_ms": 0.0,
+        "all_passed": true
+      }
+    },
+    {
+      "name": "6. Trade Logging",
+      "passed": true,
+      "duration_ms": 0.31,
+      "error": null,
+      "details": {
+        "trade_logged": true,
+        "entry_id": "j_20260126011133624765",
+        "method": "record_decision"
+      }
+    },
+    {
+      "name": "7. Brain V6",
+      "passed": true,
+      "duration_ms": 1724.05,
+      "error": null,
+      "details": {
+        "initialized": true,
+        "has_strategies": true,
+        "has_risk_manager": false
+      }
+    },
+    {
+      "name": "8. API Endpoints",
+      "passed": true,
+      "duration_ms": 86.38,
+      "error": null,
+      "details": {
+        "endpoints_tested": 5,
+        "all_passed": true
+      }
+    },
+    {
+      "name": "9. No Sim Data Leak",
+      "passed": true,
+      "duration_ms": 0.41,
+      "error": null,
+      "details": {
+        "sources_used": [
+          "alpaca"
+        ],
+        "has_live_source": true
+      }
+    }
+  ]
+}

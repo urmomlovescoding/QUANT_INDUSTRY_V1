@@ -1102,22 +1102,14 @@ async def get_movers():
         except Exception as e:
             logger.warning(f"Live movers data failed: {e}")
 
-    # Fallback to static data
-    gainers = [
-        {"symbol": "NVDA", "price": 142.85, "change_pct": 5.25, "volume": 85000000},
-        {"symbol": "AMD", "price": 125.30, "change_pct": 4.15, "volume": 65000000},
-        {"symbol": "SMCI", "price": 45.80, "change_pct": 3.85, "volume": 42000000},
-        {"symbol": "PLTR", "price": 78.50, "change_pct": 3.45, "volume": 38000000},
-        {"symbol": "MSTR", "price": 385.20, "change_pct": 3.25, "volume": 12000000},
-    ]
-    losers = [
-        {"symbol": "INTC", "price": 22.45, "change_pct": -3.85, "volume": 55000000},
-        {"symbol": "BA", "price": 175.30, "change_pct": -2.95, "volume": 18000000},
-        {"symbol": "PFE", "price": 26.85, "change_pct": -2.45, "volume": 32000000},
-        {"symbol": "DIS", "price": 112.50, "change_pct": -1.85, "volume": 15000000},
-        {"symbol": "PYPL", "price": 68.90, "change_pct": -1.65, "volume": 22000000},
-    ]
-    return {"gainers": gainers, "losers": losers}
+    # Return empty when no live data available - no fake movers
+    return {
+        "status": "unavailable",
+        "gainers": [],
+        "losers": [],
+        "message": "Market movers data unavailable - requires market hours or premium data feed",
+        "timestamp": datetime.now().isoformat()
+    }
 
 # ============== STOCK SCREENER ==============
 
@@ -1614,48 +1606,9 @@ async def get_positions():
         except Exception as e:
             logger.warning(f"Failed to get broker positions: {e}")
 
-    # Fallback: simulated positions with real current prices
-    try:
-        data_service = get_data_service()
-
-        # Base simulated positions (would normally come from a database)
-        base_positions = [
-            {"symbol": "NVDA", "side": "LONG", "quantity": 100, "entry_price": 138.50},
-            {"symbol": "AAPL", "side": "LONG", "quantity": 50, "entry_price": 230.00},
-            {"symbol": "AMD", "side": "LONG", "quantity": 200, "entry_price": 128.00},
-        ]
-
-        positions = []
-        for idx, bp in enumerate(base_positions):
-            try:
-                quote = data_service.get_quote(bp["symbol"])
-                current_price = quote.price if quote else bp["entry_price"]
-
-                if bp["side"] == "LONG":
-                    pnl = (current_price - bp["entry_price"]) * bp["quantity"]
-                else:
-                    pnl = (bp["entry_price"] - current_price) * bp["quantity"]
-
-                pnl_pct = ((current_price - bp["entry_price"]) / bp["entry_price"]) * 100
-
-                positions.append(Position(
-                    id=f"POS{idx+1:03d}",
-                    symbol=bp["symbol"],
-                    side=bp["side"],
-                    quantity=bp["quantity"],
-                    entry_price=bp["entry_price"],
-                    current_price=round(current_price, 2),
-                    pnl=round(pnl, 2),
-                    pnl_pct=round(pnl_pct, 2)
-                ))
-            except Exception as e:
-                logger.warning(f"Failed to get price for {bp['symbol']}: {e}")
-
-        return positions
-
-    except Exception as e:
-        logger.error(f"Positions error: {e}")
-        return []
+    # No broker positions available - return empty array
+    # User can add their own positions through the frontend
+    return []
 
 # ============== BACKTESTING ==============
 
@@ -2770,37 +2723,12 @@ async def get_portfolio():
     except Exception as e:
         logger.debug(f"Using paper portfolio data: {e}")
 
-    # Default paper trading values if no real positions
-    if not positions:
-        # Use holdings data for paper portfolio
-        base_holdings = [
-            {"symbol": "NVDA", "shares": 100, "cost_basis": 135.00},
-            {"symbol": "AAPL", "shares": 80, "cost_basis": 225.00},
-            {"symbol": "MSFT", "shares": 40, "cost_basis": 420.00},
-            {"symbol": "AMD", "shares": 100, "cost_basis": 130.00},
-        ]
-
-        data_service = get_data_service()
-        for h in base_holdings:
-            try:
-                quote = data_service.get_quote(h["symbol"])
-                current_price = quote.price if quote else h["cost_basis"]
-                day_change = quote.change if quote else 0
-            except Exception:
-                current_price = h["cost_basis"]
-                day_change = 0
-
-            value = h["shares"] * current_price
-            cost = h["shares"] * h["cost_basis"]
-            total_position_value += value
-            total_pnl += value - cost
-            day_pnl += h["shares"] * day_change
-
-    # Calculate portfolio metrics
-    starting_equity = 100000  # Initial paper trading balance
+    # Return clean portfolio - no fake positions
+    # User can add their own positions through the frontend
+    starting_equity = 100000  # Default paper trading starting balance
     equity = starting_equity + total_pnl
     cash = equity - total_position_value
-    buying_power = cash * 2  # 2x margin for paper trading
+    buying_power = cash * 2  # 2x margin
 
     day_pnl_pct = (day_pnl / equity) * 100 if equity > 0 else 0
     total_pnl_pct = (total_pnl / starting_equity) * 100 if starting_equity > 0 else 0
@@ -2813,68 +2741,22 @@ async def get_portfolio():
         "day_pnl_pct": round(day_pnl_pct, 2),
         "total_pnl": round(total_pnl, 2),
         "total_pnl_pct": round(total_pnl_pct, 2),
-        "positions_count": len(positions) if positions else 4
+        "positions_count": len(positions)
     }
 
 @app.get("/api/portfolio/holdings")
 async def get_portfolio_holdings():
-    """Get portfolio holdings with REAL current prices"""
-    # Base holdings data (would come from user's saved portfolio in production)
-    base_holdings = [
-        {"symbol": "NVDA", "shares": 100, "cost_basis": 135.00},
-        {"symbol": "AAPL", "shares": 80, "cost_basis": 225.00},
-        {"symbol": "MSFT", "shares": 40, "cost_basis": 420.00},
-        {"symbol": "AMD", "shares": 100, "cost_basis": 130.00},
-    ]
-
-    # Get real current prices
-    data_service = get_data_service()
-    holdings = []
-
-    for h in base_holdings:
-        try:
-            quote = data_service.get_quote(h["symbol"])
-            current_price = quote.price if quote else h["cost_basis"]
-            day_change = quote.change if quote else 0
-        except Exception:
-            current_price = h["cost_basis"]
-            day_change = 0
-
-        value = h["shares"] * current_price
-        cost = h["shares"] * h["cost_basis"]
-        pnl = value - cost
-        pnl_pct = (pnl / cost) * 100 if cost > 0 else 0
-
-        holdings.append(PortfolioHolding(
-            symbol=h["symbol"],
-            shares=h["shares"],
-            cost_basis=h["cost_basis"],
-            current_price=round(current_price, 2),
-            value=round(value, 2),
-            pnl=round(pnl, 2),
-            pnl_pct=round(pnl_pct, 2),
-            weight=0,  # Will calculate below
-            day_change=round(day_change, 2)
-        ))
-
-    # Calculate weights
-    total_value = sum(h.value for h in holdings)
-    for h in holdings:
-        h.weight = round((h.value / total_value) * 100, 1) if total_value > 0 else 0
-
-    total_cost = sum(h.cost_basis * h.shares for h in holdings)
-    total_pnl = sum(h.pnl for h in holdings)
-    day_change_total = sum(h.day_change * h.shares for h in holdings)
-
+    """Get portfolio holdings - returns empty until user adds positions"""
+    # No fake holdings - user adds their own through frontend
     return {
-        "holdings": holdings,
+        "holdings": [],
         "summary": {
-            "total_value": round(total_value, 2),
-            "total_cost": round(total_cost, 2),
-            "total_pnl": round(total_pnl, 2),
-            "total_pnl_pct": round((total_pnl / total_cost) * 100, 2) if total_cost > 0 else 0,
-            "day_change": round(day_change_total, 2),
-            "day_change_pct": round((day_change_total / total_value) * 100, 2) if total_value > 0 else 0
+            "total_value": 0,
+            "total_cost": 0,
+            "total_pnl": 0,
+            "total_pnl_pct": 0,
+            "day_change": 0,
+            "day_change_pct": 0
         }
     }
 
@@ -3674,8 +3556,24 @@ async def broadcast_message(message: Dict[str, Any], channel: str = None):
 
 @app.get("/api/quant/strategies")
 async def get_strategies():
-    """Get available strategies with performance metrics"""
-    return [
+    """Get available strategies - performance metrics are tracked from actual trades"""
+    # Get actual strategy performance from brain if available
+    strategy_stats = {}
+    if BRAIN_V6_AVAILABLE:
+        try:
+            brain = get_brain_v6()
+            if hasattr(brain, 'strategies'):
+                for strat in brain.strategies:
+                    strategy_stats[strat.name.lower().replace(' ', '_')] = {
+                        "win_rate": strat.win_rate * 100 if hasattr(strat, 'win_rate') else 0,
+                        "trades": strat.trades if hasattr(strat, 'trades') else 0,
+                        "pnl": strat.pnl if hasattr(strat, 'pnl') else 0
+                    }
+        except Exception:
+            pass
+
+    # Strategy definitions with actual performance from tracked trades
+    strategies = [
         {
             "id": "trend_following",
             "name": "Trend Following",
@@ -3684,14 +3582,14 @@ async def get_strategies():
             "active": True,
             "description": "Follow market trends using moving averages",
             "performance": {
-                "totalReturn": 18.5,
-                "sharpeRatio": 1.35,
-                "maxDrawdown": -8.2,
-                "winRate": 52.3,
-                "profitFactor": 1.65,
-                "tradesCount": 124
+                "totalReturn": strategy_stats.get("trendfollowing", {}).get("pnl", 0),
+                "winRate": strategy_stats.get("trendfollowing", {}).get("win_rate", 0),
+                "tradesCount": strategy_stats.get("trendfollowing", {}).get("trades", 0),
+                "sharpeRatio": 0,
+                "maxDrawdown": 0,
+                "profitFactor": 0
             },
-            "signals": {"current": "BUY", "confidence": 72}
+            "signals": {"current": "HOLD", "confidence": 0}
         },
         {
             "id": "mean_reversion",
@@ -3701,14 +3599,14 @@ async def get_strategies():
             "active": True,
             "description": "Trade price deviations from mean",
             "performance": {
-                "totalReturn": 14.2,
-                "sharpeRatio": 1.48,
-                "maxDrawdown": -5.8,
-                "winRate": 58.7,
-                "profitFactor": 1.52,
-                "tradesCount": 186
+                "totalReturn": strategy_stats.get("meanreversion", {}).get("pnl", 0),
+                "winRate": strategy_stats.get("meanreversion", {}).get("win_rate", 0),
+                "tradesCount": strategy_stats.get("meanreversion", {}).get("trades", 0),
+                "sharpeRatio": 0,
+                "maxDrawdown": 0,
+                "profitFactor": 0
             },
-            "signals": {"current": "HOLD", "confidence": 45}
+            "signals": {"current": "HOLD", "confidence": 0}
         },
         {
             "id": "momentum",
@@ -3718,14 +3616,14 @@ async def get_strategies():
             "active": True,
             "description": "Capture price momentum and breakouts",
             "performance": {
-                "totalReturn": 22.8,
-                "sharpeRatio": 1.22,
-                "maxDrawdown": -12.5,
-                "winRate": 48.5,
-                "profitFactor": 1.78,
-                "tradesCount": 95
+                "totalReturn": strategy_stats.get("momentum", {}).get("pnl", 0),
+                "winRate": strategy_stats.get("momentum", {}).get("win_rate", 0),
+                "tradesCount": strategy_stats.get("momentum", {}).get("trades", 0),
+                "sharpeRatio": 0,
+                "maxDrawdown": 0,
+                "profitFactor": 0
             },
-            "signals": {"current": "BUY", "confidence": 68}
+            "signals": {"current": "HOLD", "confidence": 0}
         },
         {
             "id": "vol_targeting",
@@ -3735,16 +3633,17 @@ async def get_strategies():
             "active": False,
             "description": "Adjust positions based on volatility",
             "performance": {
-                "totalReturn": 12.1,
-                "sharpeRatio": 1.85,
-                "maxDrawdown": -4.2,
-                "winRate": 55.2,
-                "profitFactor": 1.42,
-                "tradesCount": 72
+                "totalReturn": strategy_stats.get("volume", {}).get("pnl", 0),
+                "winRate": strategy_stats.get("volume", {}).get("win_rate", 0),
+                "tradesCount": strategy_stats.get("volume", {}).get("trades", 0),
+                "sharpeRatio": 0,
+                "maxDrawdown": 0,
+                "profitFactor": 0
             },
-            "signals": {"current": "HOLD", "confidence": 55}
+            "signals": {"current": "HOLD", "confidence": 0}
         },
     ]
+    return strategies
 
 @app.post("/api/quant/optimize")
 async def optimize_portfolio(
@@ -5101,44 +5000,14 @@ async def scan_pairs_legacy(symbols: List[str] = None):
 @app.get("/api/news")
 async def get_news(symbols: str = None, limit: int = 20):
     """Get market news with sentiment analysis"""
-    headlines = [
-        {"title": "Fed Signals Potential Rate Cut in Q2", "symbols": ["SPY", "QQQ"], "category": "economy", "sentiment": 0.6},
-        {"title": "NVIDIA Reports Record Revenue", "symbols": ["NVDA", "AMD"], "category": "earnings", "sentiment": 0.85},
-        {"title": "Tesla Cuts Prices Amid Competition", "symbols": ["TSLA"], "category": "company", "sentiment": -0.45},
-        {"title": "Bitcoin Breaks $100K Milestone", "symbols": ["BTC", "MSTR"], "category": "crypto", "sentiment": 0.75},
-        {"title": "Oil Prices Drop on OPEC+ News", "symbols": ["USO", "XOM"], "category": "commodities", "sentiment": -0.3},
-    ]
-
-    # Map headlines to deterministic sources (no random selection)
-    sources = ["Bloomberg", "Reuters", "CNBC", "WSJ", "MarketWatch"]
-    articles = []
-
-    for i, h in enumerate(headlines[:limit]):
-        # Use deterministic source based on index (no random)
-        source = sources[i % len(sources)]
-        # Confidence based on sentiment magnitude (no random)
-        confidence = 70 + abs(h["sentiment"]) * 25
-
-        articles.append({
-            "id": f"news_{i}",
-            "title": h["title"],
-            "summary": f"Market analysis suggests {(h['sentiment'] > 0 and 'positive') or 'negative'} impact on related securities.",
-            "source": source,
-            "url": "#",
-            "publishedAt": (datetime.now() - timedelta(hours=i*2)).isoformat(),
-            "symbols": h["symbols"],
-            "sentiment": {
-                "score": h["sentiment"],
-                "label": "bullish" if h["sentiment"] > 0.2 else "bearish" if h["sentiment"] < -0.2 else "neutral",
-                "confidence": round(confidence, 1)
-            },
-            "category": h["category"],
-            "isBreaking": i < 2,
-            "saved": False,
-            "_note": "Sample headlines for demonstration. Connect NewsAPI for real news."
-        })
-
-    return articles
+    # News API not configured - return empty array with status note
+    # To enable real news, configure NewsAPI or Benzinga API credentials
+    return {
+        "status": "unavailable",
+        "articles": [],
+        "message": "News API not configured. Add NewsAPI or Benzinga credentials to enable real-time news.",
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.get("/api/news/sentiment")
 async def get_market_sentiment():
@@ -6046,29 +5915,36 @@ async def analyze_ict(symbol: str):
 
         # Get historical data
         bars = data_service.get_historical(symbol, "1D", 100)
-        if bars.empty:
+        if not bars or (hasattr(bars, 'empty') and bars.empty) or (isinstance(bars, list) and len(bars) == 0):
             raise HTTPException(status_code=404, detail=f"No data for {symbol}")
 
-        # Detect ICT setups
-        setups = analyzer.detect_setups(bars)
+        # Convert bars to lists for analyze_candles
+        from datetime import datetime
+        opens = [getattr(b, 'open', b.get('open', 0) if isinstance(b, dict) else 0) for b in bars]
+        highs = [getattr(b, 'high', b.get('high', 0) if isinstance(b, dict) else 0) for b in bars]
+        lows = [getattr(b, 'low', b.get('low', 0) if isinstance(b, dict) else 0) for b in bars]
+        closes = [getattr(b, 'close', b.get('close', 0) if isinstance(b, dict) else 0) for b in bars]
+        timestamps = []
+        for b in bars:
+            ts = getattr(b, 'timestamp', None) or (b.get('timestamp') if isinstance(b, dict) else None)
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            elif ts is None:
+                ts = datetime.now()
+            timestamps.append(ts)
+
+        # Analyze with ICT methodology
+        result = analyzer.analyze_candles(opens, highs, lows, closes, timestamps)
 
         return {
             "symbol": symbol,
-            "bias": analyzer.current_bias.value if hasattr(analyzer, 'current_bias') and analyzer.current_bias else "neutral",
-            "setups": [
-                {
-                    "type": s.setup_type,
-                    "direction": s.direction,
-                    "entry_zone": s.entry_zone,
-                    "stop_loss": s.stop_loss,
-                    "targets": s.targets,
-                    "confidence": s.confidence,
-                    "timestamp": s.timestamp.isoformat() if hasattr(s, 'timestamp') else None
-                }
-                for s in setups[:10]  # Return top 10 setups
-            ],
-            "fvg_count": len(analyzer.fair_value_gaps) if hasattr(analyzer, 'fair_value_gaps') else 0,
-            "order_block_count": len(analyzer.order_blocks) if hasattr(analyzer, 'order_blocks') else 0
+            "bias": result.get("htf_bias", "neutral"),
+            "ltf_bias": result.get("ltf_bias", "neutral"),
+            "fvgs": result.get("fvgs", []),
+            "order_blocks": result.get("order_blocks", []),
+            "fvg_count": result.get("fvg_count", 0),
+            "order_block_count": result.get("order_block_count", 0),
+            "active_setups": result.get("active_setups", 0)
         }
     except Exception as e:
         logger.error(f"ICT analysis error: {e}")
@@ -6200,18 +6076,37 @@ async def detect_regime(symbol: str):
 
         # Get historical data
         bars = data_service.get_historical(symbol, "1D", 50)
-        if bars.empty:
+        if not bars or (hasattr(bars, 'empty') and bars.empty) or (isinstance(bars, list) and len(bars) == 0):
             raise HTTPException(status_code=404, detail=f"No data for {symbol}")
 
+        # Convert bars to lists for detect_regime
+        from datetime import datetime
+        opens = [getattr(b, 'open', b.get('open', 0) if isinstance(b, dict) else 0) for b in bars]
+        highs = [getattr(b, 'high', b.get('high', 0) if isinstance(b, dict) else 0) for b in bars]
+        lows = [getattr(b, 'low', b.get('low', 0) if isinstance(b, dict) else 0) for b in bars]
+        closes = [getattr(b, 'close', b.get('close', 0) if isinstance(b, dict) else 0) for b in bars]
+        volumes = [getattr(b, 'volume', b.get('volume', 0) if isinstance(b, dict) else 0) for b in bars]
+        timestamps = []
+        for b in bars:
+            ts = getattr(b, 'timestamp', None) or (b.get('timestamp') if isinstance(b, dict) else None)
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            elif ts is None:
+                ts = datetime.now()
+            timestamps.append(ts)
+
         # Detect regime
-        state = discovery.detect_regime(bars)
+        state = discovery.detect_regime(opens, highs, lows, closes, volumes, timestamps)
 
         return {
             "symbol": symbol,
             "regime": state.regime.value if hasattr(state.regime, 'value') else str(state.regime),
             "confidence": state.confidence,
-            "duration": state.duration,
-            "metrics": state.metrics if hasattr(state, 'metrics') else {}
+            "duration": getattr(state, 'duration', 0),
+            "since": state.since.isoformat() if hasattr(state, 'since') and state.since else None,
+            "trend_strength": getattr(state, 'trend_strength', 0),
+            "volatility_level": getattr(state, 'volatility_level', 0),
+            "metrics": getattr(state, 'metrics', {})
         }
     except Exception as e:
         logger.error(f"Regime detection error: {e}")

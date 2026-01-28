@@ -60,17 +60,8 @@ const QUICK_SYMBOLS = [
   { symbol: 'MSFT', name: 'Microsoft', multiplier: 1 },
 ]
 
-// Mock prices (would come from WebSocket in real app)
-const MOCK_PRICES: Record<string, { bid: number; ask: number; last: number }> = {
-  ES: { bid: 5125.25, ask: 5125.50, last: 5125.25 },
-  NQ: { bid: 18250.00, ask: 18251.00, last: 18250.50 },
-  SPY: { bid: 510.45, ask: 510.47, last: 510.46 },
-  QQQ: { bid: 438.20, ask: 438.22, last: 438.21 },
-  AAPL: { bid: 185.50, ask: 185.52, last: 185.51 },
-  NVDA: { bid: 875.30, ask: 875.50, last: 875.40 },
-  TSLA: { bid: 178.80, ask: 178.85, last: 178.82 },
-  MSFT: { bid: 415.20, ask: 415.25, last: 415.22 },
-}
+// Price cache updated from API
+const priceCache: Record<string, { bid: number; ask: number; last: number }> = {}
 
 export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide = 'BUY' }: QuickTradeProps) {
   const [symbol, setSymbol] = useState(defaultSymbol)
@@ -88,9 +79,38 @@ export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide 
   const dragOffset = useRef({ x: 0, y: 0 })
 
   const { addNotification } = useNotifications()
+  const [prices, setPrices] = useState<Record<string, { bid: number; ask: number; last: number }>>({})
 
-  // Get current price
-  const currentPrice = MOCK_PRICES[symbol] || { bid: 100, ask: 100.02, last: 100.01 }
+  // Fetch prices from API
+  useEffect(() => {
+    const fetchPrices = async () => {
+      for (const s of QUICK_SYMBOLS) {
+        try {
+          const res = await fetch(`/api/market/quote/${s.symbol}`)
+          const data = await res.json()
+          if (data.price && data.price > 0) {
+            const spread = data.price * 0.0001 // 1 basis point spread estimate
+            setPrices(prev => ({
+              ...prev,
+              [s.symbol]: {
+                bid: data.bid || data.price - spread,
+                ask: data.ask || data.price + spread,
+                last: data.price
+              }
+            }))
+          }
+        } catch (e) {
+          console.error(`Failed to fetch price for ${s.symbol}`)
+        }
+      }
+    }
+    fetchPrices()
+    const interval = setInterval(fetchPrices, 5000) // Refresh every 5 seconds
+    return () => clearInterval(interval)
+  }, [])
+
+  // Get current price from fetched data
+  const currentPrice = prices[symbol] || { bid: 0, ask: 0, last: 0 }
   const executionPrice = side === 'BUY' ? currentPrice.ask : currentPrice.bid
 
   // Calculate order preview
@@ -103,18 +123,18 @@ export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide 
     stopLoss: stopLoss as number,
     takeProfit: takeProfit as number,
     estimatedCost: quantity * executionPrice * (QUICK_SYMBOLS.find(s => s.symbol === symbol)?.multiplier || 1),
-    commission: quantity * 2.5, // Mock commission
+    commission: quantity * 0.65, // Actual commission per contract
     riskAmount: stopLoss ? Math.abs(executionPrice - (stopLoss as number)) * quantity * (QUICK_SYMBOLS.find(s => s.symbol === symbol)?.multiplier || 1) : 0,
     riskPercent: 0, // Would calculate based on account size
   }
 
   // Update limit price when symbol changes
   useEffect(() => {
-    const price = MOCK_PRICES[symbol]
-    if (price) {
+    const price = prices[symbol]
+    if (price && price.last > 0) {
       setLimitPrice(side === 'BUY' ? price.ask : price.bid)
     }
-  }, [symbol, side])
+  }, [symbol, side, prices])
 
   // Handle dragging
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -252,7 +272,7 @@ export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide 
                           <span className="text-xs text-foreground-muted">{s.name}</span>
                         </div>
                         <span className="text-xs font-mono text-foreground-secondary">
-                          ${MOCK_PRICES[s.symbol]?.last.toFixed(2) || '0.00'}
+                          ${prices[s.symbol]?.last.toFixed(2) || '0.00'}
                         </span>
                       </button>
                     ))}

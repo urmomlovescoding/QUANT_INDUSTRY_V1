@@ -37,13 +37,13 @@ export function Dashboard() {
     refresh,
   } = useDashboardData(15000) // 15 second refresh
 
-  // Portfolio calculations
-  const portfolioValue = portfolio?.equity ?? 125432.67
-  const dayPnl = portfolio?.day_pnl ?? 2345.89
-  const dayPnlPct = portfolio?.day_pnl_pct ?? 1.91
-  const winRate = feedbackStatus?.win_rate ? feedbackStatus.win_rate * 100 : 68.5
-  const activeSignalCount = signals?.filter(s => s.status === 'active').length ?? 12
-  const highConfidenceCount = signals?.filter(s => s.confidence >= 0.7).length ?? 3
+  // Portfolio calculations - no fake defaults, show actual data or 0
+  const portfolioValue = portfolio?.equity ?? 0
+  const dayPnl = portfolio?.day_pnl ?? 0
+  const dayPnlPct = portfolio?.day_pnl_pct ?? 0
+  const winRate = feedbackStatus?.win_rate ? feedbackStatus.win_rate * 100 : 0
+  const activeSignalCount = signals?.filter(s => s.status === 'active').length ?? 0
+  const highConfidenceCount = signals?.filter(s => s.confidence >= 0.7).length ?? 0
 
   return (
     <div className="space-y-4">

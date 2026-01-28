@@ -1,10 +1,85 @@
-import { BarChart3 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { BarChart3, RefreshCw, AlertCircle } from 'lucide-react'
 import { cn } from '@/utils/cn'
-import { AreaChart } from '@/components/charts/AreaChart'
-import { BarChart } from '@/components/charts/BarChart'
 import { DonutChart } from '@/components/charts/DonutChart'
 
+interface TradeStats {
+  totalTrades: number
+  winners: number
+  losers: number
+  winRate: number | null
+  totalPnl: number
+  avgWin: number | null
+  avgLoss: number | null
+  profitFactor: number | null
+  largestWin: number | null
+  largestLoss: number | null
+  source: string
+  is_real: boolean
+  status?: string
+}
+
+interface ClosedTrade {
+  id: string
+  symbol: string
+  side: string
+  entry_price: number
+  exit_price: number
+  quantity: number
+  pnl: number
+  pnl_pct: number
+  entry_time: string
+  exit_time: string
+}
+
 export function Performance() {
+  const [stats, setStats] = useState<TradeStats | null>(null)
+  const [trades, setTrades] = useState<ClosedTrade[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [period, setPeriod] = useState('30d')
+
+  const fetchData = async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // Fetch trade stats and closed trades in parallel
+      const [statsRes, tradesRes] = await Promise.all([
+        fetch(`/api/trades/stats?range=${period}`),
+        fetch('/api/trades/closed')
+      ])
+
+      const statsData = await statsRes.json()
+      const tradesData = await tradesRes.json()
+
+      if (statsData.status === 'unavailable') {
+        setStats(null)
+      } else {
+        setStats(statsData)
+      }
+
+      if (Array.isArray(tradesData)) {
+        setTrades(tradesData)
+      } else if (tradesData.trades) {
+        setTrades(tradesData.trades)
+      } else {
+        setTrades([])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch performance data')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [period])
+
+  const winRate = stats?.winRate ?? 0
+  const lossRate = 100 - winRate
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -15,174 +90,165 @@ export function Performance() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground-primary">Performance Center</h1>
-            <p className="text-sm text-foreground-muted">Current Trading Session Data</p>
+            <p className="text-sm text-foreground-muted">Trading Performance Analytics</p>
           </div>
         </div>
-        <select className="text-sm bg-background-tertiary text-foreground-secondary px-3 py-1.5 rounded border border-border">
-          <option>Today</option>
-          <option>This Week</option>
-          <option>This Month</option>
-          <option>All Time</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className="text-sm bg-background-tertiary text-foreground-secondary px-3 py-1.5 rounded border border-border"
+          >
+            <option value="7d">Last 7 Days</option>
+            <option value="30d">Last 30 Days</option>
+            <option value="90d">Last 90 Days</option>
+            <option value="all">All Time</option>
+          </select>
+          <button
+            onClick={fetchData}
+            disabled={isLoading}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
       </div>
 
-      {/* Stats grid - matches second reference image */}
-      <div className="grid grid-cols-4 gap-4">
-        {/* All Trades */}
-        <StatsCard title="ALL TRADES">
-          <StatRow label="Net P&L" value="$475.00" positive />
-          <StatRow label="# of Trades" value="33" />
-          <StatRow label="# of Contracts" value="104" />
-          <StatRow label="Avg. Trade Time" value="6min 29sec" />
-          <StatRow label="Longest Trade" value="18min 33sec" />
-          <StatRow label="% Profitable Trades" value="87.88%" />
-          <StatRow label="Trade Fees & Comm" value="($91.52)" negative />
-          <StatRow label="Total P&L" value="$383.48" positive />
-        </StatsCard>
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
-        {/* Profit Trades */}
-        <StatsCard title="PROFIT TRADES" highlight="bullish">
-          <StatRow label="Total Profit" value="$530.00" positive />
-          <StatRow label="# of Winning Trades" value="29" />
-          <StatRow label="# of Winning Contracts" value="42" />
-          <StatRow label="Largest Winning Trade" value="$55.00" />
-          <StatRow label="Avg. Winning Trade" value="$18.28" />
-          <StatRow label="Std. Dev. Winning Trade" value="$12.40" />
-          <StatRow label="Avg. Winning Trade Time" value="5min 40sec" />
-          <StatRow label="Longest Winning Trade" value="11min 43sec" />
-          <StatRow label="Max Run-up" value="$477.20" />
-        </StatsCard>
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="w-8 h-8 animate-spin text-accent-primary" />
+        </div>
+      ) : !stats ? (
+        <div className="card p-8 text-center text-foreground-muted">
+          <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p className="text-lg font-medium">No Trading Data Available</p>
+          <p className="text-sm mt-2">Performance stats will appear once you execute trades</p>
+        </div>
+      ) : (
+        <>
+          {/* Stats grid */}
+          <div className="grid grid-cols-4 gap-4">
+            {/* All Trades */}
+            <StatsCard title="ALL TRADES">
+              <StatRow label="Net P&L" value={`$${stats.totalPnl.toFixed(2)}`} positive={stats.totalPnl >= 0} negative={stats.totalPnl < 0} />
+              <StatRow label="# of Trades" value={stats.totalTrades.toString()} />
+              <StatRow label="Win Rate" value={stats.winRate !== null ? `${stats.winRate.toFixed(1)}%` : 'N/A'} />
+              <StatRow label="Profit Factor" value={stats.profitFactor !== null ? stats.profitFactor.toFixed(2) : 'N/A'} />
+              <StatRow label="Data Source" value={stats.source} />
+            </StatsCard>
 
-        {/* Losing Trades */}
-        <StatsCard title="LOSING TRADES" highlight="bearish">
-          <StatRow label="Total Loss" value="($55.00)" negative />
-          <StatRow label="# of Losing Trades" value="4" />
-          <StatRow label="# of Losing Contracts" value="10" />
-          <StatRow label="Largest Losing Trade" value="($13.75)" />
-          <StatRow label="Avg. Losing Trade" value="$71.18" />
-          <StatRow label="Std. Dev. Losing Trade" value="$7.71" />
-          <StatRow label="Avg. Losing Trade Time" value="12min 25sec" />
-          <StatRow label="Longest Losing Trade" value="18min 33sec" />
-          <StatRow label="Max Drawdown" value="($93.54)" />
-        </StatsCard>
+            {/* Profit Trades */}
+            <StatsCard title="WINNING TRADES" highlight="bullish">
+              <StatRow label="Winning Trades" value={stats.winners.toString()} />
+              <StatRow label="Avg. Win" value={stats.avgWin !== null ? `$${stats.avgWin.toFixed(2)}` : 'N/A'} positive />
+              <StatRow label="Largest Win" value={stats.largestWin !== null ? `$${stats.largestWin.toFixed(2)}` : 'N/A'} positive />
+            </StatsCard>
 
-        {/* Win vs Loss Chart */}
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            WINNING VS LOSING TRADES
-          </h3>
-          <div className="flex items-center justify-center h-40">
-            <DonutChart
-              data={[
-                { name: 'Winning', value: 87.88, color: '#00c853' },
-                { name: 'Losing', value: 12.12, color: '#ff1744' },
-              ]}
-              centerLabel="87.9%"
-              centerSubLabel="Win Rate"
-              size={140}
-            />
-          </div>
-          <div className="flex justify-around mt-4 text-xs">
-            <div className="text-center">
-              <div className="flex items-center gap-1 justify-center">
-                <span className="w-2 h-2 rounded-full bg-bullish" />
-                <span className="text-foreground-muted">WINNING</span>
-              </div>
-              <span className="font-bold text-bullish">87.88%</span>
+            {/* Losing Trades */}
+            <StatsCard title="LOSING TRADES" highlight="bearish">
+              <StatRow label="Losing Trades" value={stats.losers.toString()} />
+              <StatRow label="Avg. Loss" value={stats.avgLoss !== null ? `$${stats.avgLoss.toFixed(2)}` : 'N/A'} negative />
+              <StatRow label="Largest Loss" value={stats.largestLoss !== null ? `$${stats.largestLoss.toFixed(2)}` : 'N/A'} negative />
+            </StatsCard>
+
+            {/* Win vs Loss Chart */}
+            <div className="card p-4">
+              <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
+                WIN RATE
+              </h3>
+              {stats.totalTrades > 0 ? (
+                <>
+                  <div className="flex items-center justify-center h-40">
+                    <DonutChart
+                      data={[
+                        { name: 'Winning', value: winRate, color: '#00c853' },
+                        { name: 'Losing', value: lossRate, color: '#ff1744' },
+                      ]}
+                      centerLabel={`${winRate.toFixed(1)}%`}
+                      centerSubLabel="Win Rate"
+                      size={140}
+                    />
+                  </div>
+                  <div className="flex justify-around mt-4 text-xs">
+                    <div className="text-center">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span className="w-2 h-2 rounded-full bg-bullish" />
+                        <span className="text-foreground-muted">WINNING</span>
+                      </div>
+                      <span className="font-bold text-bullish">{winRate.toFixed(1)}%</span>
+                    </div>
+                    <div className="text-center">
+                      <div className="flex items-center gap-1 justify-center">
+                        <span className="w-2 h-2 rounded-full bg-bearish" />
+                        <span className="text-foreground-muted">LOSING</span>
+                      </div>
+                      <span className="font-bold text-bearish">{lossRate.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-40 text-foreground-muted">
+                  No trades yet
+                </div>
+              )}
             </div>
-            <div className="text-center">
-              <div className="flex items-center gap-1 justify-center">
-                <span className="w-2 h-2 rounded-full bg-bearish" />
-                <span className="text-foreground-muted">LOSING</span>
-              </div>
-              <span className="font-bold text-bearish">12.12%</span>
+          </div>
+
+          {/* Trades table */}
+          <div className="card">
+            <div className="p-4 border-b border-border">
+              <h2 className="text-sm font-medium text-foreground-primary">RECENT TRADES</h2>
             </div>
+            {trades.length === 0 ? (
+              <div className="p-8 text-center text-foreground-muted">
+                <p>No closed trades to display</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="data-table text-xs">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Side</th>
+                      <th>Qty</th>
+                      <th>Entry</th>
+                      <th>Exit</th>
+                      <th>P&L</th>
+                      <th>P&L %</th>
+                      <th>Exit Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trades.slice(0, 20).map((trade) => (
+                      <tr key={trade.id}>
+                        <td className="font-medium">{trade.symbol}</td>
+                        <td className={trade.side === 'LONG' ? 'text-bullish' : 'text-bearish'}>{trade.side}</td>
+                        <td>{trade.quantity}</td>
+                        <td className="font-mono">${trade.entry_price.toFixed(2)}</td>
+                        <td className="font-mono">${trade.exit_price.toFixed(2)}</td>
+                        <td className={cn('font-mono font-medium', trade.pnl >= 0 ? 'text-bullish' : 'text-bearish')}>
+                          {trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)}
+                        </td>
+                        <td className={cn('font-mono', trade.pnl_pct >= 0 ? 'text-bullish' : 'text-bearish')}>
+                          {trade.pnl_pct >= 0 ? '+' : ''}{trade.pnl_pct.toFixed(2)}%
+                        </td>
+                        <td className="text-foreground-muted">{new Date(trade.exit_time).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      </div>
-
-      {/* Charts row */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            P&L HISTORY
-          </h3>
-          <BarChart />
-        </div>
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            P&L HISTORY (CUMULATIVE WITHOUT FEES)
-          </h3>
-          <AreaChart />
-        </div>
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            P&L HISTORY (CUMULATIVE WITH FEES)
-          </h3>
-          <AreaChart />
-        </div>
-      </div>
-
-      {/* Bottom row */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            P&L DISTRIBUTION
-          </h3>
-          <BarChart />
-        </div>
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            P/L PER TIME OF DAY
-          </h3>
-          <BarChart />
-        </div>
-        <div className="card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted uppercase tracking-wider mb-4">
-            GROSS LOSS BREAKDOWN
-          </h3>
-          <div className="flex items-center justify-center h-40">
-            <DonutChart
-              data={[
-                { name: 'Commission', value: 56.67, color: '#2196f3' },
-                { name: 'Trade', value: 37.34, color: '#ff9800' },
-                { name: 'Clearing', value: 5.99, color: '#9c27b0' },
-              ]}
-              centerLabel="$91.52"
-              centerSubLabel="Total Fees"
-              size={140}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Trades table */}
-      <div className="card">
-        <div className="p-4 border-b border-border">
-          <h2 className="text-sm font-medium text-foreground-primary">TRADES</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="data-table text-xs">
-            <thead>
-              <tr>
-                <th>Symbol</th>
-                <th>Account</th>
-                <th>Qty</th>
-                <th>Buy Price</th>
-                <th>Buy Time</th>
-                <th>Duration</th>
-                <th>Sell Time</th>
-                <th>Sell Price</th>
-                <th>P&L</th>
-              </tr>
-            </thead>
-            <tbody>
-              <TradeRow symbol="MESZ9" account="DEMO07914" qty={2} buyPrice={3082.50} buyTime="11/08/2019 8:39:28 AM" duration="8sec" sellTime="11/08/2019 8:39:20 AM" sellPrice={3082.00} pnl={-5.00} />
-              <TradeRow symbol="MESZ9" account="DEMO07914" qty={2} buyPrice={3083.25} buyTime="11/08/2019 8:58:54 AM" duration="18min 33sec" sellTime="11/08/2019 8:40:20 AM" sellPrice={3082.00} pnl={12.50} />
-            </tbody>
-          </table>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }
@@ -233,35 +299,5 @@ function StatRow({ label, value, positive, negative }: StatRowProps) {
         {value}
       </span>
     </div>
-  )
-}
-
-interface TradeRowProps {
-  symbol: string
-  account: string
-  qty: number
-  buyPrice: number
-  buyTime: string
-  duration: string
-  sellTime: string
-  sellPrice: number
-  pnl: number
-}
-
-function TradeRow({ symbol, account, qty, buyPrice, buyTime, duration, sellTime, sellPrice, pnl }: TradeRowProps) {
-  return (
-    <tr>
-      <td className="font-medium">{symbol}</td>
-      <td>{account}</td>
-      <td>{qty}</td>
-      <td className="font-mono">{buyPrice.toFixed(2)}</td>
-      <td className="text-foreground-muted">{buyTime}</td>
-      <td>{duration}</td>
-      <td className="text-foreground-muted">{sellTime}</td>
-      <td className="font-mono">{sellPrice.toFixed(2)}</td>
-      <td className={cn('font-mono font-medium', pnl >= 0 ? 'text-bullish' : 'text-bearish')}>
-        ${pnl.toFixed(2)}
-      </td>
-    </tr>
   )
 }

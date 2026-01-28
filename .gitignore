@@ -58,3 +58,23 @@ credentials.json
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Temp files
+openapi_temp.json
+*.tmp
+*.temp
+server.err
+server.log
+backend.log
+
+# Caches
+.ruff_cache/
+.mypy_cache/
+
+# Models (large files)
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+nul

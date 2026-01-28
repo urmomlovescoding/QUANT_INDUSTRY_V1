@@ -664,37 +664,49 @@ function BacktestEngine({ strategies }: { strategies: Strategy[] }) {
 
   const activeStrategies = strategies.filter(s => s.enabled)
 
-  const runBacktest = () => {
+  const runBacktest = async () => {
     setRunning(true)
-    setTimeout(() => {
-      // Generate mock equity curve
-      const curve: number[] = [initialCapital]
-      for (let i = 1; i < 252 * 5; i++) {
-        const change = curve[i - 1] * (0.0003 + Math.random() * 0.002 - 0.0008)
-        curve.push(Math.max(curve[i - 1] + change, curve[i - 1] * 0.7))
-      }
-      setEquityCurve(curve)
-
-      setResults({
-        totalReturn: ((curve[curve.length - 1] - initialCapital) / initialCapital) * 100,
-        annualizedReturn: 15.2 + Math.random() * 5,
-        sharpe: 1.45 + Math.random() * 0.3,
-        sortino: 1.85 + Math.random() * 0.4,
-        calmar: 2.1 + Math.random() * 0.5,
-        maxDrawdown: -(8 + Math.random() * 7),
-        winRate: 55 + Math.random() * 15,
-        profitFactor: 1.8 + Math.random() * 0.4,
-        totalTrades: Math.floor(500 + Math.random() * 500),
-        avgTrade: 120 + Math.random() * 80,
-        avgWin: 350 + Math.random() * 150,
-        avgLoss: -(180 + Math.random() * 80),
-        bestTrade: 2500 + Math.random() * 1000,
-        worstTrade: -(1200 + Math.random() * 500),
-        avgHoldingPeriod: `${Math.floor(2 + Math.random() * 5)}d ${Math.floor(Math.random() * 12)}h`,
-        exposure: 65 + Math.random() * 20
+    try {
+      // Use actual backtest API
+      const enabledStrategies = strategies.filter(s => s.enabled).map(s => s.id)
+      const response = await fetch(`/api/backtest/run?strategy=${enabledStrategies[0] || 'momentum'}&ticker=SPY&period=365d&capital=${initialCapital}`, {
+        method: 'POST'
       })
+      const data = await response.json()
+
+      if (response.ok) {
+        // Extract equity curve from API response
+        const curve = data.equity_curve?.map((d: any) => d.equity) || [initialCapital]
+        setEquityCurve(curve)
+
+        setResults({
+          totalReturn: data.total_return || 0,
+          annualizedReturn: (data.total_return || 0),
+          sharpe: data.sharpe_ratio || 0,
+          sortino: data.sortino_ratio || 0,
+          calmar: data.calmar_ratio || 0,
+          maxDrawdown: data.max_drawdown || 0,
+          winRate: data.win_rate || 0,
+          profitFactor: data.profit_factor || 0,
+          totalTrades: data.trade_count || 0,
+          avgTrade: 0,
+          avgWin: 0,
+          avgLoss: 0,
+          bestTrade: 0,
+          worstTrade: 0,
+          avgHoldingPeriod: 'N/A',
+          exposure: 0
+        })
+      } else {
+        console.error('Backtest failed:', data.detail)
+        setResults(null)
+      }
+    } catch (error) {
+      console.error('Backtest error:', error)
+      setResults(null)
+    } finally {
       setRunning(false)
-    }, 2000)
+    }
   }
 
   return (

@@ -39,18 +39,22 @@ export function GEXAnalysis() {
         throw new Error(result.detail || 'Failed to fetch GEX data')
       }
 
-      // Get current price
-      const priceRes = await fetch(`/api/market/quote/${ticker}`)
-      const priceData = await priceRes.json()
-      const basePrice = priceData.price || 0
+      // Get current price from GEX response or market quote
+      let basePrice = result.current_price || 0
+      if (!basePrice) {
+        const priceRes = await fetch(`/api/market/quote/${ticker}`)
+        const priceData = await priceRes.json()
+        basePrice = priceData.price || 0
+      }
       setCurrentPrice(basePrice)
 
-      // Transform API data to our format
-      const gexData: GEXData[] = (result.strikes || []).map((item: any) => ({
+      // Transform API data to our format - API returns 'data' array
+      const rawData = result.data || result.strikes || []
+      const gexData: GEXData[] = rawData.map((item: any) => ({
         strike: item.strike,
         call_gex: item.call_gex || 0,
         put_gex: item.put_gex || 0,
-        total_gex: (item.call_gex || 0) + (item.put_gex || 0)
+        total_gex: item.total_gex || ((item.call_gex || 0) + (item.put_gex || 0))
       }))
 
       if (gexData.length === 0) {
@@ -60,17 +64,28 @@ export function GEXAnalysis() {
         return
       }
 
-      const totalCall = gexData.reduce((sum, d) => sum + d.call_gex, 0)
-      const totalPut = gexData.reduce((sum, d) => sum + d.put_gex, 0)
-
       setData(gexData)
-      setSummary({
-        total_call_gex: totalCall / 1e9,
-        total_put_gex: totalPut / 1e9,
-        net_gex: (totalCall + totalPut) / 1e9,
-        gex_flip_point: result.gex_flip_point || basePrice,
-        max_pain: result.max_pain || basePrice
-      })
+
+      // Use summary from API if available, otherwise calculate
+      if (result.summary) {
+        setSummary({
+          total_call_gex: result.summary.total_call_gex || 0,
+          total_put_gex: result.summary.total_put_gex || 0,
+          net_gex: result.summary.net_gex || 0,
+          gex_flip_point: result.summary.gex_flip_point || basePrice,
+          max_pain: result.summary.max_pain || basePrice
+        })
+      } else {
+        const totalCall = gexData.reduce((sum, d) => sum + d.call_gex, 0)
+        const totalPut = gexData.reduce((sum, d) => sum + d.put_gex, 0)
+        setSummary({
+          total_call_gex: totalCall / 1e9,
+          total_put_gex: totalPut / 1e9,
+          net_gex: (totalCall + totalPut) / 1e9,
+          gex_flip_point: basePrice,
+          max_pain: basePrice
+        })
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch GEX data')

@@ -29,7 +29,7 @@ export function Backtesting() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/backtest/run?strategy=${strategy}&symbol=${ticker}&period=${period}&capital=${capital}`, {
+      const response = await fetch(`/api/backtest/run?strategy=${strategy}&ticker=${ticker}&period=${period}&capital=${capital}`, {
         method: 'POST',
       })
       const data = await response.json()

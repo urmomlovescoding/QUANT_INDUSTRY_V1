@@ -1,64 +1,139 @@
-import { Signal, Filter, RefreshCw, Play } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Signal as SignalIcon, Filter, RefreshCw, Play, AlertCircle } from 'lucide-react'
 import { SignalsTable } from '@/components/tables/SignalsTable'
+import { Signal } from '@/api/client'
+import { cn } from '@/utils/cn'
 
 export function Signals() {
+  const [signals, setSignals] = useState<Signal[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [directionFilter, setDirectionFilter] = useState('all')
+
+  const fetchSignals = async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/signals/active')
+      const data = await response.json()
+
+      if (Array.isArray(data)) {
+        setSignals(data)
+      } else if (data.signals) {
+        setSignals(data.signals)
+      } else {
+        setSignals([])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch signals')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchSignals()
+  }, [])
+
+  // Calculate stats from real data
+  const activeSignals = signals.filter(s => s.status === 'active')
+  const longSignals = signals.filter(s => s.direction === 'LONG')
+  const shortSignals = signals.filter(s => s.direction === 'SHORT')
+  const highConfidence = signals.filter(s => s.confidence >= 0.8)
+  const avgConfidence = signals.length > 0
+    ? signals.reduce((sum, s) => sum + (s.confidence || 0), 0) / signals.length * 100
+    : 0
+  const avgRiskReward = signals.length > 0
+    ? signals.reduce((sum, s) => sum + (s.risk_reward || 0), 0) / signals.length
+    : 0
+
+  const filteredSignals = directionFilter === 'all'
+    ? signals
+    : directionFilter === 'long'
+    ? longSignals
+    : shortSignals
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-accent-primary/10">
-            <Signal className="w-5 h-5 text-accent-primary" />
+            <SignalIcon className="w-5 h-5 text-accent-primary" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-foreground-primary">Signal Analysis</h1>
-            <p className="text-sm text-foreground-muted">12 active signals • 8 long • 4 short</p>
+            <p className="text-sm text-foreground-muted">
+              {signals.length > 0
+                ? `${activeSignals.length} active signals • ${longSignals.length} long • ${shortSignals.length} short`
+                : 'No active signals'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn-secondary flex items-center gap-2">
-            <Filter className="w-4 h-4" />
-            Filter
-          </button>
-          <button className="btn-secondary flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" />
+          <button
+            onClick={fetchSignals}
+            disabled={isLoading}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
             Refresh
-          </button>
-          <button className="btn-primary flex items-center gap-2">
-            <Play className="w-4 h-4" />
-            Execute All
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
-        <SummaryCard label="Total Signals" value="12" />
-        <SummaryCard label="High Confidence" value="5" subLabel=">80%" />
-        <SummaryCard label="Avg Expected Return" value="+4.8%" positive />
-        <SummaryCard label="Avg Confidence" value="76%" />
+        <SummaryCard label="Total Signals" value={signals.length.toString()} />
+        <SummaryCard label="High Confidence" value={highConfidence.length.toString()} subLabel=">80%" />
+        <SummaryCard
+          label="Avg Risk/Reward"
+          value={avgRiskReward !== 0 ? `${avgRiskReward.toFixed(2)}:1` : 'N/A'}
+          positive={avgRiskReward > 1}
+        />
+        <SummaryCard
+          label="Avg Confidence"
+          value={avgConfidence > 0 ? `${avgConfidence.toFixed(0)}%` : 'N/A'}
+        />
       </div>
 
-      {/* Main table */}
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium text-foreground-primary">All Signals</h2>
-          <div className="flex items-center gap-2">
-            <select className="text-xs bg-background-tertiary text-foreground-secondary px-3 py-1.5 rounded border border-border">
-              <option>All Directions</option>
-              <option>Long Only</option>
-              <option>Short Only</option>
-            </select>
-            <select className="text-xs bg-background-tertiary text-foreground-secondary px-3 py-1.5 rounded border border-border">
-              <option>All Regimes</option>
-              <option>Trending</option>
-              <option>Mean Rev</option>
-              <option>Breakout</option>
-            </select>
-          </div>
+      {/* Main content */}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="w-8 h-8 animate-spin text-accent-primary" />
         </div>
-        <SignalsTable />
-      </div>
+      ) : signals.length === 0 ? (
+        <div className="card p-8 text-center text-foreground-muted">
+          <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p className="text-lg font-medium">No Active Signals</p>
+          <p className="text-sm mt-2">Signals will appear when the AI detects trading opportunities</p>
+        </div>
+      ) : (
+        <div className="card p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-foreground-primary">All Signals</h2>
+            <div className="flex items-center gap-2">
+              <select
+                value={directionFilter}
+                onChange={(e) => setDirectionFilter(e.target.value)}
+                className="text-xs bg-background-tertiary text-foreground-secondary px-3 py-1.5 rounded border border-border"
+              >
+                <option value="all">All Directions</option>
+                <option value="long">Long Only</option>
+                <option value="short">Short Only</option>
+              </select>
+            </div>
+          </div>
+          <SignalsTable signals={filteredSignals} />
+        </div>
+      )}
     </div>
   )
 }

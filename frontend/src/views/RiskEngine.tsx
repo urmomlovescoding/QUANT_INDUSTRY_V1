@@ -1,5 +1,5 @@
-import { Shield, AlertTriangle, CheckCircle } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { Shield, AlertTriangle, CheckCircle, RefreshCw, AlertCircle, Info } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { GaugeChart } from '@/components/charts/GaugeChart'
 
@@ -10,21 +10,61 @@ interface RiskLimit {
   unit: string
 }
 
-export function RiskEngine() {
-  const [riskScore] = useState(42)
-  const [limits] = useState<RiskLimit[]>([
-    { name: 'Max Position Size', current: 12, limit: 15, unit: '%' },
-    { name: 'Sector Concentration', current: 38, limit: 40, unit: '%' },
-    { name: 'Max Drawdown', current: 8.5, limit: 15, unit: '%' },
-    { name: 'Daily Loss', current: 1.2, limit: 3, unit: '%' },
-    { name: 'VaR 95%', current: 3.2, limit: 5, unit: '%' },
-  ])
+interface RiskAlert {
+  type: 'warning' | 'info' | 'success' | 'error'
+  message: string
+}
 
-  const [alerts] = useState([
-    { type: 'warning', message: 'Sector concentration approaching limit (38%)' },
-    { type: 'info', message: 'VaR within acceptable range (3.2%)' },
-    { type: 'success', message: 'Daily loss well under limit' },
-  ])
+interface RiskMetrics {
+  riskScore: number
+  limits: RiskLimit[]
+  alerts: RiskAlert[]
+  status?: string
+}
+
+export function RiskEngine() {
+  const [metrics, setMetrics] = useState<RiskMetrics | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchRiskMetrics = async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch('/api/risk/metrics')
+      const data = await response.json()
+
+      if (data.status === 'unavailable') {
+        setMetrics(null)
+      } else {
+        // Transform API response
+        const riskScore = data.overall_risk || data.riskScore || 0
+        const limits: RiskLimit[] = [
+          { name: 'Max Position Size', current: data.position_concentration || 0, limit: 15, unit: '%' },
+          { name: 'Sector Concentration', current: data.sector_concentration || 0, limit: 40, unit: '%' },
+          { name: 'Max Drawdown', current: Math.abs(data.max_drawdown || 0), limit: 15, unit: '%' },
+          { name: 'Daily Loss', current: Math.abs(data.daily_loss || 0), limit: 3, unit: '%' },
+          { name: 'VaR 95%', current: Math.abs(data.var_95 || 0), limit: 5, unit: '%' },
+        ]
+
+        const alerts: RiskAlert[] = data.alerts || []
+
+        setMetrics({ riskScore, limits, alerts })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch risk metrics')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchRiskMetrics()
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchRiskMetrics, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const getStatusColor = (current: number, limit: number) => {
     const ratio = current / limit
@@ -40,150 +80,122 @@ export function RiskEngine() {
     return 'bg-bullish'
   }
 
+  const getAlertIcon = (type: string) => {
+    switch (type) {
+      case 'warning': return <AlertTriangle className="w-4 h-4 text-warning" />
+      case 'error': return <AlertCircle className="w-4 h-4 text-bearish" />
+      case 'success': return <CheckCircle className="w-4 h-4 text-bullish" />
+      default: return <Info className="w-4 h-4 text-accent-primary" />
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-accent-primary/10">
-          <Shield className="w-5 h-5 text-accent-primary" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-accent-primary/10">
+            <Shield className="w-5 h-5 text-accent-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-accent-primary">RISK ENGINE DASHBOARD</h1>
+            <p className="text-xs text-foreground-muted">Real-time risk monitoring and alerts</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-accent-primary">RISK ENGINE DASHBOARD</h1>
-          <p className="text-xs text-foreground-muted">Real-time risk monitoring and alerts</p>
-        </div>
+        <button
+          onClick={fetchRiskMetrics}
+          disabled={isLoading}
+          className="btn-secondary flex items-center gap-2"
+        >
+          <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+          Refresh
+        </button>
       </div>
 
-      <div className="grid grid-cols-12 gap-4">
-        {/* Risk Score */}
-        <div className="col-span-4 card p-6">
-          <h3 className="text-xs font-bold text-foreground-muted mb-4 text-center">OVERALL RISK SCORE</h3>
-          <div className="flex justify-center">
-            <GaugeChart value={riskScore} maxValue={100} label="Risk Level" />
-          </div>
-          <div className="text-center mt-4">
-            <span className={cn(
-              'text-lg font-bold',
-              riskScore < 30 ? 'text-bullish' : riskScore < 60 ? 'text-warning' : 'text-bearish'
-            )}>
-              {riskScore < 30 ? 'LOW RISK' : riskScore < 60 ? 'MODERATE RISK' : 'HIGH RISK'}
-            </span>
-          </div>
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
         </div>
+      )}
 
-        {/* Risk Limits */}
-        <div className="col-span-5 card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted mb-4">RISK LIMITS</h3>
-          <div className="space-y-4">
-            {limits.map((limit, i) => (
-              <div key={i}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-xs text-foreground-secondary">{limit.name}</span>
-                  <span className={cn('text-xs font-mono font-bold', getStatusColor(limit.current, limit.limit))}>
-                    {limit.current}{limit.unit} / {limit.limit}{limit.unit}
-                  </span>
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="w-8 h-8 animate-spin text-accent-primary" />
+        </div>
+      ) : !metrics ? (
+        <div className="card p-8 text-center text-foreground-muted">
+          <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p className="text-lg font-medium">No Risk Data Available</p>
+          <p className="text-sm mt-2">Risk metrics will appear once you have positions or trading history</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-12 gap-4">
+          {/* Risk Score */}
+          <div className="col-span-4 card p-6">
+            <h3 className="text-xs font-bold text-foreground-muted mb-4 text-center">OVERALL RISK SCORE</h3>
+            <div className="flex justify-center">
+              <GaugeChart value={metrics.riskScore} maxValue={100} label="Risk Level" />
+            </div>
+            <div className="text-center mt-4">
+              <span className={cn(
+                'text-lg font-bold',
+                metrics.riskScore < 30 ? 'text-bullish' : metrics.riskScore < 60 ? 'text-warning' : 'text-bearish'
+              )}>
+                {metrics.riskScore < 30 ? 'LOW RISK' : metrics.riskScore < 60 ? 'MODERATE RISK' : 'HIGH RISK'}
+              </span>
+            </div>
+          </div>
+
+          {/* Risk Limits */}
+          <div className="col-span-5 card p-4">
+            <h3 className="text-xs font-bold text-foreground-muted mb-4">RISK LIMITS</h3>
+            <div className="space-y-4">
+              {metrics.limits.map((limit, i) => (
+                <div key={i}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-xs text-foreground-secondary">{limit.name}</span>
+                    <span className={cn('text-xs font-mono font-bold', getStatusColor(limit.current, limit.limit))}>
+                      {limit.current.toFixed(1)}{limit.unit} / {limit.limit}{limit.unit}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-background-tertiary rounded-full overflow-hidden">
+                    <div
+                      className={cn('h-full rounded-full transition-all', getBarColor(limit.current, limit.limit))}
+                      style={{ width: `${Math.min(100, (limit.current / limit.limit) * 100)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 bg-background-tertiary rounded-full overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-all', getBarColor(limit.current, limit.limit))}
-                    style={{ width: `${Math.min(100, (limit.current / limit.limit) * 100)}%` }}
-                  />
-                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Alerts */}
+          <div className="col-span-3 card p-4">
+            <h3 className="text-xs font-bold text-foreground-muted mb-4">ALERTS</h3>
+            {metrics.alerts.length === 0 ? (
+              <div className="text-center text-foreground-muted py-8">
+                <CheckCircle className="w-8 h-8 mx-auto mb-2 text-bullish opacity-50" />
+                <p className="text-sm">No active alerts</p>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Alerts */}
-        <div className="col-span-3 card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted mb-4">ALERTS</h3>
-          <div className="space-y-2">
-            {alerts.map((alert, i) => (
-              <div
-                key={i}
-                className={cn(
-                  'p-2 rounded flex items-start gap-2',
-                  alert.type === 'warning' ? 'bg-warning/10' :
-                  alert.type === 'success' ? 'bg-bullish/10' : 'bg-accent-primary/10'
-                )}
-              >
-                {alert.type === 'warning' && <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />}
-                {alert.type === 'success' && <CheckCircle className="w-4 h-4 text-bullish flex-shrink-0 mt-0.5" />}
-                {alert.type === 'info' && <Shield className="w-4 h-4 text-accent-primary flex-shrink-0 mt-0.5" />}
-                <span className="text-xs">{alert.message}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Position Heat Map */}
-        <div className="col-span-6 card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted mb-4">POSITION HEAT MAP</h3>
-          <div className="grid grid-cols-5 gap-2">
-            {['NVDA', 'AAPL', 'MSFT', 'AMD', 'GOOGL', 'META', 'AMZN', 'TSLA', 'QQQ', 'SPY'].map((symbol) => {
-              const pnl = (Math.random() - 0.4) * 10
-              return (
-                <div
-                  key={symbol}
-                  className={cn(
-                    'p-3 rounded text-center',
-                    pnl >= 2 ? 'bg-bullish' : pnl >= 0 ? 'bg-bullish/50' : pnl >= -2 ? 'bg-bearish/50' : 'bg-bearish'
-                  )}
-                >
-                  <div className="text-xs font-bold">{symbol}</div>
-                  <div className="text-sm font-mono">{pnl >= 0 ? '+' : ''}{pnl.toFixed(1)}%</div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Correlation Matrix */}
-        <div className="col-span-6 card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted mb-4">CORRELATION MONITOR</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr>
-                  <th className="p-1"></th>
-                  {['SPY', 'QQQ', 'IWM', 'TLT', 'GLD'].map(s => (
-                    <th key={s} className="p-1 text-center">{s}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {['SPY', 'QQQ', 'IWM', 'TLT', 'GLD'].map((s1, i) => (
-                  <tr key={s1}>
-                    <td className="p-1 font-medium">{s1}</td>
-                    {['SPY', 'QQQ', 'IWM', 'TLT', 'GLD'].map((s2, j) => {
-                      const corr = i === j ? 1 : (
-                        (s1 === 'TLT' || s2 === 'TLT') ? -0.3 + Math.random() * 0.2 :
-                        (s1 === 'GLD' || s2 === 'GLD') ? 0.1 + Math.random() * 0.3 :
-                        0.7 + Math.random() * 0.25
-                      )
-                      return (
-                        <td
-                          key={s2}
-                          className={cn(
-                            'p-1 text-center font-mono',
-                            corr > 0.8 ? 'bg-bearish/30' :
-                            corr > 0.5 ? 'bg-warning/30' :
-                            corr < 0 ? 'bg-bullish/30' : ''
-                          )}
-                        >
-                          {corr.toFixed(2)}
-                        </td>
-                      )
-                    })}
-                  </tr>
+            ) : (
+              <div className="space-y-2">
+                {metrics.alerts.map((alert, i) => (
+                  <div key={i} className={cn(
+                    'p-2 rounded-lg flex items-start gap-2',
+                    alert.type === 'warning' && 'bg-warning/10',
+                    alert.type === 'error' && 'bg-bearish/10',
+                    alert.type === 'success' && 'bg-bullish/10',
+                    alert.type === 'info' && 'bg-accent-primary/10'
+                  )}>
+                    {getAlertIcon(alert.type)}
+                    <span className="text-xs">{alert.message}</span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
-          <p className="text-xs text-foreground-muted mt-2">
-            High correlation detected between equity positions. Consider diversification.
-          </p>
         </div>
-      </div>
+      )}
     </div>
   )
 }
