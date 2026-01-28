@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+import { IndicatorStrip } from '@/components/IndicatorStrip'
 import { useAppStore } from '@/store'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { Spinner } from '@/components/ui/Loading'
@@ -31,6 +32,9 @@ export function Layout({ children }: LayoutProps) {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <Header />
+
+        {/* Real-Time Indicators Strip */}
+        <IndicatorStrip />
 
         {/* Main content with error boundary */}
         <main className="flex-1 overflow-auto p-4">

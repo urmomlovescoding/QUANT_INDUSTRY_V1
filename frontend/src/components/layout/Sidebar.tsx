@@ -35,6 +35,7 @@ import {
   Zap,
   Layers,
   GraduationCap,
+  LayoutGrid,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useState } from 'react'
@@ -58,6 +59,7 @@ const navSections: NavSection[] = [
     title: 'MARKETS',
     items: [
       { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { path: '/command-center', icon: LayoutGrid, label: 'Command Center' },
       { path: '/screener', icon: Search, label: 'Screener' },
       { path: '/charts', icon: LineChart, label: 'Charts' },
     ],

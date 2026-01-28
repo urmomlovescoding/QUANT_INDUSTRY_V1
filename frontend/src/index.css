@@ -183,6 +183,21 @@
 }
 
 @layer utilities {
+  /* Hidden scrollbar */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Thin scrollbar */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+
   /* P&L colors */
   .text-pnl {
     @apply tabular-nums font-medium;
