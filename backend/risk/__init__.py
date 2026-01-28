@@ -12,7 +12,18 @@ from .monte_carlo import (
     stress_test_portfolio,
 )
 
+from .realtime_monitor import (
+    RealTimeRiskMonitor,
+    RiskAlert,
+    RiskThresholds,
+    PortfolioState,
+    AlertSeverity,
+    AlertType,
+    get_risk_monitor,
+)
+
 __all__ = [
+    # Monte Carlo
     "MonteCarloSimulator",
     "PortfolioMonteCarloSimulator",
     "MonteCarloResult",
@@ -21,4 +32,12 @@ __all__ = [
     "STRESS_SCENARIOS",
     "quick_var",
     "stress_test_portfolio",
+    # Real-time monitoring
+    "RealTimeRiskMonitor",
+    "RiskAlert",
+    "RiskThresholds",
+    "PortfolioState",
+    "AlertSeverity",
+    "AlertType",
+    "get_risk_monitor",
 ]
