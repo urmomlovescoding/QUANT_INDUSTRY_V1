@@ -174,6 +174,7 @@ class SimulatedBroker(BaseBroker):
         slippage_bps: float = 5.0,
         fill_probability: float = 0.95,
         partial_fill_probability: float = 0.1,
+        config: Optional[BrokerConfig] = None,
     ):
         self.initial_cash = initial_cash
         self.commission_per_share = commission_per_share
@@ -181,6 +182,7 @@ class SimulatedBroker(BaseBroker):
         self.slippage_bps = slippage_bps
         self.fill_probability = fill_probability
         self.partial_fill_probability = partial_fill_probability
+        self.config = config or BrokerConfig()
 
         # Account state
         self.cash = initial_cash
@@ -202,6 +204,11 @@ class SimulatedBroker(BaseBroker):
     def disconnect(self) -> None:
         """Disconnect."""
         self._connected = False
+
+    @property
+    def is_connected(self) -> bool:
+        """Check if broker is connected."""
+        return self._connected
 
     def get_account(self) -> AccountInfo:
         """Get simulated account info."""
