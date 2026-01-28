@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from './components/ui/Toaster'
 import { Layout } from './components/layout/Layout'
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { CommandPalette, useCommandPalette } from './components/CommandPalette'
 import { NotificationProvider } from './components/NotificationSystem'
 import { QuickTrade, useQuickTrade } from './components/QuickTrade'
@@ -146,10 +147,16 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <NotificationProvider>
-        <AppContent />
-      </NotificationProvider>
-    </BrowserRouter>
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        console.error('Top-level error boundary caught:', error, errorInfo)
+      }}
+    >
+      <BrowserRouter>
+        <NotificationProvider>
+          <AppContent />
+        </NotificationProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }

@@ -24,9 +24,11 @@ export {
   LoadingState,
 } from './Loading';
 
+// Error Boundary
+export { ErrorBoundary, withErrorBoundary } from './ErrorBoundary';
+
 // Error Display
 export {
-  ErrorBoundary,
   ErrorCard,
   InlineError,
   EmptyState,
@@ -34,9 +36,6 @@ export {
   DataUnavailable,
   MarketClosedNotice
 } from './ErrorDisplay';
-
-// Error Boundary (enhanced)
-export { withErrorBoundary } from './ErrorBoundary';
 
 // Toast Notifications
 export {
