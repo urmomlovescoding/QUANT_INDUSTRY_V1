@@ -22,6 +22,16 @@ from .realtime_monitor import (
     get_risk_monitor,
 )
 
+from .tail_risk import (
+    TailRiskManager,
+    TailRiskMetrics,
+    TailRiskRegime,
+    LiquidityAdjustedVaR,
+    LiquidityMetrics,
+    quick_tail_risk_check,
+    calculate_liq_var,
+)
+
 __all__ = [
     # Monte Carlo
     "MonteCarloSimulator",
@@ -40,4 +50,12 @@ __all__ = [
     "AlertSeverity",
     "AlertType",
     "get_risk_monitor",
+    # Tail Risk & Liquidity
+    "TailRiskManager",
+    "TailRiskMetrics",
+    "TailRiskRegime",
+    "LiquidityAdjustedVaR",
+    "LiquidityMetrics",
+    "quick_tail_risk_check",
+    "calculate_liq_var",
 ]

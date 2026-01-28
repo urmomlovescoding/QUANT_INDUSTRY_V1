@@ -70,6 +70,19 @@ from .position_sizing import (
     get_kelly_size,
 )
 
+# ML Adaptive Execution (v10.2)
+from .adaptive_ml_executor import (
+    AdaptiveMLExecutor,
+    AdaptiveExecutionAgent,
+    ExecutionState,
+    ExecutionAction,
+    ExecutionResult,
+    ExecutionUrgency,
+    MarketCondition,
+    create_adaptive_executor,
+    quick_execute,
+)
+
 __all__ = [
     # Execution
     "ExecutionMode",
@@ -121,4 +134,14 @@ __all__ = [
     "VolatilityScaler",
     "calculate_position_size",
     "get_kelly_size",
+    # NEW: ML Adaptive Execution
+    "AdaptiveMLExecutor",
+    "AdaptiveExecutionAgent",
+    "ExecutionState",
+    "ExecutionAction",
+    "ExecutionResult",
+    "ExecutionUrgency",
+    "MarketCondition",
+    "create_adaptive_executor",
+    "quick_execute",
 ]
