@@ -87,6 +87,8 @@ const navSections: NavSection[] = [
       { path: '/backtesting', icon: Timer, label: 'Backtesting' },
       { path: '/monte-carlo', icon: Dice5, label: 'Monte Carlo' },
       { path: '/correlation', icon: GitBranch, label: 'Correlation' },
+      { path: '/risk-decomposition', icon: Layers, label: 'Risk Decomposition' },
+      { path: '/scenario-analysis', icon: Zap, label: 'Scenario Analysis' },
     ],
   },
   {

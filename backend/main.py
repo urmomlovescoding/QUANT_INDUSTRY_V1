@@ -7951,6 +7951,358 @@ async def get_safety_status():
         return {"is_safe": True, "breaches": [], "warnings": [], "daily_loss": 0, "max_daily_loss": 5000, "current_drawdown": 0, "max_drawdown_limit": 0.1}
 
 
+# ============== RISK DECOMPOSITION & SCENARIO ENGINE ==============
+
+
+@app.get("/api/risk/factor-decomposition")
+async def get_factor_decomposition():
+    """Decompose portfolio risk into factor exposures (market, sector, momentum, vol, size)."""
+    try:
+        from risk.factor_model import get_factor_model
+        from services.trading_service import get_trading_service
+
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        positions = trading.get_all_positions()
+
+        position_dicts = [
+            {"symbol": p.symbol, "market_value": p.market_value,
+             "unrealized_pnl": p.unrealized_pnl}
+            for p in positions
+        ]
+
+        model = get_factor_model()
+        snapshot = model.decompose(
+            positions=position_dicts,
+            daily_pnl=account.day_pnl,
+            market_return_bps=0.0,
+        )
+        return snapshot.to_dict()
+    except Exception as e:
+        logger.error(f"Factor decomposition error: {e}")
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "total_return_bps": 0,
+            "factors": [
+                {"factor": f, "exposure": 0, "contribution_bps": 0, "pct_of_risk": 0}
+                for f in ["market", "sector", "momentum", "volatility", "size"]
+            ],
+            "residual_bps": 0,
+            "r_squared": 0,
+        }
+
+
+@app.get("/api/risk/factor-drift")
+async def get_factor_drift(lookback_days: int = 30):
+    """Get factor exposure drift over time to detect style drift."""
+    try:
+        from risk.factor_model import get_factor_model
+        model = get_factor_model()
+        return {"drift": model.get_factor_drift(lookback_days), "lookback_days": lookback_days}
+    except Exception as e:
+        logger.error(f"Factor drift error: {e}")
+        return {"drift": [], "lookback_days": lookback_days}
+
+
+@app.get("/api/risk/factor-history")
+async def get_factor_history(limit: int = 60):
+    """Get historical factor decomposition snapshots."""
+    try:
+        from risk.factor_model import get_factor_model
+        model = get_factor_model()
+        return {"history": model.get_history(limit)}
+    except Exception as e:
+        logger.error(f"Factor history error: {e}")
+        return {"history": []}
+
+
+# -- Scenario Engine --
+
+@app.get("/api/risk/scenarios")
+async def list_scenarios():
+    """List all available scenarios (historical + custom)."""
+    try:
+        from risk.scenario_engine import get_scenario_engine
+        engine = get_scenario_engine()
+        return {"scenarios": engine.list_scenarios()}
+    except Exception as e:
+        logger.error(f"List scenarios error: {e}")
+        return {"scenarios": []}
+
+
+class ScenarioRunRequest(BaseModel):
+    scenario_id: str
+
+
+@app.post("/api/risk/scenarios/run")
+async def run_scenario(request: ScenarioRunRequest):
+    """Run a historical scenario against the current portfolio."""
+    try:
+        from risk.scenario_engine import get_scenario_engine
+        from services.trading_service import get_trading_service
+        from services.risk_service import get_sector_tracker
+
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        positions = trading.get_all_positions()
+        tracker = get_sector_tracker()
+
+        position_dicts = [
+            {"symbol": p.symbol, "market_value": p.market_value,
+             "sector": tracker.get_sector(p.symbol).value}
+            for p in positions
+        ]
+
+        engine = get_scenario_engine()
+        result = engine.run_scenario(
+            scenario_id=request.scenario_id,
+            positions=position_dicts,
+            total_equity=account.equity,
+        )
+        return result.to_dict()
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Run scenario error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CustomStressRequest(BaseModel):
+    name: str = "Custom Stress Test"
+    market_shock_pct: float = 0.0
+    vix_spike_pct: float = 0.0
+    rate_move_bps: float = 0.0
+    sector_overrides: Optional[Dict[str, float]] = None
+    correlation_to_one: bool = False
+
+
+@app.post("/api/risk/scenarios/custom")
+async def run_custom_stress(request: CustomStressRequest):
+    """Run a custom stress test against the current portfolio."""
+    try:
+        from risk.scenario_engine import get_scenario_engine
+        from services.trading_service import get_trading_service
+        from services.risk_service import get_sector_tracker
+
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        positions = trading.get_all_positions()
+        tracker = get_sector_tracker()
+
+        position_dicts = [
+            {"symbol": p.symbol, "market_value": p.market_value,
+             "sector": tracker.get_sector(p.symbol).value}
+            for p in positions
+        ]
+
+        engine = get_scenario_engine()
+        result = engine.run_custom_stress(
+            name=request.name,
+            market_shock_pct=request.market_shock_pct,
+            vix_spike_pct=request.vix_spike_pct,
+            rate_move_bps=request.rate_move_bps,
+            sector_overrides=request.sector_overrides,
+            correlation_to_one=request.correlation_to_one,
+            positions=position_dicts,
+            total_equity=account.equity,
+        )
+        return result.to_dict()
+    except Exception as e:
+        logger.error(f"Custom stress error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/risk/scenarios/history")
+async def get_scenario_history(limit: int = 20):
+    """Get history of scenario runs for comparison."""
+    try:
+        from risk.scenario_engine import get_scenario_engine
+        engine = get_scenario_engine()
+        return {"history": engine.get_history(limit)}
+    except Exception as e:
+        logger.error(f"Scenario history error: {e}")
+        return {"history": []}
+
+
+# -- Attribution Waterfall --
+
+@app.get("/api/risk/attribution")
+async def get_pnl_attribution():
+    """Get PnL attribution waterfall (Market + Sector + Alpha + Costs + Timing)."""
+    try:
+        from risk.attribution import get_attribution_engine
+        from services.trading_service import get_trading_service
+
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        positions = trading.get_all_positions()
+
+        position_dicts = [
+            {"symbol": p.symbol, "market_value": p.market_value,
+             "unrealized_pnl": p.unrealized_pnl}
+            for p in positions
+        ]
+
+        engine = get_attribution_engine()
+        snapshot = engine.compute_attribution(
+            positions=position_dicts,
+            daily_pnl=account.day_pnl,
+            market_return_pct=0.0,
+            total_equity=account.equity,
+        )
+        return snapshot.to_dict()
+    except Exception as e:
+        logger.error(f"Attribution error: {e}")
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "total_pnl": 0,
+            "components": [],
+            "waterfall": [],
+        }
+
+
+@app.get("/api/risk/attribution/history")
+async def get_attribution_history(limit: int = 30):
+    """Get historical attribution data for trend analysis."""
+    try:
+        from risk.attribution import get_attribution_engine
+        engine = get_attribution_engine()
+        return {"history": engine.get_history(limit)}
+    except Exception as e:
+        logger.error(f"Attribution history error: {e}")
+        return {"history": []}
+
+
+@app.get("/api/risk/attribution/alpha-trend")
+async def get_alpha_trend(lookback_days: int = 30):
+    """Analyze alpha decay / improvement over time."""
+    try:
+        from risk.attribution import get_attribution_engine
+        engine = get_attribution_engine()
+        return engine.get_alpha_trend(lookback_days)
+    except Exception as e:
+        logger.error(f"Alpha trend error: {e}")
+        return {"trend": "error", "avg_alpha": 0, "alpha_sharpe": 0, "is_decaying": False}
+
+
+# -- Risk Budget --
+
+@app.get("/api/risk/budgets")
+async def get_risk_budgets():
+    """Get all risk budgets with current utilization."""
+    try:
+        from risk.risk_budget import get_risk_budget_manager
+        from services.trading_service import get_trading_service
+
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        positions = trading.get_all_positions()
+
+        position_dicts = [
+            {"symbol": p.symbol, "market_value": p.market_value,
+             "strategy": p.strategy or "unknown"}
+            for p in positions
+        ]
+
+        mgr = get_risk_budget_manager()
+        result = mgr.check_budgets(
+            positions=position_dicts,
+            total_equity=account.equity,
+            current_drawdown_pct=0.0,
+            var_95_pct=3.0,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Risk budgets error: {e}")
+        return {
+            "utilizations": {},
+            "alerts": [],
+            "scale_recommendations": [],
+            "total_budgets": 0,
+            "budgets_over_limit": 0,
+            "budgets_approaching": 0,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+@app.get("/api/risk/budgets/list")
+async def list_risk_budgets():
+    """List all configured risk budgets."""
+    try:
+        from risk.risk_budget import get_risk_budget_manager
+        mgr = get_risk_budget_manager()
+        return {"budgets": mgr.get_all_budgets()}
+    except Exception as e:
+        logger.error(f"List budgets error: {e}")
+        return {"budgets": []}
+
+
+@app.get("/api/risk/budgets/history")
+async def get_budget_history(budget_name: str = None, limit: int = 60):
+    """Get budget utilization history for trending."""
+    try:
+        from risk.risk_budget import get_risk_budget_manager
+        mgr = get_risk_budget_manager()
+        return {"history": mgr.get_utilization_history(budget_name, limit)}
+    except Exception as e:
+        logger.error(f"Budget history error: {e}")
+        return {"history": []}
+
+
+# -- Correlation Monitor --
+
+@app.get("/api/risk/correlation-monitor")
+async def get_correlation_monitor_data():
+    """Get enhanced correlation monitoring data (matrix, regime, diversification)."""
+    try:
+        from risk.correlation_monitor import get_correlation_monitor
+        from services.trading_service import get_trading_service
+
+        trading = get_trading_service()
+        positions = trading.get_all_positions()
+
+        position_dicts = [
+            {"symbol": p.symbol, "market_value": p.market_value}
+            for p in positions
+        ]
+
+        monitor = get_correlation_monitor()
+        matrix_data = monitor.compute_correlation_matrix(position_dicts)
+        regime = monitor.detect_regime(position_dicts)
+        div_score = monitor.compute_diversification_score(position_dicts)
+        alerts = monitor.check_alerts(position_dicts)
+
+        return {
+            "correlation_matrix": matrix_data,
+            "regime": regime.to_dict(),
+            "diversification": div_score.to_dict(),
+            "alerts": alerts,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Correlation monitor error: {e}")
+        return {
+            "correlation_matrix": {"symbols": [], "matrix": [], "avg_correlation": 0, "pairs": []},
+            "regime": {"regime": "unknown", "avg_correlation": 0, "start_date": "", "description": ""},
+            "diversification": {"score": 0, "grade": "N/A", "effective_positions": 0,
+                                "concentration_risk": 0, "correlation_risk": 0, "recommendations": []},
+            "alerts": [],
+            "timestamp": datetime.now().isoformat(),
+        }
+
+
+@app.get("/api/risk/correlation-monitor/history")
+async def get_correlation_history(limit: int = 60):
+    """Get historical correlation snapshots."""
+    try:
+        from risk.correlation_monitor import get_correlation_monitor
+        monitor = get_correlation_monitor()
+        return {"history": monitor.get_correlation_history(limit)}
+    except Exception as e:
+        logger.error(f"Correlation history error: {e}")
+        return {"history": []}
+
+
 # Strategies
 @app.get("/api/strategies")
 async def get_strategies():
