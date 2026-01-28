@@ -38,6 +38,266 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# ============== ALMGREN-CHRISS SLIPPAGE MODEL ==============
+
+@dataclass
+class SlippageEstimate:
+    """Result of slippage calculation"""
+    permanent_impact: float  # Price impact that doesn't decay
+    temporary_impact: float  # Price impact during execution only
+    total_slippage_bps: float  # Total slippage in basis points
+    total_slippage_dollars: float  # Total slippage in dollars
+    optimal_execution_time: float  # Hours for optimal execution
+    participation_rate: float  # Recommended % of daily volume
+
+
+class AlmgrenChrissSlippageModel:
+    """
+    Almgren-Chriss Market Impact Model
+    
+    The industry-standard model for estimating execution costs.
+    Based on "Optimal Execution of Portfolio Transactions" (2000).
+    
+    Components:
+    - Permanent impact: Price change that persists after trading
+    - Temporary impact: Price impact during execution that decays
+    
+    Parameters calibrated for US equities/futures.
+    """
+    
+    def __init__(
+        self,
+        eta: float = 0.01,      # Temporary impact coefficient
+        gamma: float = 0.05,    # Permanent impact coefficient
+        sigma_scale: float = 1.0,  # Volatility scaling factor
+        risk_aversion: float = 1e-6  # Risk aversion parameter
+    ):
+        """
+        Initialize Almgren-Chriss model.
+        
+        Args:
+            eta: Temporary impact coefficient (higher = more temporary slippage)
+            gamma: Permanent impact coefficient (higher = more permanent price move)
+            sigma_scale: Multiplier for volatility effects
+            risk_aversion: Lambda parameter for risk-adjusted optimization
+        """
+        self.eta = eta
+        self.gamma = gamma
+        self.sigma_scale = sigma_scale
+        self.risk_aversion = risk_aversion
+    
+    def calculate_slippage(
+        self,
+        order_size: float,
+        daily_volume: float,
+        volatility: float,
+        price: float,
+        execution_time_hours: float = 1.0
+    ) -> SlippageEstimate:
+        """
+        Calculate expected slippage for an order.
+        
+        Args:
+            order_size: Number of shares/contracts to execute
+            daily_volume: Average daily volume
+            volatility: Daily volatility (decimal, e.g., 0.02 for 2%)
+            price: Current price
+            execution_time_hours: Time to execute (hours)
+            
+        Returns:
+            SlippageEstimate with breakdown of costs
+        """
+        if daily_volume <= 0 or order_size <= 0:
+            return SlippageEstimate(0, 0, 0, 0, 0, 0)
+        
+        # Participation rate
+        trading_hours = 6.5  # Regular market hours
+        volume_during_execution = daily_volume * (execution_time_hours / trading_hours)
+        participation_rate = order_size / volume_during_execution if volume_during_execution > 0 else 1.0
+        
+        # Normalized order size (fraction of daily volume)
+        X = order_size / daily_volume
+        
+        # Permanent impact (linear in order size)
+        # g(v) = gamma * sigma * (X / T)
+        permanent_impact = self.gamma * volatility * X
+        
+        # Temporary impact (depends on execution speed)
+        # h(v) = eta * sigma * (X / T)^0.5 for aggressive execution
+        T = execution_time_hours / trading_hours  # Fraction of trading day
+        temporary_impact = self.eta * volatility * np.sqrt(X / max(T, 0.01))
+        
+        # Total slippage in basis points
+        total_impact = permanent_impact + temporary_impact
+        total_slippage_bps = total_impact * 10000
+        
+        # Dollar slippage
+        total_slippage_dollars = total_impact * price * order_size
+        
+        # Optimal execution time (Almgren-Chriss formula)
+        # T* = sqrt(eta / (risk_aversion * sigma^2))
+        if self.risk_aversion > 0:
+            optimal_T = np.sqrt(self.eta / (self.risk_aversion * volatility**2))
+            optimal_execution_time = min(optimal_T * trading_hours, trading_hours)
+        else:
+            optimal_execution_time = trading_hours
+        
+        return SlippageEstimate(
+            permanent_impact=permanent_impact * 10000,  # bps
+            temporary_impact=temporary_impact * 10000,  # bps
+            total_slippage_bps=total_slippage_bps,
+            total_slippage_dollars=total_slippage_dollars,
+            optimal_execution_time=optimal_execution_time,
+            participation_rate=min(participation_rate, 1.0)
+        )
+    
+    def apply_to_backtest(
+        self,
+        trades_df: 'pd.DataFrame',
+        volume_col: str = 'volume',
+        size_col: str = 'size',
+        price_col: str = 'price',
+        volatility_col: str = 'volatility',
+        side_col: str = 'side'
+    ) -> 'pd.DataFrame':
+        """
+        Apply slippage model to historical backtest trades.
+        
+        This is CRITICAL for realistic backtest results.
+        
+        Args:
+            trades_df: DataFrame with trade records
+            volume_col: Column name for daily volume
+            size_col: Column name for order size
+            price_col: Column name for price
+            volatility_col: Column name for volatility (optional)
+            side_col: Column name for side ('buy'/'sell')
+            
+        Returns:
+            DataFrame with adjusted prices and slippage columns
+        """
+        if not HAS_PANDAS:
+            raise ImportError("Pandas required for apply_to_backtest")
+        
+        df = trades_df.copy()
+        
+        # Default volatility if not provided
+        if volatility_col not in df.columns:
+            df['_volatility'] = 0.02  # 2% default
+            volatility_col = '_volatility'
+        
+        slippage_results = []
+        for idx, row in df.iterrows():
+            estimate = self.calculate_slippage(
+                order_size=abs(row[size_col]),
+                daily_volume=row[volume_col],
+                volatility=row[volatility_col],
+                price=row[price_col]
+            )
+            slippage_results.append(estimate)
+        
+        # Add slippage columns
+        df['slippage_bps'] = [s.total_slippage_bps for s in slippage_results]
+        df['slippage_dollars'] = [s.total_slippage_dollars for s in slippage_results]
+        df['permanent_impact_bps'] = [s.permanent_impact for s in slippage_results]
+        df['temporary_impact_bps'] = [s.temporary_impact for s in slippage_results]
+        
+        # Adjust execution prices
+        # Buys get worse (higher) price, sells get worse (lower) price
+        price_impact = df['slippage_bps'] / 10000 * df[price_col]
+        
+        if side_col in df.columns:
+            is_buy = df[side_col].str.lower().isin(['buy', 'long', 'b'])
+            df['adjusted_price'] = np.where(
+                is_buy,
+                df[price_col] + price_impact,
+                df[price_col] - price_impact
+            )
+        else:
+            # Assume all buys if no side column
+            df['adjusted_price'] = df[price_col] + price_impact
+        
+        # Calculate P&L impact
+        df['pnl_impact'] = -df['slippage_dollars']  # Slippage is always a cost
+        
+        return df
+    
+    def get_realistic_fills(
+        self,
+        order_price: float,
+        order_size: float,
+        side: str,
+        daily_volume: float,
+        volatility: float = 0.02
+    ) -> Tuple[float, float]:
+        """
+        Get a realistic fill price accounting for slippage.
+        Use this in execution simulation.
+        
+        Args:
+            order_price: Intended execution price
+            order_size: Order size
+            side: 'buy' or 'sell'
+            daily_volume: Average daily volume
+            volatility: Daily volatility
+            
+        Returns:
+            Tuple of (fill_price, slippage_dollars)
+        """
+        estimate = self.calculate_slippage(
+            order_size=order_size,
+            daily_volume=daily_volume,
+            volatility=volatility,
+            price=order_price
+        )
+        
+        slippage_pct = estimate.total_slippage_bps / 10000
+        
+        if side.lower() in ['buy', 'long', 'b']:
+            fill_price = order_price * (1 + slippage_pct)
+        else:
+            fill_price = order_price * (1 - slippage_pct)
+        
+        return fill_price, estimate.total_slippage_dollars
+
+
+# Convenience function for quick slippage estimates
+def estimate_slippage(
+    order_size: float,
+    daily_volume: float,
+    price: float,
+    volatility: float = 0.02,
+    aggressive: bool = False
+) -> float:
+    """
+    Quick slippage estimate in basis points.
+    
+    Args:
+        order_size: Number of shares/contracts
+        daily_volume: Average daily volume
+        price: Current price
+        volatility: Daily volatility (default 2%)
+        aggressive: If True, assume fast execution (more slippage)
+        
+    Returns:
+        Estimated slippage in basis points
+    """
+    # Use higher impact coefficients for aggressive execution
+    eta = 0.02 if aggressive else 0.01
+    gamma = 0.08 if aggressive else 0.05
+    
+    model = AlmgrenChrissSlippageModel(eta=eta, gamma=gamma)
+    estimate = model.calculate_slippage(
+        order_size=order_size,
+        daily_volume=daily_volume,
+        volatility=volatility,
+        price=price,
+        execution_time_hours=0.5 if aggressive else 2.0
+    )
+    
+    return estimate.total_slippage_bps
+
+
 # ============== DATA CLASSES ==============
 
 class ExecutionStrategy(Enum):
