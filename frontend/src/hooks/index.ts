@@ -1,28 +1,28 @@
 export {
   useWebSocket,
-  useChannelWebSocket,
-  useMarketData as useMarketDataWS,
-  useSignals as useSignalsWS,
-  useBrainStatus as useBrainStatusWS,
-  useOptionsFlow,
-  useSystemHealth,
+  useChannel,
+  useMarketData,
+  useRiskMetrics,
+  useSignals,
+  useAlerts,
 } from './useWebSocket'
 
 export type {
-  WebSocketChannel,
+  ChannelType,
+  MessageType,
   WebSocketMessage,
-  MarketTick,
-  TradingSignal,
-  TradeUpdate,
-  FlowUpdate,
-  BrainUpdate,
-  SystemHealth,
+  UseWebSocketOptions,
+  UseWebSocketReturn,
+  MarketData,
+  RiskMetrics as WSRiskMetrics,
+  Signal as WSSignal,
+  Alert,
 } from './useWebSocket'
 
 export {
   useAutoRefresh,
   useDashboardData,
-  useMarketData,
+  useMarketData as useMarketDataFetch,
   useSignalsData,
   usePortfolioData,
   useBrainData,

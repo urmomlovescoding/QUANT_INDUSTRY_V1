@@ -32,6 +32,13 @@ app.add_middleware(
 
 # Import and register routes
 try:
+    from api.routes.core_routes import router as core_router
+    app.include_router(core_router)
+    logger.info("Loaded core routes")
+except Exception as e:
+    logger.warning(f"Could not load core routes: {e}")
+
+try:
     from api.routes.tax_routes import router as tax_router
     app.include_router(tax_router)
     logger.info("Loaded tax routes")

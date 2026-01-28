@@ -25,7 +25,23 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
-import { useWebSocket, type FlowUpdate } from '@/hooks/useWebSocket'
+import { useWebSocket } from '@/hooks/useWebSocket'
+
+// Flow update type from WebSocket
+interface FlowUpdate {
+  id: string
+  symbol: string
+  type: 'CALL' | 'PUT'
+  side: 'BUY' | 'SELL'
+  sentiment: 'BULLISH' | 'BEARISH'
+  strike: number
+  expiry: string
+  premium: number
+  contracts: number
+  is_unusual: boolean
+  is_sweep: boolean
+  timestamp: string
+}
 import { useNotifications } from '@/components/NotificationSystem'
 
 // Types
@@ -121,13 +137,13 @@ export function FlowScanner() {
   // Subscribe to flow channel when connected
   useEffect(() => {
     if (isConnected) {
-      subscribe(['flow'])
+      subscribe('alerts')
     }
   }, [isConnected, subscribe])
 
   // Handle incoming WebSocket messages
   useEffect(() => {
-    if (lastMessage?.channel === 'flow' && lastMessage.type === 'flow_update') {
+    if (lastMessage?.channel === 'alerts' && lastMessage.type === 'data') {
       const wsFlow = lastMessage.data as FlowUpdate
 
       const newFlow: Flow = {
