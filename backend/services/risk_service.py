@@ -8,6 +8,7 @@ import math
 import os
 import sqlite3
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -321,7 +322,6 @@ class SectorExposureTracker:
 
         Returns list of RiskAlerts for sectors over limit.
         """
-        import uuid
         alerts = []
         exposure = self.calculate_exposure(positions, total_equity)
 
@@ -1444,8 +1444,6 @@ class RiskService:
         limit: float
     ):
         """Create a new risk alert"""
-        import uuid
-
         alert = RiskAlert(
             id=str(uuid.uuid4())[:8],
             type=alert_type,

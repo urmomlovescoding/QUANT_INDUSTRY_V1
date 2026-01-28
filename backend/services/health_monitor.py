@@ -5,6 +5,7 @@ Provides comprehensive health checks, auto-recovery, and graceful degradation
 import asyncio
 import logging
 import os
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -316,7 +317,6 @@ async def check_market_hours() -> tuple[HealthStatus, str]:
 async def check_database() -> tuple[HealthStatus, str]:
     """Health check for database"""
     try:
-        import sqlite3
         db_path = os.path.join(os.path.dirname(__file__), "..", "cache", "last_prices.db")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()

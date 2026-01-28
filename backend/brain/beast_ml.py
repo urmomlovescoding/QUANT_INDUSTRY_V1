@@ -52,7 +52,6 @@ try:
 except ImportError:
     PYTORCH_AVAILABLE = False
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
