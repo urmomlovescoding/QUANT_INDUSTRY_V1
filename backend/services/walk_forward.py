@@ -276,12 +276,8 @@ class WalkForwardValidator:
         """Generate rolling window splits."""
         train_delta = pd.DateOffset(months=self.train_period_months)
         val_delta = pd.DateOffset(months=self.validation_period_months)
-        embargo_delta = timedelta(days=self.embargo_days)
+        embargo_delta = pd.DateOffset(days=self.embargo_days)  # Use DateOffset for consistency
         step_delta = val_delta  # Step by validation period
-        
-        # Calculate first valid start (need enough data for train + val)
-        total_needed = train_delta + embargo_delta + val_delta
-        first_val_start = start_date + train_delta + embargo_delta
         
         current_train_start = start_date
         split_id = 0
@@ -335,7 +331,7 @@ class WalkForwardValidator:
     ) -> Generator[Tuple[WalkForwardSplit, 'pd.DataFrame', 'pd.DataFrame'], None, None]:
         """Generate expanding window splits (training window grows)."""
         val_delta = pd.DateOffset(months=self.validation_period_months)
-        embargo_delta = timedelta(days=self.embargo_days)
+        embargo_delta = pd.DateOffset(days=self.embargo_days)  # Use DateOffset for consistency
         
         # Fixed start, expanding training window
         train_start = start_date
