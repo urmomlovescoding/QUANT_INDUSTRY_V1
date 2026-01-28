@@ -1,10 +1,22 @@
 # QUANT INDUSTRY Brain Package
 # ML/AI modules for neural analysis, regime detection, and algorithmic trading
+#
+# v10.1: Added confidence calibration for signal reliability
 
 from .algo_bot import AlgoBot, BotState, TradingStrategy
 from .neural_engine import NeuralEngine, NeuralSignal, PatternType
 from .regime_detector import MarketRegime, RegimeDetector, RegimeState
 from .trading_brain import BrainCycle, BrainDecision, TradingBrain
+
+# Model calibration
+from .confidence_calibration import (
+    ConfidenceCalibrator,
+    CalibrationReport,
+    CalibrationBin,
+    PredictionRecord,
+    TemperatureScaler,
+    get_confidence_calibrator,
+)
 
 # Advanced ML/RL modules
 try:
@@ -81,6 +93,10 @@ __all__ = [
     "RegimeDetector", "MarketRegime", "RegimeState",
     "AlgoBot", "BotState", "TradingStrategy",
     "TradingBrain", "BrainCycle", "BrainDecision",
+
+    # Model Calibration (NEW)
+    "ConfidenceCalibrator", "CalibrationReport", "CalibrationBin",
+    "PredictionRecord", "TemperatureScaler", "get_confidence_calibrator",
 
     # BEAST ML
     "BEASTMLEngine", "BEASTConfig", "get_beast_engine",
