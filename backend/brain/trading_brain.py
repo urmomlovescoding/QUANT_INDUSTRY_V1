@@ -7,6 +7,7 @@ import logging
 import os
 import sqlite3
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -504,8 +505,6 @@ class TradingBrain:
         market_data: Dict
     ) -> BrainDecision:
         """Synthesize final decision from all cycles"""
-        import uuid
-
         # Weight cycle decisions
         total_score = 0
         for cycle, weight in self.cycle_weights.items():
