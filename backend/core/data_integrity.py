@@ -217,7 +217,7 @@ def get_price_truth(symbol: str) -> PriceTruth:
         if isinstance(quote_time, str):
             try:
                 quote_time = datetime.fromisoformat(quote_time)
-            except:
+            except (ValueError, TypeError):
                 quote_time = datetime.now()
 
         staleness = (datetime.now() - quote_time).total_seconds()
@@ -229,7 +229,7 @@ def get_price_truth(symbol: str) -> PriceTruth:
         # Check market status
         try:
             market_open = check_market_open()
-        except:
+        except Exception:
             market_open = False
 
         return PriceTruth(

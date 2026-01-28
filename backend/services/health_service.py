@@ -122,7 +122,7 @@ def get_gpu_utilization() -> Dict[str, float]:
                     result['gpu_temp'] = float(parts[1].strip())
                     try:
                         result['gpu_power'] = float(parts[2].strip())
-                    except:
+                    except (ValueError, IndexError):
                         pass
         except Exception as e:
             logger.debug(f"GPU utilization error: {e}")

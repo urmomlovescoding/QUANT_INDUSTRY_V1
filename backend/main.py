@@ -9,10 +9,13 @@ import logging
 import math
 import os
 import random
+import statistics
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+import pytz
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -284,7 +287,6 @@ async def startup_event():
         logger.warning("[STARTUP] Data integrity layer NOT available")
 
     if SERVICES_AVAILABLE:
-        import os
         alpaca_key = os.getenv("ALPACA_API_KEY", "")
         logger.info(f"[STARTUP] Alpaca API Key configured: {'Yes' if alpaca_key else 'No'}")
     asyncio.create_task(refresh_market_data())
@@ -560,7 +562,6 @@ async def health_check():
             market_info = {"session": "unknown", "error": str(e)}
     else:
         # Fallback market status
-        import pytz
         try:
             et = pytz.timezone('US/Eastern')
             now = datetime.now(et)
@@ -629,7 +630,7 @@ async def health_check():
                             update_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                             if latest_update is None or update_time > latest_update:
                                 latest_update = update_time
-                        except:
+                        except (ValueError, TypeError):
                             pass
                 if latest_update:
                     data_status["last_update"] = latest_update.isoformat()
@@ -851,7 +852,6 @@ async def get_market_status_endpoint():
             logger.warning(f"Market status failed: {e}")
 
     # Fallback: basic status based on current time (Eastern approximation)
-    import pytz
     try:
         et = pytz.timezone('US/Eastern')
         now = datetime.now(et)
@@ -1084,7 +1084,7 @@ async def get_sectors():
                     prev_close = hist[-2].close
                     curr_close = hist[-1].close
                     change_pct = ((curr_close - prev_close) / prev_close) * 100
-            except:
+            except Exception:
                 pass
         sectors.append({"name": name, "change_pct": round(change_pct, 2), "weight": weight})
 
@@ -1911,7 +1911,7 @@ async def confirm_trade(trade: TradeConfirmation):
                     regime_score = 85 if trade.direction.upper() == "SHORT" else 40
                 else:
                     regime_score = 60
-        except:
+        except Exception:
             pass
 
     # Calculate overall score
@@ -2007,7 +2007,7 @@ async def get_risk_metrics():
                                     for i in range(1, len(closes)):
                                         ret = (closes[i] - closes[i-1]) / closes[i-1]
                                         daily_returns.append(ret * (pos_value / total_portfolio_value))
-                            except:
+                            except Exception:
                                 pass
 
                         # Max position exposure
@@ -2050,7 +2050,7 @@ async def get_risk_metrics():
                     tracker = brain.performance_tracker
                     if hasattr(tracker, 'current_drawdown'):
                         current_drawdown = abs(tracker.current_drawdown * 100)
-            except:
+            except Exception:
                 pass
 
         # Risk score calculation
@@ -2839,7 +2839,7 @@ async def get_portfolio_performance():
                     # Alpha (simplified CAPM)
                     spy_annual_return = sum(spy_returns) / len(spy_returns) * 252 * 100
                     alpha = annual_return - (4.5 + beta * (spy_annual_return - 4.5))
-            except:
+            except (ZeroDivisionError, ValueError, TypeError):
                 pass
 
     except Exception as e:
@@ -4941,9 +4941,9 @@ async def scan_pairs_legacy(symbols: List[str] = None):
                 hist = data_service.get_historical(symbol, "6mo", "1d")
                 if hist and len(hist) >= 50:
                     price_data[symbol] = [h.close for h in hist]
-            except:
+            except Exception:
                 continue
-    except:
+    except Exception:
         pass
 
     # Calculate actual correlations between pairs
@@ -5207,7 +5207,7 @@ async def test_connection(connection_id: str):
                     if options_service:
                         success = True
                         latency = int((time.time() - start_time) * 1000)
-                except:
+                except Exception:
                     success = True  # API key exists, assume connected
                     latency = int((time.time() - start_time) * 1000)
             else:
