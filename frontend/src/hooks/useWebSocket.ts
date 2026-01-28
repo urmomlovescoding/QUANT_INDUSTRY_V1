@@ -1,497 +1,372 @@
 /**
- * Enhanced WebSocket Hook for Real-Time Data Streaming
- * Supports multiple channels: market, signals, trades, brain, system, flow, futures, portfolio
+ * WebSocket Hook - Real-time Data Connection
+ * QUANT_INDUSTRY_V1
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react';
 
-export type WebSocketChannel =
-  | 'market'
+export type ChannelType = 
+  | 'market_data'
+  | 'order_book'
   | 'signals'
-  | 'trades'
-  | 'brain'
-  | 'system'
-  | 'flow'
-  | 'futures'
   | 'portfolio'
+  | 'risk'
+  | 'executions'
+  | 'alerts'
+  | 'system';
+
+export type MessageType = 
+  | 'subscribe'
+  | 'unsubscribe'
+  | 'data'
+  | 'error'
+  | 'ack'
+  | 'heartbeat';
 
 export interface WebSocketMessage {
-  type: string
-  channel?: string
-  timestamp?: string
-  data?: any
-  [key: string]: any
+  type: MessageType;
+  channel?: ChannelType;
+  data?: any;
+  timestamp?: string;
+  error?: string;
+  client_id?: string;
 }
 
-export interface MarketTick {
-  symbol: string
-  price: number
-  bid: number
-  ask: number
-  volume: number
-  change: number
-  change_pct: number
-  timestamp: string
+export interface UseWebSocketOptions {
+  url?: string;
+  autoConnect?: boolean;
+  reconnect?: boolean;
+  reconnectInterval?: number;
+  maxReconnectAttempts?: number;
+  heartbeatInterval?: number;
+  onOpen?: () => void;
+  onClose?: () => void;
+  onError?: (error: Event) => void;
+  onMessage?: (message: WebSocketMessage) => void;
 }
 
-export interface TradingSignal {
-  id: string
-  symbol: string
-  direction: 'LONG' | 'SHORT'
-  confidence: number
-  strategy: string
-  entry_price: number
-  stop_loss: number
-  take_profit: number
-  risk_reward: number
-  timeframe: string
-  regime_alignment: boolean
-  timestamp: string
+export interface UseWebSocketReturn {
+  isConnected: boolean;
+  clientId: string | null;
+  lastMessage: WebSocketMessage | null;
+  subscribe: (channel: ChannelType, symbols?: string[]) => void;
+  unsubscribe: (channel: ChannelType) => void;
+  send: (message: any) => void;
+  connect: () => void;
+  disconnect: () => void;
 }
 
-export interface TradeUpdate {
-  id: string
-  symbol: string
-  type: 'FILLED' | 'PARTIAL' | 'CANCELLED' | 'CLOSED'
-  side: 'BUY' | 'SELL'
-  quantity: number
-  price: number
-  pnl?: number
-  commission: number
-  timestamp: string
-}
+const DEFAULT_WS_URL = `ws://${window.location.hostname}:8000/ws/connect`;
 
-export interface FlowUpdate {
-  id: string
-  symbol: string
-  type: 'CALL' | 'PUT'
-  side: 'BUY' | 'SELL'
-  sentiment: 'BULLISH' | 'BEARISH'
-  strike: number
-  expiry: string
-  premium: number
-  contracts: number
-  is_unusual: boolean
-  is_sweep: boolean
-  timestamp: string
-}
-
-export interface BrainUpdate {
-  type: string
-  confidence: number
-  accuracy: number
-  signals_generated: number
-  winning_signals: number
-  active_strategies: number
-  regime: 'TRENDING' | 'RANGING' | 'VOLATILE' | 'QUIET'
-  volatility_regime: string
-  active_signals: number
-  recent_accuracy: number
-  timestamp: string
-}
-
-export interface SystemHealth {
-  type: string
-  cpu_percent: number
-  memory_percent: number
-  gpu_percent: number
-  disk_io: number
-  network_latency_ms: number
-  api_latency_ms: number
-  active_connections: number
-  messages_per_second: number
-  uptime_hours: number
-  timestamp: string
-}
-
-interface UseWebSocketOptions {
-  autoConnect?: boolean
-  reconnectAttempts?: number
-  reconnectInterval?: number
-  maxReconnectInterval?: number
-  useExponentialBackoff?: boolean
-  onOpen?: () => void
-  onClose?: () => void
-  onError?: (error: Event) => void
-  onReconnecting?: (attempt: number, delay: number) => void
-}
-
-interface UseWebSocketReturn {
-  isConnected: boolean
-  connectionId: string | null
-  lastMessage: WebSocketMessage | null
-  reconnectAttempt: number
-  subscribe: (channels: WebSocketChannel[]) => void
-  unsubscribe: (channels: WebSocketChannel[]) => void
-  sendMessage: (message: object) => void
-  connect: () => void
-  disconnect: () => void
-}
-
-/**
- * Calculate reconnection delay with exponential backoff and jitter.
- * Matches quant-platform pattern for reliable reconnection.
- */
-function calculateBackoffDelay(
-  attempt: number,
-  baseInterval: number,
-  maxInterval: number
-): number {
-  // Exponential backoff: baseInterval * 2^attempt
-  const exponentialDelay = baseInterval * Math.pow(2, attempt)
-
-  // Cap at max interval
-  const cappedDelay = Math.min(exponentialDelay, maxInterval)
-
-  // Add random jitter (0-25% of delay) to prevent thundering herd
-  const jitter = cappedDelay * Math.random() * 0.25
-
-  return Math.floor(cappedDelay + jitter)
-}
-
-const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000'
-
-/**
- * Hook for unified WebSocket connection with channel subscriptions
- * Includes exponential backoff with jitter for reliable reconnection.
- */
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const {
+    url = DEFAULT_WS_URL,
     autoConnect = true,
-    reconnectAttempts = 10,
-    reconnectInterval = 1000,  // Base interval (1 second)
-    maxReconnectInterval = 30000,  // Max 30 seconds
-    useExponentialBackoff = true,
+    reconnect = true,
+    reconnectInterval = 5000,
+    maxReconnectAttempts = 10,
+    heartbeatInterval = 30000,
     onOpen,
     onClose,
     onError,
-    onReconnecting,
-  } = options
+    onMessage,
+  } = options;
 
-  const [isConnected, setIsConnected] = useState(false)
-  const [connectionId, setConnectionId] = useState<string | null>(null)
-  const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null)
-  const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const [isConnected, setIsConnected] = useState(false);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
 
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectCountRef = useRef(0)
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const clearTimeouts = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (heartbeatTimeoutRef.current) {
+      clearInterval(heartbeatTimeoutRef.current);
+      heartbeatTimeoutRef.current = null;
+    }
+  }, []);
+
+  const startHeartbeat = useCallback(() => {
+    heartbeatTimeoutRef.current = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'heartbeat' }));
+      }
+    }, heartbeatInterval);
+  }, [heartbeatInterval]);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
 
     try {
-      wsRef.current = new WebSocket(`${WS_BASE_URL}/ws/unified`)
+      wsRef.current = new WebSocket(url);
 
       wsRef.current.onopen = () => {
-        setIsConnected(true)
-        reconnectCountRef.current = 0
-        setReconnectAttempt(0)
-        console.log('[WebSocket] Connected successfully')
-        onOpen?.()
-      }
+        console.log('[WebSocket] Connected');
+        setIsConnected(true);
+        reconnectAttemptsRef.current = 0;
+        startHeartbeat();
+        onOpen?.();
+      };
+
+      wsRef.current.onclose = () => {
+        console.log('[WebSocket] Disconnected');
+        setIsConnected(false);
+        setClientId(null);
+        clearTimeouts();
+        onClose?.();
+
+        // Attempt reconnection
+        if (reconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
+          reconnectAttemptsRef.current += 1;
+          console.log(`[WebSocket] Reconnecting... (attempt ${reconnectAttemptsRef.current})`);
+          reconnectTimeoutRef.current = setTimeout(connect, reconnectInterval);
+        }
+      };
+
+      wsRef.current.onerror = (event) => {
+        console.error('[WebSocket] Error:', event);
+        onError?.(event);
+      };
 
       wsRef.current.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data)
-          setLastMessage(message)
+          const message: WebSocketMessage = JSON.parse(event.data);
+          setLastMessage(message);
 
-          if (message.type === 'connected') {
-            setConnectionId(message.connection_id)
+          // Handle ACK with client_id
+          if (message.type === 'ack' && message.client_id) {
+            setClientId(message.client_id);
           }
-        } catch (e) {
-          console.error('Failed to parse WebSocket message:', e)
+
+          onMessage?.(message);
+        } catch (error) {
+          console.error('[WebSocket] Failed to parse message:', error);
         }
-      }
-
-      wsRef.current.onclose = () => {
-        setIsConnected(false)
-        setConnectionId(null)
-        onClose?.()
-
-        // Auto reconnect with exponential backoff
-        if (reconnectCountRef.current < reconnectAttempts) {
-          const delay = useExponentialBackoff
-            ? calculateBackoffDelay(reconnectCountRef.current, reconnectInterval, maxReconnectInterval)
-            : reconnectInterval
-
-          console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectCountRef.current + 1}/${reconnectAttempts})`)
-          onReconnecting?.(reconnectCountRef.current + 1, delay)
-
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectCountRef.current++
-            setReconnectAttempt(reconnectCountRef.current)
-            connect()
-          }, delay)
-        } else {
-          console.warn('[WebSocket] Max reconnection attempts reached')
-        }
-      }
-
-      wsRef.current.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', error)
-        onError?.(error)
-      }
-    } catch (e) {
-      console.error('WebSocket connection error:', e)
+      };
+    } catch (error) {
+      console.error('[WebSocket] Connection error:', error);
     }
-  }, [onOpen, onClose, onError, onReconnecting, reconnectAttempts, reconnectInterval, maxReconnectInterval, useExponentialBackoff])
+  }, [url, reconnect, reconnectInterval, maxReconnectAttempts, onOpen, onClose, onError, onMessage, startHeartbeat, clearTimeouts]);
 
   const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current)
+    clearTimeouts();
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
-    reconnectCountRef.current = reconnectAttempts // Prevent reconnection
-    wsRef.current?.close()
-    wsRef.current = null
-    setIsConnected(false)
-    setConnectionId(null)
-  }, [reconnectAttempts])
+    setIsConnected(false);
+    setClientId(null);
+  }, [clearTimeouts]);
 
-  const subscribe = useCallback((channels: WebSocketChannel[]) => {
+  const send = useCallback((message: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        action: 'subscribe',
-        channels
-      }))
+      wsRef.current.send(JSON.stringify(message));
+    } else {
+      console.warn('[WebSocket] Cannot send - not connected');
     }
-  }, [])
+  }, []);
 
-  const unsubscribe = useCallback((channels: WebSocketChannel[]) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        action: 'unsubscribe',
-        channels
-      }))
-    }
-  }, [])
+  const subscribe = useCallback((channel: ChannelType, symbols?: string[]) => {
+    send({
+      type: 'subscribe',
+      channel,
+      symbols: symbols || [],
+    });
+  }, [send]);
 
-  const sendMessage = useCallback((message: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message))
-    }
-  }, [])
+  const unsubscribe = useCallback((channel: ChannelType) => {
+    send({
+      type: 'unsubscribe',
+      channel,
+    });
+  }, [send]);
 
+  // Auto-connect on mount
   useEffect(() => {
     if (autoConnect) {
-      connect()
+      connect();
     }
 
     return () => {
-      disconnect()
-    }
-  }, [autoConnect, connect, disconnect])
+      disconnect();
+    };
+  }, [autoConnect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     isConnected,
-    connectionId,
+    clientId,
     lastMessage,
-    reconnectAttempt,
     subscribe,
     unsubscribe,
-    sendMessage,
+    send,
     connect,
     disconnect,
-  }
+  };
 }
 
 /**
- * Hook for direct channel connection (simpler, single-purpose)
- * Handles React StrictMode double-mounting gracefully
+ * Hook for subscribing to specific channels with typed data
  */
-export function useChannelWebSocket<T = any>(
-  channel: WebSocketChannel,
-  options: UseWebSocketOptions = {}
+export function useChannel<T = any>(
+  channel: ChannelType,
+  symbols?: string[],
+  options?: UseWebSocketOptions
 ) {
-  const [data, setData] = useState<T | null>(null)
-  const [isConnected, setIsConnected] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const optionsRef = useRef(options)
-  const disconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const mountedRef = useRef(true)
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Update options ref on change
-  useEffect(() => {
-    optionsRef.current = options
-  }, [options])
-
-  const connect = useCallback(() => {
-    // Cancel any pending disconnect (handles StrictMode remount)
-    if (disconnectTimeoutRef.current) {
-      clearTimeout(disconnectTimeoutRef.current)
-      disconnectTimeoutRef.current = null
-    }
-
-    // Don't reconnect if already connected or connecting
-    if (wsRef.current?.readyState === WebSocket.OPEN ||
-        wsRef.current?.readyState === WebSocket.CONNECTING) {
-      return
-    }
-
-    try {
-      wsRef.current = new WebSocket(`${WS_BASE_URL}/ws/${channel}`)
-
-      wsRef.current.onopen = () => {
-        if (mountedRef.current) {
-          setIsConnected(true)
-          optionsRef.current.onOpen?.()
+  const { isConnected, subscribe, unsubscribe, lastMessage } = useWebSocket({
+    ...options,
+    onMessage: (message) => {
+      if (message.channel === channel) {
+        if (message.type === 'data') {
+          setData(message.data);
+          setError(null);
+        } else if (message.type === 'error') {
+          setError(message.error || 'Unknown error');
         }
       }
-
-      wsRef.current.onmessage = (event) => {
-        if (!mountedRef.current) return
-        try {
-          const message = JSON.parse(event.data)
-          setData(message.data || message)
-        } catch (e) {
-          console.error('Failed to parse message:', e)
-        }
-      }
-
-      wsRef.current.onclose = () => {
-        if (mountedRef.current) {
-          setIsConnected(false)
-          optionsRef.current.onClose?.()
-        }
-      }
-
-      wsRef.current.onerror = (error) => {
-        optionsRef.current.onError?.(error)
-      }
-    } catch (e) {
-      console.error('WebSocket connection error:', e)
-    }
-  }, [channel])
-
-  const disconnect = useCallback(() => {
-    if (disconnectTimeoutRef.current) {
-      clearTimeout(disconnectTimeoutRef.current)
-      disconnectTimeoutRef.current = null
-    }
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-    setIsConnected(false)
-  }, [])
+      options?.onMessage?.(message);
+    },
+  });
 
   useEffect(() => {
-    mountedRef.current = true
-    connect()
+    if (isConnected) {
+      subscribe(channel, symbols);
+    }
 
     return () => {
-      mountedRef.current = false
-      // Delay disconnect to allow StrictMode to remount
-      disconnectTimeoutRef.current = setTimeout(() => {
-        if (!mountedRef.current && wsRef.current) {
-          wsRef.current.close()
-          wsRef.current = null
-        }
-      }, 100)
-    }
-  }, [channel, connect])
-
-  return { data, isConnected, connect, disconnect }
-}
-
-/**
- * Hook specifically for market data with typed updates
- */
-export function useMarketData() {
-  const [tickers, setTickers] = useState<MarketTick[]>([])
-  const { data, isConnected } = useChannelWebSocket<MarketTick[]>('market')
-
-  useEffect(() => {
-    if (data) {
-      setTickers(data)
-    }
-  }, [data])
-
-  return { tickers, isConnected }
-}
-
-/**
- * Hook specifically for trading signals
- */
-export function useSignals() {
-  const [signals, setSignals] = useState<TradingSignal[]>([])
-  const [latestSignal, setLatestSignal] = useState<TradingSignal | null>(null)
-
-  const { lastMessage, isConnected, subscribe } = useWebSocket()
-
-  useEffect(() => {
-    if (isConnected) {
-      subscribe(['signals'])
-    }
-  }, [isConnected, subscribe])
-
-  useEffect(() => {
-    if (lastMessage?.channel === 'signals') {
-      if (lastMessage.type === 'signal_history') {
-        setSignals(lastMessage.data || [])
-      } else if (lastMessage.type === 'new_signal') {
-        const signal = lastMessage.data as TradingSignal
-        setLatestSignal(signal)
-        setSignals(prev => [signal, ...prev.slice(0, 49)])
+      if (isConnected) {
+        unsubscribe(channel);
       }
-    }
-  }, [lastMessage])
+    };
+  }, [isConnected, channel, JSON.stringify(symbols)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { signals, latestSignal, isConnected }
+  return { data, error, isConnected };
 }
 
 /**
- * Hook specifically for brain status
+ * Hook for real-time market data
  */
-export function useBrainStatus() {
-  const [status, setStatus] = useState<BrainUpdate | null>(null)
-  const { data, isConnected } = useChannelWebSocket<BrainUpdate>('brain')
+export interface MarketData {
+  symbol: string;
+  price: number;
+  bid: number;
+  ask: number;
+  volume: number;
+  change: number;
+  change_pct: number;
+}
+
+export function useMarketData(symbols: string[]) {
+  const [quotes, setQuotes] = useState<Record<string, MarketData>>({});
+
+  const { isConnected, subscribe, lastMessage } = useWebSocket({
+    onMessage: (message) => {
+      if (message.channel === 'market_data' && message.type === 'data') {
+        const data = message.data as MarketData;
+        setQuotes((prev) => ({
+          ...prev,
+          [data.symbol]: data,
+        }));
+      }
+    },
+  });
 
   useEffect(() => {
-    if (data) {
-      setStatus(data)
+    if (isConnected && symbols.length > 0) {
+      subscribe('market_data', symbols);
     }
-  }, [data])
+  }, [isConnected, JSON.stringify(symbols)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { status, isConnected }
+  return { quotes, isConnected };
 }
 
 /**
- * Hook specifically for options flow
+ * Hook for risk metrics
  */
-export function useOptionsFlow() {
-  const [flows, setFlows] = useState<FlowUpdate[]>([])
+export interface RiskMetrics {
+  var_95: number;
+  cvar_95: number;
+  portfolio_beta: number;
+  current_drawdown: number;
+  sector_exposure: Record<string, number>;
+  updated_at: string;
+}
 
-  const { lastMessage, isConnected, subscribe } = useWebSocket()
+export function useRiskMetrics() {
+  return useChannel<RiskMetrics>('risk');
+}
+
+/**
+ * Hook for trading signals
+ */
+export interface Signal {
+  symbol: string;
+  signal_type: string;
+  direction: string;
+  strength: number;
+  metadata: Record<string, any>;
+  generated_at: string;
+}
+
+export function useSignals(symbols?: string[]) {
+  const [signals, setSignals] = useState<Signal[]>([]);
+
+  const { isConnected, subscribe, lastMessage } = useWebSocket({
+    onMessage: (message) => {
+      if (message.channel === 'signals' && message.type === 'data') {
+        setSignals((prev) => [message.data as Signal, ...prev].slice(0, 100));
+      }
+    },
+  });
 
   useEffect(() => {
     if (isConnected) {
-      subscribe(['flow'])
+      subscribe('signals', symbols);
     }
-  }, [isConnected, subscribe])
+  }, [isConnected, JSON.stringify(symbols)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (lastMessage?.channel === 'flow' && lastMessage.type === 'flow_update') {
-      const flow = lastMessage.data as FlowUpdate
-      setFlows(prev => [flow, ...prev.slice(0, 99)])
-    }
-  }, [lastMessage])
-
-  return { flows, isConnected }
+  return { signals, isConnected };
 }
 
 /**
- * Hook for system health monitoring
+ * Hook for alerts
  */
-export function useSystemHealth() {
-  const [health, setHealth] = useState<SystemHealth | null>(null)
-  const { data, isConnected } = useChannelWebSocket<SystemHealth>('system')
+export interface Alert {
+  alert_type: string;
+  severity: string;
+  message: string;
+  details: Record<string, any>;
+  triggered_at: string;
+}
+
+export function useAlerts() {
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+
+  const { isConnected, subscribe, lastMessage } = useWebSocket({
+    onMessage: (message) => {
+      if (message.channel === 'alerts' && message.type === 'data') {
+        setAlerts((prev) => [message.data as Alert, ...prev].slice(0, 50));
+      }
+    },
+  });
 
   useEffect(() => {
-    if (data) {
-      setHealth(data)
+    if (isConnected) {
+      subscribe('alerts');
     }
-  }, [data])
+  }, [isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { health, isConnected }
+  return { alerts, isConnected };
 }
+
+export default useWebSocket;
