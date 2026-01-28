@@ -1,14 +1,26 @@
 /**
  * API Client - Centralized HTTP client for backend communication
+ *
+ * Features:
+ * - Type-safe request/response handling
+ * - Configurable request timeouts
+ * - AbortController support for request cancellation
+ * - Structured error responses
+ * - Abort detection (aborted requests return a distinct error)
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+
+/** Default request timeout in milliseconds */
+const DEFAULT_TIMEOUT_MS = 30_000
 
 export interface ApiError {
   status: number
   message: string
   code?: string
   details?: Record<string, unknown>
+  /** True if the request was aborted (by timeout or manual cancellation) */
+  aborted?: boolean
 }
 
 export interface ApiResponse<T> {
@@ -17,45 +29,76 @@ export interface ApiResponse<T> {
   ok: boolean
 }
 
+export interface RequestOptions extends Omit<RequestInit, 'signal'> {
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number
+  /** External AbortSignal for manual cancellation */
+  signal?: AbortSignal
+}
+
 class ApiClient {
   private baseUrl: string
   private defaultHeaders: Record<string, string>
+  private defaultTimeout: number
 
-  constructor(baseUrl: string = API_BASE_URL) {
+  constructor(baseUrl: string = API_BASE_URL, defaultTimeout = DEFAULT_TIMEOUT_MS) {
     this.baseUrl = baseUrl
+    this.defaultTimeout = defaultTimeout
     this.defaultHeaders = {
       'Content-Type': 'application/json',
     }
   }
 
+  /**
+   * Make an HTTP request with timeout and abort support.
+   */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestOptions = {}
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`
+    const { timeout = this.defaultTimeout, signal: externalSignal, ...fetchOptions } = options
+
+    // Create timeout abort controller
+    const timeoutController = new AbortController()
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeout)
+
+    // Combine external signal with timeout signal
+    const signal = externalSignal
+      ? mergeAbortSignals(externalSignal, timeoutController.signal)
+      : timeoutController.signal
 
     try {
       const response = await fetch(url, {
-        ...options,
+        ...fetchOptions,
+        signal,
         headers: {
           ...this.defaultHeaders,
-          ...options.headers,
+          ...fetchOptions.headers,
         },
       })
 
+      clearTimeout(timeoutId)
+
       if (!response.ok) {
         let errorMessage = `HTTP ${response.status}`
+        let errorCode: string | undefined
+        let errorDetails: Record<string, unknown> | undefined
         try {
           const errorData = await response.json()
           errorMessage = errorData.detail || errorData.message || errorMessage
+          errorCode = errorData.code || errorData.error?.code
+          errorDetails = errorData.details || errorData.error?.details
         } catch {
-          // Use default error message
+          // Response body is not JSON - use default error message
         }
         return {
           data: null,
           error: {
             status: response.status,
             message: errorMessage,
+            code: errorCode,
+            details: errorDetails,
           },
           ok: false,
         }
@@ -64,36 +107,74 @@ class ApiClient {
       const data = await response.json()
       return { data, error: null, ok: true }
     } catch (error) {
+      clearTimeout(timeoutId)
+
+      // Check if request was aborted
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        const isTimeout = timeoutController.signal.aborted
+        return {
+          data: null,
+          error: {
+            status: 0,
+            message: isTimeout ? `Request timed out after ${timeout}ms` : 'Request cancelled',
+            code: isTimeout ? 'TIMEOUT' : 'ABORTED',
+            aborted: true,
+          },
+          ok: false,
+        }
+      }
+
       const message = error instanceof Error ? error.message : 'Network error'
       return {
         data: null,
-        error: { status: 0, message },
+        error: { status: 0, message, code: 'NETWORK_ERROR' },
         ok: false,
       }
     }
   }
 
-  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET' })
+  async get<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, { ...options, method: 'GET' })
   }
 
-  async post<T>(endpoint: string, body?: unknown): Promise<ApiResponse<T>> {
+  async post<T>(endpoint: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
+      ...options,
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
     })
   }
 
-  async put<T>(endpoint: string, body?: unknown): Promise<ApiResponse<T>> {
+  async put<T>(endpoint: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
+      ...options,
       method: 'PUT',
       body: body ? JSON.stringify(body) : undefined,
     })
   }
 
-  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'DELETE' })
+  async delete<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, { ...options, method: 'DELETE' })
   }
+}
+
+/**
+ * Merge two AbortSignals into one that aborts when either fires.
+ */
+function mergeAbortSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
+  const controller = new AbortController()
+
+  const onAbort = () => controller.abort()
+
+  if (signal1.aborted || signal2.aborted) {
+    controller.abort()
+    return controller.signal
+  }
+
+  signal1.addEventListener('abort', onAbort, { once: true })
+  signal2.addEventListener('abort', onAbort, { once: true })
+
+  return controller.signal
 }
 
 export const api = new ApiClient()

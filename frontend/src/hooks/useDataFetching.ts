@@ -4,6 +4,8 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
+import { marketApi } from '@/api'
+import type { Quote } from '@/api'
 
 interface UseAutoRefreshOptions {
   enabled?: boolean
@@ -255,38 +257,56 @@ export function useRiskData(refreshInterval = 30000) {
 }
 
 /**
- * Hook for quote data (single symbol)
+ * Hook for quote data (single symbol).
+ * Uses the centralized API client and supports request cancellation
+ * when the component unmounts or the symbol changes.
  */
 export function useQuote(symbol: string) {
-  const [quote, setQuote] = useState<any>(null)
+  const [quote, setQuote] = useState<Quote | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const storeQuotes = useAppStore((s) => s.quotes)
   const setQuoteInStore = useAppStore((s) => s.setQuote)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const fetchQuote = useCallback(async () => {
     if (!symbol) return
+
+    // Cancel any in-flight request
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/quote/${symbol}`)
-      if (response.ok) {
-        const data = await response.json()
-        setQuote(data)
-        setQuoteInStore(symbol, data)
+      const response = await marketApi.getQuote(symbol)
+      // Don't update state if this request was cancelled
+      if (controller.signal.aborted) return
+
+      if (response.ok && response.data) {
+        setQuote(response.data)
+        setQuoteInStore(symbol, response.data)
         setError(null)
-      } else {
-        setError('Failed to fetch quote')
+      } else if (response.error && !response.error.aborted) {
+        setError(response.error.message || 'Failed to fetch quote')
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error')
+      if (!controller.signal.aborted) {
+        setError(e instanceof Error ? e.message : 'Unknown error')
+      }
     }
-    setIsLoading(false)
+    if (!controller.signal.aborted) {
+      setIsLoading(false)
+    }
   }, [symbol, setQuoteInStore])
 
   useEffect(() => {
     fetchQuote()
     const interval = setInterval(fetchQuote, 30000)
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      abortControllerRef.current?.abort()
+    }
   }, [fetchQuote])
 
   // Return from store if available
