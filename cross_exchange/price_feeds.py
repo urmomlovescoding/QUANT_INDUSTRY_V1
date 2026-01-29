@@ -274,11 +274,15 @@ class PriceFeed:
     
     async def connect(self):
         """Connect to exchange feed."""
+        # TODO: In production, establish WebSocket connection here
+        await asyncio.sleep(0)
         logger.info(f"Connecting to {self.exchange.value}...")
         self._connected = True
         
     async def disconnect(self):
         """Disconnect from exchange feed."""
+        # TODO: In production, close WebSocket connection here
+        await asyncio.sleep(0)
         logger.info(f"Disconnecting from {self.exchange.value}")
         self._connected = False
         

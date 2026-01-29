@@ -406,7 +406,9 @@ class CrossExchangeExecutor:
         leg.submitted_at = datetime.now()
         leg.status = LegStatus.SUBMITTED
         
-        # Simulated - in production this calls the exchange API
+        # TODO: In production, call connector.submit_order() here
+        # Simulated - yields control to event loop
+        await asyncio.sleep(0)
         logger.info(f"Submitting {leg.side} {leg.quantity} {leg.symbol} on {leg.exchange.value}")
         
     async def _wait_for_fill(self, leg: LegExecution):
@@ -423,6 +425,8 @@ class CrossExchangeExecutor:
     async def _cancel_order(self, leg: LegExecution):
         """Cancel order if not filled."""
         if leg.status in (LegStatus.SUBMITTED, LegStatus.PARTIAL):
+            # TODO: In production, call connector.cancel_order() here
+            await asyncio.sleep(0)
             leg.status = LegStatus.CANCELLED
             logger.info(f"Cancelled order {leg.leg_id}")
     

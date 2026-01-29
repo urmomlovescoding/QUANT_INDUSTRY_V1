@@ -227,6 +227,9 @@ class UnusualActivityDetector:
         self._trade_buffer[key].append(trade)
         self._cleanup_buffer()
         
+        # Yield to event loop for cooperative multitasking
+        await asyncio.sleep(0)
+        
         # Run all detectors
         if whale := self._detect_whale(trade):
             activities.append(whale)

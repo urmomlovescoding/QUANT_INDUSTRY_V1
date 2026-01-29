@@ -203,6 +203,9 @@ class OptionsFlowSignals:
         
         if not activities:
             return None
+        
+        # Yield to event loop for cooperative multitasking
+        await asyncio.sleep(0)
             
         # Calculate flow metrics
         metrics = self._calculate_flow_metrics(activities)

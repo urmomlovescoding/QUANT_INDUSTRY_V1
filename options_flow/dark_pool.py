@@ -198,6 +198,9 @@ class DarkPoolMonitor:
             return None
         if trade.value < self.config.min_block_value:
             return None
+        
+        # Yield to event loop
+        await asyncio.sleep(0)
             
         # Store print
         self._prints[trade.symbol].append(trade)
