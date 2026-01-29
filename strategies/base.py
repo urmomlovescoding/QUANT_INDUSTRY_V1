@@ -24,6 +24,18 @@ class SignalType(Enum):
     HOLD = None  # No change
 
 
+class StrategyStatus(Enum):
+    """Strategy execution status"""
+    INACTIVE = "inactive"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ERROR = "error"
+    WARMING_UP = "warming_up"
+    PAPER = "paper"
+    LIVE = "live"
+    BACKTESTING = "backtesting"
+
+
 @dataclass
 class Signal:
     """Trading signal with metadata"""
@@ -44,8 +56,14 @@ class Signal:
 @dataclass
 class StrategyConfig:
     """Configuration for strategy execution"""
+    # Identity
+    name: str = "strategy"
+    
     # Universe
     symbols: List[str] = field(default_factory=list)
+    
+    # Strategy-specific parameters
+    parameters: Dict[str, Any] = field(default_factory=dict)
     
     # Risk limits
     max_position_size: float = 0.1  # 10% max per position
@@ -75,12 +93,22 @@ class BaseStrategy(ABC):
     
     def __init__(self, config: StrategyConfig):
         self.config = config
-        self.params = config.params
+        # Support both 'parameters' and 'params' for compatibility
+        self.params = config.parameters if config.parameters else config.params
         self._state: Dict[str, Any] = {}
         self._history: List[Dict] = []
+        self._status: StrategyStatus = StrategyStatus.INACTIVE
         
         if not self.validate_params():
             raise ValueError(f"Invalid parameters for {self.__class__.__name__}")
+    
+    def set_status(self, status: StrategyStatus):
+        """Set strategy execution status."""
+        self._status = status
+    
+    def get_status(self) -> StrategyStatus:
+        """Get strategy execution status."""
+        return self._status
     
     @property
     @abstractmethod
@@ -135,6 +163,13 @@ class BaseStrategy(ABC):
         """Reset strategy state"""
         self._state = {}
         self._history = []
+    
+    def update(self, data: pd.DataFrame) -> Dict[str, Signal]:
+        """
+        Update strategy with new data and return signals.
+        Alias for __call__ for backtest compatibility.
+        """
+        return self(data)
     
     def __call__(self, data: pd.DataFrame) -> Dict[str, Signal]:
         """Execute strategy on data"""

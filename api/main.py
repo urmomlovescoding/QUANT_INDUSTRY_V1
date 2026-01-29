@@ -114,6 +114,35 @@ try:
 except Exception as e:
     logger.warning(f"Could not load decision intelligence routes: {e}")
 
+# New alpha module routes
+try:
+    from api.routes.options_flow_routes import router as options_flow_router
+    app.include_router(options_flow_router)
+    logger.info("Loaded options flow routes")
+except Exception as e:
+    logger.warning(f"Could not load options flow routes: {e}")
+
+try:
+    from api.routes.microstructure_routes import router as microstructure_router
+    app.include_router(microstructure_router)
+    logger.info("Loaded microstructure routes")
+except Exception as e:
+    logger.warning(f"Could not load microstructure routes: {e}")
+
+try:
+    from api.routes.cross_exchange_routes import router as cross_exchange_router
+    app.include_router(cross_exchange_router)
+    logger.info("Loaded cross-exchange arbitrage routes")
+except Exception as e:
+    logger.warning(f"Could not load cross-exchange routes: {e}")
+
+try:
+    from api.routes.news_events_routes import router as news_events_router
+    app.include_router(news_events_router)
+    logger.info("Loaded news events routes")
+except Exception as e:
+    logger.warning(f"Could not load news events routes: {e}")
+
 
 @app.get("/")
 async def root():
@@ -127,7 +156,11 @@ async def root():
             "tax": "/tax",
             "reconciliation": "/reconciliation",
             "backtest": "/backtest",
-            "mobile": "/mobile"
+            "mobile": "/mobile",
+            "options_flow": "/api/v1/options-flow",
+            "microstructure": "/api/v1/microstructure",
+            "arbitrage": "/api/v1/arbitrage",
+            "news_events": "/api/v1/news-events"
         }
     }
 

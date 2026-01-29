@@ -197,6 +197,10 @@ from .feedback_loop import (
     reset_feedback_loop,
 )
 
+# PyTorch Neural Networks (import subpackage)
+from . import nn
+from . import rl
+
 __all__ = [
     # Features
     'FeatureCategory',

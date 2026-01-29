@@ -14,7 +14,8 @@ import {
   OrderFlowBacktestResult,
 } from '@/types/microstructure';
 
-const API_BASE = '/api/v1/microstructure';
+import { API_ENDPOINTS } from '@/config/api';
+const API_BASE = API_ENDPOINTS.MICROSTRUCTURE;
 
 interface UseMicrostructureOptions {
   symbol?: string;

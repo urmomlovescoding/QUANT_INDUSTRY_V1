@@ -14,7 +14,8 @@ import {
   ArbExecution,
 } from '@/types/cross-exchange';
 
-const API_BASE = '/api/v1/arbitrage';
+import { API_ENDPOINTS } from '@/config/api';
+const API_BASE = API_ENDPOINTS.ARBITRAGE;
 
 interface UseCrossExchangeOptions {
   symbol?: string;

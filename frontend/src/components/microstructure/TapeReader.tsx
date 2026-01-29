@@ -30,12 +30,14 @@ const formatSize = (size: number): string => {
 };
 
 const formatTime = (timestamp: string): string => {
-  return new Date(timestamp).toLocaleTimeString('en-US', {
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    fractionalSecondDigits: 1,
   });
+  const ms = date.getMilliseconds().toString().padStart(3, '0').slice(0, 1);
+  return `${time}.${ms}`;
 };
 
 const TapeRow: React.FC<{ entry: TapeEntry; isLarge: boolean }> = ({ entry, isLarge }) => {

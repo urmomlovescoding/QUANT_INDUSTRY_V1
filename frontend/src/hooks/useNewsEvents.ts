@@ -15,7 +15,8 @@ import {
   HeadlineAnalysis,
 } from '@/types/news-events';
 
-const API_BASE = '/api/v1/news-events';
+import { API_ENDPOINTS } from '@/config/api';
+const API_BASE = API_ENDPOINTS.NEWS_EVENTS;
 
 interface UseNewsEventsOptions {
   symbol?: string;

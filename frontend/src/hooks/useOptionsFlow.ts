@@ -14,7 +14,8 @@ import {
   FlowSignal,
 } from '@/types/options-flow';
 
-const API_BASE = '/api/v1/options-flow';
+import { API_ENDPOINTS } from '@/config/api';
+const API_BASE = API_ENDPOINTS.OPTIONS_FLOW;
 
 interface UseOptionsFlowOptions {
   symbol?: string;
@@ -28,11 +29,11 @@ export function useUnusualActivity(options: UseOptionsFlowOptions = {}) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await fetch(`${API_BASE}/unusual${params}`);
+      const response = await window.fetch(`${API_BASE}/unusual${params}`);
       if (!response.ok) throw new Error('Failed to fetch unusual activity');
       const result = await response.json();
       setData(result.data || result);
@@ -45,14 +46,14 @@ export function useUnusualActivity(options: UseOptionsFlowOptions = {}) {
   }, [symbol]);
 
   useEffect(() => {
-    fetch();
+    fetchData();
     if (autoRefresh) {
-      const interval = setInterval(fetch, refreshInterval);
+      const interval = setInterval(fetchData, refreshInterval);
       return () => clearInterval(interval);
     }
-  }, [fetch, autoRefresh, refreshInterval]);
+  }, [fetchData, autoRefresh, refreshInterval]);
 
-  return { data, isLoading, error, refresh: fetch };
+  return { data, isLoading, error, refresh: fetchData };
 }
 
 export function useGammaExposure(symbol: string) {

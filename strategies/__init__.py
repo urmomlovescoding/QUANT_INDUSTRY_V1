@@ -9,6 +9,7 @@ from .base import (
     Signal,
     SignalType,
     StrategyConfig,
+    StrategyStatus,
     # Technical indicators
     sma, ema, rsi, macd, bollinger_bands, atr,
     zscore, returns, log_returns, volatility,
@@ -29,7 +30,7 @@ from .mean_reversion import (
     PairsTrading,
 )
 
-# Strategy registry for easy lookup
+# Strategy registry dict for easy lookup
 STRATEGY_REGISTRY = {
     # Momentum strategies
     'momentum': MomentumStrategy,
@@ -43,6 +44,39 @@ STRATEGY_REGISTRY = {
     'rsi_reversion': RSIMeanReversion,
     'pairs_trading': PairsTrading,
 }
+
+# Alias for backward compatibility
+MeanReversionStrategy = ZScoreMeanReversion
+
+
+class StrategyRegistry:
+    """Class-based strategy registry for engine compatibility."""
+    
+    _strategies: dict = {}
+    
+    @classmethod
+    def register(cls, name: str, strategy_class):
+        """Register a strategy class."""
+        cls._strategies[name] = strategy_class
+    
+    @classmethod
+    def get(cls, name: str):
+        """Get a strategy class by name."""
+        return cls._strategies.get(name) or STRATEGY_REGISTRY.get(name)
+    
+    @classmethod
+    def list_all(cls) -> list:
+        """List all registered strategies."""
+        all_strategies = {**STRATEGY_REGISTRY, **cls._strategies}
+        return list(all_strategies.keys())
+    
+    @classmethod
+    def create(cls, name: str, config: StrategyConfig) -> BaseStrategy:
+        """Create a strategy instance."""
+        strategy_class = cls.get(name)
+        if not strategy_class:
+            raise ValueError(f"Unknown strategy: {name}")
+        return strategy_class(config)
 
 
 def get_strategy(name: str, config: StrategyConfig) -> BaseStrategy:
@@ -97,6 +131,7 @@ __all__ = [
     'Signal',
     'SignalType',
     'StrategyConfig',
+    'StrategyStatus',
     
     # Indicators
     'sma', 'ema', 'rsi', 'macd', 'bollinger_bands', 'atr',
@@ -112,8 +147,10 @@ __all__ = [
     'ZScoreMeanReversion',
     'RSIMeanReversion',
     'PairsTrading',
+    'MeanReversionStrategy',  # Alias
     
-    # Utilities
+    # Registry
+    'StrategyRegistry',
     'STRATEGY_REGISTRY',
     'get_strategy',
     'list_strategies',
