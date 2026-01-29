@@ -9,6 +9,10 @@ Includes:
 - Stochastic Processes
 - Information Theory
 - Statistical Tests
+- Portfolio Optimization
+- Factor Models
+- Loss Functions
+- Market Microstructure
 """
 
 from .markov import (
@@ -42,6 +46,40 @@ from .statistics import (
     CausalityTest,
     ChangePointDetection,
 )
+from .portfolio import (
+    MeanVarianceOptimizer,
+    BlackLitterman,
+    RiskParity,
+    HierarchicalRiskParity,
+    KellyCriterion,
+    CVaROptimizer,
+)
+from .factors import (
+    CAPM,
+    FamaFrench,
+    StatisticalFactorModel,
+    AlphaModel,
+)
+from .losses import (
+    SharpeLoss,
+    SortinoLoss,
+    DrawdownLoss,
+    CalmarLoss,
+    DirectionalLoss,
+    ProfitFactorLoss,
+    RiskAdjustedReturnLoss,
+    PolicyGradientLoss,
+    PPOClipLoss,
+    TradingRewardFunction,
+)
+from .microstructure import (
+    KyleModel,
+    AlmgrenChriss,
+    RollModel,
+    VPIN,
+    MarketMaking,
+    InformationShare,
+)
 
 __all__ = [
     # Markov
@@ -54,4 +92,15 @@ __all__ = [
     'MutualInformation', 'KLDivergence', 'EntropyEstimator', 'InformationGain',
     # Statistics
     'StationarityTest', 'CointegrationTest', 'CausalityTest', 'ChangePointDetection',
+    # Portfolio
+    'MeanVarianceOptimizer', 'BlackLitterman', 'RiskParity', 'HierarchicalRiskParity',
+    'KellyCriterion', 'CVaROptimizer',
+    # Factors
+    'CAPM', 'FamaFrench', 'StatisticalFactorModel', 'AlphaModel',
+    # Losses
+    'SharpeLoss', 'SortinoLoss', 'DrawdownLoss', 'CalmarLoss', 'DirectionalLoss',
+    'ProfitFactorLoss', 'RiskAdjustedReturnLoss', 'PolicyGradientLoss', 'PPOClipLoss',
+    'TradingRewardFunction',
+    # Microstructure
+    'KyleModel', 'AlmgrenChriss', 'RollModel', 'VPIN', 'MarketMaking', 'InformationShare',
 ]
