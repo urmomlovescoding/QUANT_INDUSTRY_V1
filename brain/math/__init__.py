@@ -80,6 +80,17 @@ from .microstructure import (
     MarketMaking,
     InformationShare,
 )
+from .integration import (
+    IntegratedRegimeDetector,
+    IntegratedPositionSizer,
+    RiskManager,
+    RegimeState,
+    MarketRegime,
+    PositionSizeResult,
+    create_regime_detector,
+    create_position_sizer,
+    create_risk_manager,
+)
 
 __all__ = [
     # Markov
@@ -103,4 +114,8 @@ __all__ = [
     'TradingRewardFunction',
     # Microstructure
     'KyleModel', 'AlmgrenChriss', 'RollModel', 'VPIN', 'MarketMaking', 'InformationShare',
+    # Integration (TradingBrain bridge)
+    'IntegratedRegimeDetector', 'IntegratedPositionSizer', 'RiskManager',
+    'RegimeState', 'MarketRegime', 'PositionSizeResult',
+    'create_regime_detector', 'create_position_sizer', 'create_risk_manager',
 ]
