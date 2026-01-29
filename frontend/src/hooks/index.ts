@@ -10,6 +10,7 @@ export {
 export type {
   ChannelType,
   MessageType,
+  ConnectionState,
   WebSocketMessage,
   UseWebSocketOptions,
   UseWebSocketReturn,

@@ -1,6 +1,12 @@
 /**
  * WebSocket Hook - Real-time Data Connection
  * QUANT_INDUSTRY_V1
+ * 
+ * Features:
+ * - Auto-reconnection with exponential backoff
+ * - Subscription queue for pending subscriptions
+ * - Connection state management
+ * - Heartbeat monitoring
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -23,6 +29,8 @@ export type MessageType =
   | 'ack'
   | 'heartbeat';
 
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
 export interface WebSocketMessage {
   type: MessageType;
   channel?: ChannelType;
@@ -30,6 +38,7 @@ export interface WebSocketMessage {
   timestamp?: string;
   error?: string;
   client_id?: string;
+  action?: string;
 }
 
 export interface UseWebSocketOptions {
@@ -43,12 +52,16 @@ export interface UseWebSocketOptions {
   onClose?: () => void;
   onError?: (error: Event) => void;
   onMessage?: (message: WebSocketMessage) => void;
+  onReconnecting?: (attempt: number) => void;
+  onReconnectFailed?: () => void;
 }
 
 export interface UseWebSocketReturn {
   isConnected: boolean;
+  connectionState: ConnectionState;
   clientId: string | null;
   lastMessage: WebSocketMessage | null;
+  reconnectAttempt: number;
   subscribe: (channel: ChannelType, symbols?: string[]) => void;
   unsubscribe: (channel: ChannelType) => void;
   send: (message: any) => void;
@@ -60,28 +73,41 @@ export interface UseWebSocketReturn {
 const WS_HOST = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8000`;
 const DEFAULT_WS_URL = `${WS_HOST}/ws/connect`;
 
+interface PendingSubscription {
+  channel: ChannelType;
+  symbols?: string[];
+}
+
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const {
     url = DEFAULT_WS_URL,
     autoConnect = true,
     reconnect = true,
-    reconnectInterval = 5000,
+    reconnectInterval = 2000, // Start with 2s
     maxReconnectAttempts = 10,
     heartbeatInterval = 30000,
     onOpen,
     onClose,
     onError,
     onMessage,
+    onReconnecting,
+    onReconnectFailed,
   } = options;
 
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
   const [clientId, setClientId] = useState<string | null>(null);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimeoutRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingSubscriptionsRef = useRef<PendingSubscription[]>([]);
+  const activeSubscriptionsRef = useRef<Map<ChannelType, string[]>>(new Map());
+  const isManualDisconnectRef = useRef(false);
+
+  const isConnected = connectionState === 'connected';
 
   const clearTimeouts = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -95,6 +121,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   }, []);
 
   const startHeartbeat = useCallback(() => {
+    if (heartbeatTimeoutRef.current) {
+      clearInterval(heartbeatTimeoutRef.current);
+    }
     heartbeatTimeoutRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'heartbeat' }));
@@ -102,34 +131,92 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }, heartbeatInterval);
   }, [heartbeatInterval]);
 
+  const processPendingSubscriptions = useCallback(() => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    
+    while (pendingSubscriptionsRef.current.length > 0) {
+      const sub = pendingSubscriptionsRef.current.shift();
+      if (sub) {
+        wsRef.current.send(JSON.stringify({
+          type: 'subscribe',
+          channel: sub.channel,
+          symbols: sub.symbols || [],
+        }));
+      }
+    }
+  }, []);
+
+  const resubscribeAll = useCallback(() => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    
+    // Re-subscribe to all previously active subscriptions
+    activeSubscriptionsRef.current.forEach((symbols, channel) => {
+      wsRef.current?.send(JSON.stringify({
+        type: 'subscribe',
+        channel,
+        symbols,
+      }));
+    });
+  }, []);
+
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (wsRef.current?.readyState === WebSocket.OPEN || 
+        wsRef.current?.readyState === WebSocket.CONNECTING) {
       return;
     }
+
+    isManualDisconnectRef.current = false;
+    setConnectionState(reconnectAttemptsRef.current > 0 ? 'reconnecting' : 'connecting');
 
     try {
       wsRef.current = new WebSocket(url);
 
       wsRef.current.onopen = () => {
         console.log('[WebSocket] Connected');
-        setIsConnected(true);
+        setConnectionState('connected');
         reconnectAttemptsRef.current = 0;
+        setReconnectAttempt(0);
         startHeartbeat();
+        
+        // Re-subscribe to previous subscriptions after reconnect
+        resubscribeAll();
+        
+        // Process any pending subscriptions
+        processPendingSubscriptions();
+        
         onOpen?.();
       };
 
-      wsRef.current.onclose = () => {
-        console.log('[WebSocket] Disconnected');
-        setIsConnected(false);
+      wsRef.current.onclose = (event) => {
+        console.log('[WebSocket] Disconnected', event.code, event.reason);
+        setConnectionState('disconnected');
         setClientId(null);
         clearTimeouts();
         onClose?.();
 
-        // Attempt reconnection
+        // Don't reconnect if manually disconnected or max attempts reached
+        if (isManualDisconnectRef.current) {
+          return;
+        }
+
+        // Attempt reconnection with exponential backoff
         if (reconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current += 1;
-          console.log(`[WebSocket] Reconnecting... (attempt ${reconnectAttemptsRef.current})`);
-          reconnectTimeoutRef.current = setTimeout(connect, reconnectInterval);
+          setReconnectAttempt(reconnectAttemptsRef.current);
+          
+          // Exponential backoff: 2s, 4s, 8s, 16s, max 30s
+          const delay = Math.min(
+            reconnectInterval * Math.pow(2, reconnectAttemptsRef.current - 1),
+            30000
+          );
+          
+          console.log(`[WebSocket] Reconnecting in ${delay}ms... (attempt ${reconnectAttemptsRef.current})`);
+          onReconnecting?.(reconnectAttemptsRef.current);
+          
+          reconnectTimeoutRef.current = setTimeout(connect, delay);
+        } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+          console.error('[WebSocket] Max reconnection attempts reached');
+          onReconnectFailed?.();
         }
       };
 
@@ -148,6 +235,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             setClientId(message.client_id);
           }
 
+          // Track successful subscriptions
+          if (message.type === 'ack' && message.action === 'subscribe' && message.channel) {
+            const symbols = (message as any).symbols || [];
+            activeSubscriptionsRef.current.set(message.channel as ChannelType, symbols);
+          }
+
+          // Track unsubscriptions
+          if (message.type === 'ack' && message.action === 'unsubscribe' && message.channel) {
+            activeSubscriptionsRef.current.delete(message.channel as ChannelType);
+          }
+
           onMessage?.(message);
         } catch (error) {
           console.error('[WebSocket] Failed to parse message:', error);
@@ -155,40 +253,67 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       };
     } catch (error) {
       console.error('[WebSocket] Connection error:', error);
+      setConnectionState('disconnected');
     }
-  }, [url, reconnect, reconnectInterval, maxReconnectAttempts, onOpen, onClose, onError, onMessage, startHeartbeat, clearTimeouts]);
+  }, [url, reconnect, reconnectInterval, maxReconnectAttempts, onOpen, onClose, onError, onMessage, onReconnecting, onReconnectFailed, startHeartbeat, clearTimeouts, processPendingSubscriptions, resubscribeAll]);
 
   const disconnect = useCallback(() => {
+    isManualDisconnectRef.current = true;
     clearTimeouts();
+    reconnectAttemptsRef.current = 0;
+    setReconnectAttempt(0);
+    
     if (wsRef.current) {
-      wsRef.current.close();
+      wsRef.current.close(1000, 'Client disconnect');
       wsRef.current = null;
     }
-    setIsConnected(false);
+    setConnectionState('disconnected');
     setClientId(null);
+    activeSubscriptionsRef.current.clear();
   }, [clearTimeouts]);
 
   const send = useCallback((message: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
+      return true;
     } else {
       console.warn('[WebSocket] Cannot send - not connected');
+      return false;
     }
   }, []);
 
   const subscribe = useCallback((channel: ChannelType, symbols?: string[]) => {
-    send({
-      type: 'subscribe',
-      channel,
-      symbols: symbols || [],
-    });
+    const subscription = { channel, symbols };
+    
+    // Track the intended subscription
+    activeSubscriptionsRef.current.set(channel, symbols || []);
+    
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      send({
+        type: 'subscribe',
+        channel,
+        symbols: symbols || [],
+      });
+    } else {
+      // Queue subscription for when connected
+      pendingSubscriptionsRef.current.push(subscription);
+    }
   }, [send]);
 
   const unsubscribe = useCallback((channel: ChannelType) => {
-    send({
-      type: 'unsubscribe',
-      channel,
-    });
+    activeSubscriptionsRef.current.delete(channel);
+    
+    // Remove from pending if queued
+    pendingSubscriptionsRef.current = pendingSubscriptionsRef.current.filter(
+      sub => sub.channel !== channel
+    );
+    
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      send({
+        type: 'unsubscribe',
+        channel,
+      });
+    }
   }, [send]);
 
   // Auto-connect on mount
@@ -204,8 +329,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   return {
     isConnected,
+    connectionState,
     clientId,
     lastMessage,
+    reconnectAttempt,
     subscribe,
     unsubscribe,
     send,

@@ -172,7 +172,7 @@ export function TaxLots() {
           title="YTD Realized"
           value={formatCurrency(realizedGains?.total_realized || 0)}
           icon={Target}
-          color={realizedGains?.total_realized >= 0 ? 'green' : 'red'}
+          color={(realizedGains?.total_realized ?? 0) >= 0 ? 'green' : 'red'}
         />
         <SummaryCard
           title="Tax Lots"

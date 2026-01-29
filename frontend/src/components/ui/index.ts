@@ -31,16 +31,22 @@ export { ErrorBoundary, withErrorBoundary } from './ErrorBoundary';
 export {
   ErrorCard,
   InlineError,
-  EmptyState,
   ConnectionError,
   DataUnavailable,
   MarketClosedNotice
 } from './ErrorDisplay';
 
+// Enhanced Empty State with variants
+export { 
+  EmptyState, 
+  DataState 
+} from './EmptyState';
+
 // Toast Notifications
 export {
   ToastProvider,
-  useToast
+  useToast,
+  useToastSafe
 } from './Toast';
 
 // Button Components

@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import {
-  Maximize2,
-  AlertTriangle,
-} from 'lucide-react'
+import { Maximize2 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { SystemMonitor } from './SystemMonitor'
 import { NotificationBell } from '../NotificationSystem'
 import { MarketRegimeIndicator } from '../MarketRegimeIndicator'
 import { MarketStatusBadge } from '../MarketStatus'
+import { KillSwitch } from '../KillSwitch'
 import { marketApi, healthApi, MarketTicker as MarketTickerType } from '@/api/client'
 
 // Fallback data when API is not available
@@ -156,10 +154,7 @@ export function Header() {
         </button>
 
         {/* Kill switch */}
-        <button className="px-2 py-1 text-[10px] font-bold bg-bearish/20 text-bearish rounded hover:bg-bearish/30 transition-colors flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />
-          KILL
-        </button>
+        <KillSwitch compact />
       </div>
     </header>
   )

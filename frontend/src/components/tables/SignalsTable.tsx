@@ -140,11 +140,21 @@ export function SignalsTable({
 
   if (displaySignals.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-foreground-muted">No active signals</p>
-        <p className="text-xs text-foreground-muted mt-1">
-          Signals will appear here when generated
+      <div className="flex flex-col items-center justify-center py-8 text-center">
+        <div className="w-12 h-12 rounded-full bg-background-tertiary flex items-center justify-center mb-3">
+          <ArrowUpRight className="w-6 h-6 text-foreground-muted" />
+        </div>
+        <p className="text-sm font-medium text-foreground-primary">No active signals</p>
+        <p className="text-xs text-foreground-muted mt-1 max-w-xs">
+          The trading brain will generate signals when market conditions align with your strategies
         </p>
+        <button
+          onClick={handleRefresh}
+          className="mt-4 flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-accent-primary hover:bg-background-tertiary rounded transition-colors"
+        >
+          <RefreshCw className="w-3 h-3" />
+          Check for signals
+        </button>
       </div>
     )
   }

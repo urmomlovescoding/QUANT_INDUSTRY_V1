@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Toaster } from './components/ui/Toaster'
+import { ToastProvider } from './components/ui/Toast'
 import { Layout } from './components/layout/Layout'
 import { CommandPalette, useCommandPalette } from './components/CommandPalette'
 import { NotificationProvider } from './components/NotificationSystem'
@@ -132,7 +132,6 @@ function AppContent() {
           <Route path="/analytics" element={<Analytics />} />
         </Routes>
       </Layout>
-      <Toaster />
       <CommandPalette isOpen={commandPalette.isOpen} onClose={commandPalette.close} />
       <QuickTrade
         isOpen={quickTrade.isOpen}
@@ -147,9 +146,11 @@ function AppContent() {
 export default function App() {
   return (
     <BrowserRouter>
-      <NotificationProvider>
-        <AppContent />
-      </NotificationProvider>
+      <ToastProvider>
+        <NotificationProvider>
+          <AppContent />
+        </NotificationProvider>
+      </ToastProvider>
     </BrowserRouter>
   )
 }
