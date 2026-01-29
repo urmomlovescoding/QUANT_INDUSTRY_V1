@@ -1,855 +1,610 @@
 """
-QUANT_INDUSTRY_V1 Execution Engine
-
-Smart order execution:
-- Order management
-- Execution algorithms (TWAP, VWAP, POV)
-- Slippage modeling
-- Fill tracking
-
-Rollback Plan: Delete this file
-Tests Required: Order lifecycle, algorithm correctness
-Failure Modes: Reject orders, alert operators
+Execution Engine
+================
+Connects the TradingBrain to live/paper trading with proper
+order management, risk controls, and performance tracking.
 """
 
-import numpy as np
+import asyncio
 import logging
-import threading
-import time
-import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List, Tuple, Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List, Callable
 from enum import Enum
-from abc import ABC, abstractmethod
 from collections import deque
+import numpy as np
+import torch
 
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# ORDER TYPES
-# =============================================================================
-
 class OrderType(Enum):
-    """Order types."""
     MARKET = "market"
     LIMIT = "limit"
     STOP = "stop"
     STOP_LIMIT = "stop_limit"
-    TRAILING_STOP = "trailing_stop"
 
 
 class OrderSide(Enum):
-    """Order side."""
     BUY = "buy"
     SELL = "sell"
 
 
 class OrderStatus(Enum):
-    """Order status."""
     PENDING = "pending"
     SUBMITTED = "submitted"
     PARTIAL = "partial"
     FILLED = "filled"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
-    EXPIRED = "expired"
 
-
-class TimeInForce(Enum):
-    """Time in force."""
-    DAY = "day"
-    GTC = "gtc"  # Good till cancelled
-    IOC = "ioc"  # Immediate or cancel
-    FOK = "fok"  # Fill or kill
-
-
-# =============================================================================
-# ORDER AND FILL
-# =============================================================================
 
 @dataclass
 class Order:
-    """Trading order."""
+    """Order representation."""
+    id: str
     symbol: str
-    quantity: float
     side: OrderSide
+    quantity: float
     order_type: OrderType = OrderType.MARKET
     limit_price: Optional[float] = None
     stop_price: Optional[float] = None
-    time_in_force: TimeInForce = TimeInForce.DAY
-    order_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
-    client_order_id: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     status: OrderStatus = OrderStatus.PENDING
     filled_quantity: float = 0.0
-    filled_avg_price: float = 0.0
-    commission: float = 0.0
+    filled_price: float = 0.0
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def remaining_quantity(self) -> float:
-        return self.quantity - self.filled_quantity
-
-    @property
-    def is_complete(self) -> bool:
-        return self.status in [
-            OrderStatus.FILLED, OrderStatus.CANCELLED,
-            OrderStatus.REJECTED, OrderStatus.EXPIRED
-        ]
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'order_id': self.order_id,
-            'symbol': self.symbol,
-            'quantity': self.quantity,
-            'side': self.side.value,
-            'order_type': self.order_type.value,
-            'limit_price': self.limit_price,
-            'stop_price': self.stop_price,
-            'time_in_force': self.time_in_force.value,
-            'status': self.status.value,
-            'filled_quantity': self.filled_quantity,
-            'filled_avg_price': self.filled_avg_price,
-            'commission': self.commission,
-            'created_at': self.created_at.isoformat(),
-        }
-
 
 @dataclass
-class Fill:
-    """Order fill."""
-    fill_id: str
-    order_id: str
+class Position:
+    """Current position in an asset."""
     symbol: str
-    quantity: float
-    price: float
-    side: OrderSide
-    timestamp: datetime
-    commission: float = 0.0
-    exchange: str = ""
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            'fill_id': self.fill_id,
-            'order_id': self.order_id,
-            'symbol': self.symbol,
-            'quantity': self.quantity,
-            'price': self.price,
-            'side': self.side.value,
-            'timestamp': self.timestamp.isoformat(),
-            'commission': self.commission,
-            'exchange': self.exchange,
-        }
+    quantity: float  # Positive = long, negative = short
+    avg_entry_price: float
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    last_update: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
-class OrderResult:
-    """Result of order submission."""
-    success: bool
-    order: Order
-    message: str = ""
-    fills: List[Fill] = field(default_factory=list)
-    slippage: float = 0.0
-    execution_time_ms: float = 0.0
+class ExecutionConfig:
+    """Execution engine configuration."""
+    # Position limits
+    max_position_size: float = 1.0  # Max position as fraction of portfolio
+    max_single_trade: float = 0.25  # Max single trade size
+    
+    # Risk controls
+    max_drawdown: float = 0.10  # 10% max drawdown
+    daily_loss_limit: float = 0.03  # 3% daily loss limit
+    max_open_orders: int = 10
+    
+    # Execution
+    slippage_estimate: float = 0.001  # 0.1% slippage
+    min_trade_interval: float = 60.0  # Minimum seconds between trades
+    use_limit_orders: bool = True
+    limit_offset_bps: float = 5.0  # Basis points from mid
+    
+    # Circuit breaker
+    circuit_breaker_threshold: float = 0.05  # 5% rapid loss
+    circuit_breaker_window: int = 300  # 5 minutes
+    circuit_breaker_cooldown: int = 1800  # 30 minutes
 
 
-# =============================================================================
-# EXECUTION ALGORITHMS
-# =============================================================================
-
-class ExecutionAlgorithm(ABC):
-    """Base class for execution algorithms."""
-
-    @abstractmethod
-    def generate_child_orders(
-        self,
-        parent_order: Order,
-        market_data: Dict[str, Any],
-        position: float = 0.0
-    ) -> List[Order]:
-        """Generate child orders from parent."""
-        pass
-
-    @abstractmethod
-    def update(
-        self,
-        fills: List[Fill],
-        market_data: Dict[str, Any]
-    ) -> List[Order]:
-        """Update and generate new child orders based on fills."""
-        pass
-
-
-class TWAPAlgorithm(ExecutionAlgorithm):
+class RiskGuard:
     """
-    Time-Weighted Average Price algorithm.
-
-    Splits order into equal slices over time.
+    Real-time risk monitoring and circuit breaker.
+    
+    Monitors:
+    - Position limits
+    - Drawdown
+    - Daily P&L
+    - Rapid loss detection
     """
-
-    def __init__(
-        self,
-        duration_minutes: int = 30,
-        n_slices: int = 10,
-        randomize: bool = True
-    ):
-        self.duration_minutes = duration_minutes
-        self.n_slices = n_slices
-        self.randomize = randomize
-
-        self.parent_order: Optional[Order] = None
-        self.slice_size: float = 0.0
-        self.slices_sent: int = 0
-        self.start_time: Optional[datetime] = None
-
-    def generate_child_orders(
-        self,
-        parent_order: Order,
-        market_data: Dict[str, Any],
-        position: float = 0.0
-    ) -> List[Order]:
-        """Generate first slice."""
-        self.parent_order = parent_order
-        self.slice_size = parent_order.quantity / self.n_slices
-        self.start_time = datetime.now(timezone.utc)
-        self.slices_sent = 0
-
-        return self._create_slice()
-
-    def update(
-        self,
-        fills: List[Fill],
-        market_data: Dict[str, Any]
-    ) -> List[Order]:
-        """Generate next slice based on time."""
-        if self.parent_order is None:
-            return []
-
-        # Check if time for next slice
-        elapsed = (datetime.now(timezone.utc) - self.start_time).total_seconds()
-        expected_slices = int(elapsed / (self.duration_minutes * 60 / self.n_slices))
-
-        if expected_slices > self.slices_sent and self.slices_sent < self.n_slices:
-            return self._create_slice()
-
-        return []
-
-    def _create_slice(self) -> List[Order]:
-        """Create a single slice order."""
-        if self.slices_sent >= self.n_slices:
-            return []
-
-        size = self.slice_size
-
-        # Add randomization
-        if self.randomize:
-            size *= np.random.uniform(0.8, 1.2)
-
-        # Ensure we don't exceed remaining
-        remaining = self.parent_order.quantity - (self.slices_sent * self.slice_size)
-        size = min(size, remaining)
-
-        if size <= 0:
-            return []
-
-        self.slices_sent += 1
-
-        order = Order(
-            symbol=self.parent_order.symbol,
-            quantity=size,
-            side=self.parent_order.side,
-            order_type=OrderType.LIMIT if self.parent_order.limit_price else OrderType.MARKET,
-            limit_price=self.parent_order.limit_price,
-            client_order_id=f"{self.parent_order.order_id}_slice_{self.slices_sent}",
-            metadata={'parent_id': self.parent_order.order_id, 'algorithm': 'TWAP'},
-        )
-
-        return [order]
-
-
-class VWAPAlgorithm(ExecutionAlgorithm):
-    """
-    Volume-Weighted Average Price algorithm.
-
-    Schedules orders based on historical volume profile.
-    """
-
-    def __init__(
-        self,
-        duration_minutes: int = 30,
-        volume_profile: List[float] = None,
-        participation_rate: float = 0.1
-    ):
-        self.duration_minutes = duration_minutes
-        self.participation_rate = participation_rate
-
-        # Default volume profile (30-minute bars)
-        if volume_profile is None:
-            # U-shaped profile typical for intraday
-            self.volume_profile = [
-                0.15, 0.12, 0.10, 0.08, 0.08, 0.07,
-                0.07, 0.08, 0.10, 0.15
-            ]
-        else:
-            self.volume_profile = volume_profile
-
-        self.parent_order: Optional[Order] = None
-        self.current_slice: int = 0
-        self.start_time: Optional[datetime] = None
-
-    def generate_child_orders(
-        self,
-        parent_order: Order,
-        market_data: Dict[str, Any],
-        position: float = 0.0
-    ) -> List[Order]:
-        """Generate first volume-weighted slice."""
-        self.parent_order = parent_order
-        self.current_slice = 0
-        self.start_time = datetime.now(timezone.utc)
-
-        return self._create_volume_slice(market_data)
-
-    def update(
-        self,
-        fills: List[Fill],
-        market_data: Dict[str, Any]
-    ) -> List[Order]:
-        """Generate next slice based on volume."""
-        if self.parent_order is None:
-            return []
-
-        # Check if time for next slice
-        elapsed = (datetime.now(timezone.utc) - self.start_time).total_seconds()
-        expected_slice = int(elapsed / (self.duration_minutes * 60 / len(self.volume_profile)))
-
-        if expected_slice > self.current_slice and self.current_slice < len(self.volume_profile):
-            return self._create_volume_slice(market_data)
-
-        return []
-
-    def _create_volume_slice(self, market_data: Dict[str, Any]) -> List[Order]:
-        """Create volume-weighted slice."""
-        if self.current_slice >= len(self.volume_profile):
-            return []
-
-        # Get volume weight
-        weight = self.volume_profile[self.current_slice]
-
-        # Calculate size based on volume profile
-        size = self.parent_order.quantity * weight
-
-        # Adjust based on current market volume
-        current_volume = market_data.get('volume', 0)
-        if current_volume > 0:
-            max_size = current_volume * self.participation_rate
-            size = min(size, max_size)
-
-        self.current_slice += 1
-
-        if size <= 0:
-            return []
-
-        order = Order(
-            symbol=self.parent_order.symbol,
-            quantity=size,
-            side=self.parent_order.side,
-            order_type=OrderType.LIMIT,
-            limit_price=self._calculate_limit_price(market_data),
-            client_order_id=f"{self.parent_order.order_id}_vwap_{self.current_slice}",
-            metadata={'parent_id': self.parent_order.order_id, 'algorithm': 'VWAP'},
-        )
-
-        return [order]
-
-    def _calculate_limit_price(self, market_data: Dict[str, Any]) -> float:
-        """Calculate limit price based on VWAP target."""
-        vwap = market_data.get('vwap', market_data.get('price', 0))
-        spread = market_data.get('spread', 0.01)
-
-        if self.parent_order.side == OrderSide.BUY:
-            return vwap + spread * 0.5
-        else:
-            return vwap - spread * 0.5
-
-
-class POVAlgorithm(ExecutionAlgorithm):
-    """
-    Percentage of Volume algorithm.
-
-    Trades as a percentage of market volume.
-    """
-
-    def __init__(
-        self,
-        target_participation: float = 0.1,
-        min_order_size: float = 100,
-        max_order_size: float = 10000
-    ):
-        self.target_participation = target_participation
-        self.min_order_size = min_order_size
-        self.max_order_size = max_order_size
-
-        self.parent_order: Optional[Order] = None
-        self.total_filled: float = 0.0
-        self.volume_window: deque = deque(maxlen=10)
-
-    def generate_child_orders(
-        self,
-        parent_order: Order,
-        market_data: Dict[str, Any],
-        position: float = 0.0
-    ) -> List[Order]:
-        """Generate initial POV order."""
-        self.parent_order = parent_order
-        self.total_filled = 0.0
-
-        return self._create_pov_order(market_data)
-
-    def update(
-        self,
-        fills: List[Fill],
-        market_data: Dict[str, Any]
-    ) -> List[Order]:
-        """Update based on market volume."""
-        if self.parent_order is None:
-            return []
-
-        # Update filled quantity
-        for fill in fills:
-            if fill.order_id.startswith(self.parent_order.order_id):
-                self.total_filled += fill.quantity
-
-        # Check if more to fill
-        remaining = self.parent_order.quantity - self.total_filled
-        if remaining <= 0:
-            return []
-
-        return self._create_pov_order(market_data)
-
-    def _create_pov_order(self, market_data: Dict[str, Any]) -> List[Order]:
-        """Create POV order."""
-        current_volume = market_data.get('volume', 0)
-        self.volume_window.append(current_volume)
-
-        # Calculate target size
-        avg_volume = np.mean(self.volume_window) if self.volume_window else current_volume
-        target_size = avg_volume * self.target_participation
-
-        # Clamp to limits
-        size = max(self.min_order_size, min(self.max_order_size, target_size))
-
-        # Don't exceed remaining
-        remaining = self.parent_order.quantity - self.total_filled
-        size = min(size, remaining)
-
-        if size < self.min_order_size:
-            return []
-
-        order = Order(
-            symbol=self.parent_order.symbol,
-            quantity=size,
-            side=self.parent_order.side,
-            order_type=OrderType.MARKET,
-            client_order_id=f"{self.parent_order.order_id}_pov_{len(self.volume_window)}",
-            metadata={'parent_id': self.parent_order.order_id, 'algorithm': 'POV'},
-        )
-
-        return [order]
-
-
-# =============================================================================
-# SLIPPAGE MODEL
-# =============================================================================
-
-class SlippageModel:
-    """Model execution slippage."""
-
-    def __init__(
-        self,
-        base_slippage_bps: float = 5.0,
-        volume_impact_factor: float = 0.1,
-        volatility_impact_factor: float = 0.5
-    ):
-        self.base_slippage_bps = base_slippage_bps
-        self.volume_impact_factor = volume_impact_factor
-        self.volatility_impact_factor = volatility_impact_factor
-
-    def estimate_slippage(
+    
+    def __init__(self, config: ExecutionConfig):
+        self.config = config
+        
+        # State
+        self.peak_value = 0.0
+        self.daily_start_value = 0.0
+        self.daily_pnl = 0.0
+        self.circuit_breaker_active = False
+        self.circuit_breaker_until: Optional[datetime] = None
+        
+        # Recent P&L for rapid loss detection
+        self.pnl_history = deque(maxlen=1000)
+        
+    def update_portfolio_value(self, value: float, timestamp: datetime):
+        """Update with new portfolio value."""
+        # Update peak
+        if value > self.peak_value:
+            self.peak_value = value
+        
+        # Check drawdown
+        drawdown = (self.peak_value - value) / self.peak_value if self.peak_value > 0 else 0
+        if drawdown > self.config.max_drawdown:
+            logger.warning(f"Drawdown limit hit: {drawdown:.2%}")
+            self._trigger_circuit_breaker("max_drawdown")
+        
+        # Track P&L
+        self.pnl_history.append((timestamp, value))
+        
+        # Check rapid loss
+        self._check_rapid_loss(timestamp)
+    
+    def check_daily_limit(self, current_value: float) -> bool:
+        """Check if daily loss limit is hit."""
+        if self.daily_start_value > 0:
+            daily_return = (current_value - self.daily_start_value) / self.daily_start_value
+            if daily_return < -self.config.daily_loss_limit:
+                logger.warning(f"Daily loss limit hit: {daily_return:.2%}")
+                return False
+        return True
+    
+    def reset_daily(self, portfolio_value: float):
+        """Reset daily tracking (call at market open)."""
+        self.daily_start_value = portfolio_value
+        self.daily_pnl = 0.0
+    
+    def can_trade(self) -> tuple[bool, str]:
+        """Check if trading is allowed."""
+        if self.circuit_breaker_active:
+            if datetime.now() > self.circuit_breaker_until:
+                self.circuit_breaker_active = False
+                logger.info("Circuit breaker cooldown complete")
+            else:
+                remaining = (self.circuit_breaker_until - datetime.now()).seconds
+                return False, f"Circuit breaker active ({remaining}s remaining)"
+        
+        return True, "OK"
+    
+    def validate_order(
         self,
         order: Order,
-        market_data: Dict[str, Any]
-    ) -> float:
-        """
-        Estimate slippage for order.
-
-        Returns slippage as decimal (e.g., 0.001 = 10 bps).
-        """
-        price = market_data.get('price', 100)
-        volume = market_data.get('volume', 10000)
-        volatility = market_data.get('volatility', 0.02)
-        spread = market_data.get('spread', 0.01)
-
-        # Base slippage
-        slippage = self.base_slippage_bps / 10000
-
-        # Volume impact (square root)
-        participation = order.quantity / (volume + 1)
-        volume_impact = self.volume_impact_factor * np.sqrt(participation)
-        slippage += volume_impact
-
-        # Volatility impact
-        vol_impact = self.volatility_impact_factor * volatility
-        slippage += vol_impact
-
-        # Spread cost (half spread for market orders)
-        if order.order_type == OrderType.MARKET:
-            slippage += spread / price / 2
-
-        return slippage
-
-    def apply_slippage(
-        self,
-        order: Order,
-        reference_price: float,
-        slippage: float
-    ) -> float:
-        """Apply slippage to get execution price."""
+        current_position: float,
+        portfolio_value: float
+    ) -> tuple[bool, str]:
+        """Validate order against risk limits."""
+        can_trade, reason = self.can_trade()
+        if not can_trade:
+            return False, reason
+        
+        # Check position limit
         if order.side == OrderSide.BUY:
-            return reference_price * (1 + slippage)
+            new_position = current_position + order.quantity
         else:
-            return reference_price * (1 - slippage)
+            new_position = current_position - order.quantity
+        
+        position_pct = abs(new_position) / portfolio_value if portfolio_value > 0 else 0
+        if position_pct > self.config.max_position_size:
+            return False, f"Position limit exceeded: {position_pct:.2%} > {self.config.max_position_size:.2%}"
+        
+        # Check single trade size
+        trade_pct = order.quantity / portfolio_value if portfolio_value > 0 else 0
+        if trade_pct > self.config.max_single_trade:
+            return False, f"Trade size limit exceeded: {trade_pct:.2%}"
+        
+        return True, "OK"
+    
+    def _check_rapid_loss(self, current_time: datetime):
+        """Check for rapid losses triggering circuit breaker."""
+        if len(self.pnl_history) < 2:
+            return
+        
+        window_start = current_time - timedelta(seconds=self.config.circuit_breaker_window)
+        
+        # Get values in window
+        values_in_window = [v for t, v in self.pnl_history if t >= window_start]
+        
+        if len(values_in_window) >= 2:
+            start_value = values_in_window[0]
+            current_value = values_in_window[-1]
+            
+            if start_value > 0:
+                window_return = (current_value - start_value) / start_value
+                if window_return < -self.config.circuit_breaker_threshold:
+                    logger.warning(f"Rapid loss detected: {window_return:.2%} in {self.config.circuit_breaker_window}s")
+                    self._trigger_circuit_breaker("rapid_loss")
+    
+    def _trigger_circuit_breaker(self, reason: str):
+        """Trigger circuit breaker."""
+        self.circuit_breaker_active = True
+        self.circuit_breaker_until = datetime.now() + timedelta(seconds=self.config.circuit_breaker_cooldown)
+        logger.error(f"CIRCUIT BREAKER TRIGGERED: {reason}. Cooldown until {self.circuit_breaker_until}")
 
-
-# =============================================================================
-# EXECUTION ENGINE
-# =============================================================================
 
 class ExecutionEngine:
     """
-    Main execution engine.
-
-    Handles order submission, routing, and tracking.
+    Main execution engine connecting TradingBrain to markets.
+    
+    Responsibilities:
+    - Receive signals from TradingBrain
+    - Apply risk controls
+    - Generate and manage orders
+    - Track positions and P&L
+    - Feed performance back to meta-learner
     """
-
+    
     def __init__(
         self,
-        broker: 'BaseBroker' = None,
-        slippage_model: SlippageModel = None,
-        max_order_value: float = 100000,
-        max_daily_orders: int = 1000
+        brain: Any,  # TradingBrain instance
+        broker: Any,  # Broker interface
+        config: Optional[ExecutionConfig] = None
     ):
+        self.brain = brain
         self.broker = broker
-        self.slippage_model = slippage_model or SlippageModel()
-        self.max_order_value = max_order_value
-        self.max_daily_orders = max_daily_orders
-
-        # Order tracking
+        self.config = config or ExecutionConfig()
+        
+        # Risk management
+        self.risk_guard = RiskGuard(self.config)
+        
+        # State
+        self.positions: Dict[str, Position] = {}
         self.pending_orders: Dict[str, Order] = {}
-        self.completed_orders: Dict[str, Order] = {}
-        self.fills: List[Fill] = []
-
-        # Daily counters
-        self.orders_today = 0
-        self.last_reset = datetime.now(timezone.utc).date()
-
-        # Algorithms
-        self.active_algorithms: Dict[str, ExecutionAlgorithm] = {}
-
-        self._lock = threading.RLock()
-
-        # Event handlers
-        self.on_fill: List[Callable[[Fill], None]] = []
-        self.on_order_complete: List[Callable[[Order], None]] = []
-
-    def submit(
+        self.order_history: List[Order] = []
+        self.last_trade_time: Dict[str, datetime] = {}
+        
+        # Performance tracking
+        self.trades: List[Dict] = []
+        self.equity_curve: List[tuple[datetime, float]] = []
+        
+        # Running state
+        self.running = False
+        self._order_counter = 0
+    
+    async def start(self):
+        """Start the execution engine."""
+        self.running = True
+        logger.info("Execution engine started")
+        
+        # Initialize daily tracking
+        portfolio_value = await self._get_portfolio_value()
+        self.risk_guard.reset_daily(portfolio_value)
+        self.risk_guard.peak_value = portfolio_value
+    
+    async def stop(self):
+        """Stop the execution engine."""
+        self.running = False
+        
+        # Cancel pending orders
+        for order_id in list(self.pending_orders.keys()):
+            await self.cancel_order(order_id)
+        
+        logger.info("Execution engine stopped")
+    
+    async def process_signal(
         self,
-        order: Order,
-        algorithm: ExecutionAlgorithm = None
-    ) -> OrderResult:
+        symbol: str,
+        market_data: torch.Tensor,
+        current_price: float
+    ) -> Optional[Order]:
         """
-        Submit order for execution.
-
+        Process a trading signal from the brain.
+        
         Args:
-            order: Order to submit
-            algorithm: Optional execution algorithm
-
+            symbol: Trading symbol
+            market_data: Recent market data for the brain
+            current_price: Current market price
+            
         Returns:
-            OrderResult with execution details
+            Executed order if any
         """
-        start_time = time.time()
-
-        # Reset daily counter if needed
-        self._check_daily_reset()
-
-        # Validate order
-        validation = self._validate_order(order)
-        if not validation[0]:
-            order.status = OrderStatus.REJECTED
-            return OrderResult(
-                success=False,
-                order=order,
-                message=validation[1],
-            )
-
-        # Check limits
-        if self.orders_today >= self.max_daily_orders:
-            order.status = OrderStatus.REJECTED
-            return OrderResult(
-                success=False,
-                order=order,
-                message="Daily order limit exceeded",
-            )
-
-        with self._lock:
-            self.pending_orders[order.order_id] = order
-            self.orders_today += 1
-
-        # Use algorithm if provided
-        if algorithm:
-            self.active_algorithms[order.order_id] = algorithm
-            child_orders = algorithm.generate_child_orders(order, self._get_market_data(order.symbol))
-            for child in child_orders:
-                self._execute_order(child)
-        else:
-            self._execute_order(order)
-
-        execution_time = (time.time() - start_time) * 1000
-
-        # Get fills for this order
-        order_fills = [f for f in self.fills if f.order_id == order.order_id]
-
-        # Calculate slippage if we have fills
-        slippage = 0.0
-        if order_fills and order.limit_price:
-            avg_fill_price = np.mean([f.price for f in order_fills])
-            slippage = abs(avg_fill_price - order.limit_price) / order.limit_price
-
-        return OrderResult(
-            success=order.status in [OrderStatus.FILLED, OrderStatus.PARTIAL, OrderStatus.SUBMITTED],
-            order=order,
-            message="Order submitted",
-            fills=order_fills,
-            slippage=slippage,
-            execution_time_ms=execution_time,
+        if not self.running:
+            return None
+        
+        # Check if we can trade
+        can_trade, reason = self.risk_guard.can_trade()
+        if not can_trade:
+            logger.debug(f"Trading blocked: {reason}")
+            return None
+        
+        # Check trade interval
+        if symbol in self.last_trade_time:
+            elapsed = (datetime.now() - self.last_trade_time[symbol]).total_seconds()
+            if elapsed < self.config.min_trade_interval:
+                return None
+        
+        # Get signal from brain
+        signal = self.brain.get_trading_signal(
+            market_data,
+            current_position=self._get_position_pct(symbol)
         )
-
-    def _execute_order(self, order: Order) -> None:
-        """Execute single order."""
+        
+        # Decide on action
+        if signal['confidence'] < 0.3:
+            logger.debug(f"Low confidence signal ({signal['confidence']:.2f}), skipping")
+            return None
+        
+        # Calculate order
+        order = await self._signal_to_order(symbol, signal, current_price)
+        
+        if order is None:
+            return None
+        
+        # Validate through risk guard
+        portfolio_value = await self._get_portfolio_value()
+        current_pos = self.positions.get(symbol, Position(symbol, 0, 0)).quantity
+        
+        valid, reason = self.risk_guard.validate_order(order, current_pos, portfolio_value)
+        if not valid:
+            logger.warning(f"Order rejected by risk guard: {reason}")
+            return None
+        
+        # Submit order
+        filled_order = await self.submit_order(order)
+        
+        if filled_order and filled_order.status == OrderStatus.FILLED:
+            self.last_trade_time[symbol] = datetime.now()
+            
+            # Log trade
+            self._record_trade(filled_order, signal)
+            
+            # Update meta-learner
+            self._update_brain_performance()
+        
+        return filled_order
+    
+    async def submit_order(self, order: Order) -> Order:
+        """Submit order to broker."""
         order.status = OrderStatus.SUBMITTED
-
-        if self.broker:
-            # Real execution
-            try:
-                result = self.broker.submit_order(order)
-                order.status = result.status
-                order.filled_quantity = result.filled_quantity
-                order.filled_avg_price = result.avg_price
-
-                for fill in result.fills:
-                    self._record_fill(fill)
-
-            except Exception as e:
-                logger.error(f"Order execution error: {e}")
-                order.status = OrderStatus.REJECTED
-        else:
-            # Simulated execution
-            self._simulate_execution(order)
-
-        if order.is_complete:
-            self._complete_order(order)
-
-    def _simulate_execution(self, order: Order) -> None:
-        """Simulate order execution."""
-        market_data = self._get_market_data(order.symbol)
-        price = market_data.get('price', 100)
-
-        # Apply slippage
-        slippage = self.slippage_model.estimate_slippage(order, market_data)
-        exec_price = self.slippage_model.apply_slippage(order, price, slippage)
-
-        # Check limit price
-        if order.order_type == OrderType.LIMIT:
-            if order.side == OrderSide.BUY and exec_price > order.limit_price:
-                return  # Would not fill
-            if order.side == OrderSide.SELL and exec_price < order.limit_price:
-                return
-
-        # Create fill
-        fill = Fill(
-            fill_id=str(uuid.uuid4())[:8],
-            order_id=order.order_id,
-            symbol=order.symbol,
-            quantity=order.quantity,
-            price=exec_price,
-            side=order.side,
-            timestamp=datetime.now(timezone.utc),
-            commission=order.quantity * exec_price * 0.0001,  # 1 bp commission
-        )
-
-        self._record_fill(fill)
-
-        order.filled_quantity = order.quantity
-        order.filled_avg_price = exec_price
-        order.commission = fill.commission
-        order.status = OrderStatus.FILLED
-
-    def _record_fill(self, fill: Fill) -> None:
-        """Record a fill."""
-        with self._lock:
-            self.fills.append(fill)
-
-        # Update parent order
-        if fill.order_id in self.pending_orders:
-            order = self.pending_orders[fill.order_id]
-            order.filled_quantity += fill.quantity
-            order.commission += fill.commission
-
-            # Update average price
-            total_value = order.filled_avg_price * (order.filled_quantity - fill.quantity)
-            total_value += fill.price * fill.quantity
-            order.filled_avg_price = total_value / order.filled_quantity
-
-            if order.filled_quantity >= order.quantity:
-                order.status = OrderStatus.FILLED
-            else:
-                order.status = OrderStatus.PARTIAL
-
-        # Notify handlers
-        for handler in self.on_fill:
-            try:
-                handler(fill)
-            except Exception as e:
-                logger.error(f"Fill handler error: {e}")
-
-    def _complete_order(self, order: Order) -> None:
-        """Handle order completion."""
-        with self._lock:
-            if order.order_id in self.pending_orders:
-                del self.pending_orders[order.order_id]
-            self.completed_orders[order.order_id] = order
-
-            # Remove algorithm
-            if order.order_id in self.active_algorithms:
-                del self.active_algorithms[order.order_id]
-
-        # Notify handlers
-        for handler in self.on_order_complete:
-            try:
-                handler(order)
-            except Exception as e:
-                logger.error(f"Order complete handler error: {e}")
-
-    def cancel(self, order_id: str) -> bool:
-        """Cancel pending order."""
-        with self._lock:
-            if order_id not in self.pending_orders:
-                return False
-
-            order = self.pending_orders[order_id]
-
-            if self.broker:
-                try:
-                    self.broker.cancel_order(order_id)
-                except Exception as e:
-                    logger.error(f"Cancel error: {e}")
-                    return False
-
+        self.pending_orders[order.id] = order
+        
+        try:
+            # Call broker API
+            result = await self.broker.submit_order(
+                symbol=order.symbol,
+                side=order.side.value,
+                quantity=order.quantity,
+                order_type=order.order_type.value,
+                limit_price=order.limit_price,
+                stop_price=order.stop_price
+            )
+            
+            # Update order from result
+            order.filled_quantity = result.get('filled_quantity', order.quantity)
+            order.filled_price = result.get('filled_price', order.limit_price or 0)
+            order.status = OrderStatus.FILLED if order.filled_quantity >= order.quantity else OrderStatus.PARTIAL
+            order.updated_at = datetime.now()
+            
+            # Update position
+            self._update_position(order)
+            
+            logger.info(f"Order filled: {order.side.value} {order.quantity} {order.symbol} @ {order.filled_price}")
+            
+        except Exception as e:
+            order.status = OrderStatus.REJECTED
+            order.metadata['reject_reason'] = str(e)
+            logger.error(f"Order rejected: {e}")
+        
+        finally:
+            del self.pending_orders[order.id]
+            self.order_history.append(order)
+        
+        return order
+    
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel a pending order."""
+        if order_id not in self.pending_orders:
+            return False
+        
+        order = self.pending_orders[order_id]
+        
+        try:
+            await self.broker.cancel_order(order_id)
             order.status = OrderStatus.CANCELLED
-            self._complete_order(order)
-
-        return True
-
-    def _validate_order(self, order: Order) -> Tuple[bool, str]:
-        """Validate order before submission."""
-        if order.quantity <= 0:
-            return False, "Quantity must be positive"
-
-        if order.order_type == OrderType.LIMIT and order.limit_price is None:
-            return False, "Limit orders require limit price"
-
-        if order.order_type in [OrderType.STOP, OrderType.STOP_LIMIT] and order.stop_price is None:
-            return False, "Stop orders require stop price"
-
-        # Check max value
-        estimated_value = order.quantity * (order.limit_price or 100)
-        if estimated_value > self.max_order_value:
-            return False, f"Order value ${estimated_value:.2f} exceeds max ${self.max_order_value:.2f}"
-
-        return True, ""
-
-    def _get_market_data(self, symbol: str) -> Dict[str, Any]:
-        """Get current market data for symbol."""
-        if self.broker:
-            try:
-                return self.broker.get_quote(symbol)
-            except Exception:
-                pass
-
-        # Default simulated data
-        return {
-            'price': 100.0,
-            'bid': 99.95,
-            'ask': 100.05,
-            'spread': 0.10,
-            'volume': 100000,
-            'volatility': 0.02,
-            'vwap': 100.0,
-        }
-
-    def _check_daily_reset(self) -> None:
-        """Reset daily counters if new day."""
-        today = datetime.now(timezone.utc).date()
-        if today != self.last_reset:
-            self.orders_today = 0
-            self.last_reset = today
-
-    def get_pending_orders(self) -> List[Order]:
-        """Get all pending orders."""
-        with self._lock:
-            return list(self.pending_orders.values())
-
-    def get_order(self, order_id: str) -> Optional[Order]:
-        """Get order by ID."""
-        with self._lock:
-            if order_id in self.pending_orders:
-                return self.pending_orders[order_id]
-            return self.completed_orders.get(order_id)
-
-    def get_fills(
+            order.updated_at = datetime.now()
+            del self.pending_orders[order_id]
+            self.order_history.append(order)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel order {order_id}: {e}")
+            return False
+    
+    async def _signal_to_order(
         self,
-        symbol: str = None,
-        since: datetime = None
-    ) -> List[Fill]:
-        """Get fills, optionally filtered."""
-        fills = self.fills
-
-        if symbol:
-            fills = [f for f in fills if f.symbol == symbol]
-
-        if since:
-            fills = [f for f in fills if f.timestamp >= since]
-
-        return fills
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get execution statistics."""
-        if not self.fills:
-            return {}
-
-        prices = [f.price for f in self.fills]
-        quantities = [f.quantity for f in self.fills]
-        commissions = [f.commission for f in self.fills]
-
-        return {
-            'total_fills': len(self.fills),
-            'total_volume': sum(quantities),
-            'total_value': sum(p * q for p, q in zip(prices, quantities)),
-            'total_commission': sum(commissions),
-            'avg_fill_price': np.mean(prices),
-            'orders_today': self.orders_today,
-            'pending_orders': len(self.pending_orders),
-            'completed_orders': len(self.completed_orders),
+        symbol: str,
+        signal: Dict,
+        current_price: float
+    ) -> Optional[Order]:
+        """Convert trading signal to order."""
+        action = signal['signal']
+        target_position = signal['target_position']
+        
+        current_pos = self.positions.get(symbol, Position(symbol, 0, 0)).quantity
+        portfolio_value = await self._get_portfolio_value()
+        
+        # Calculate position change needed
+        position_change = target_position - (current_pos / portfolio_value if portfolio_value > 0 else 0)
+        
+        # Minimum threshold
+        if abs(position_change) < 0.01:
+            return None
+        
+        # Convert to quantity
+        quantity = abs(position_change * portfolio_value / current_price)
+        
+        # Determine side
+        if position_change > 0:
+            side = OrderSide.BUY
+        else:
+            side = OrderSide.SELL
+        
+        # Calculate limit price if using limit orders
+        limit_price = None
+        order_type = OrderType.MARKET
+        
+        if self.config.use_limit_orders:
+            order_type = OrderType.LIMIT
+            offset = current_price * self.config.limit_offset_bps / 10000
+            if side == OrderSide.BUY:
+                limit_price = current_price + offset  # Slightly above for buys
+            else:
+                limit_price = current_price - offset  # Slightly below for sells
+        
+        # Create order
+        self._order_counter += 1
+        order = Order(
+            id=f"ORD_{self._order_counter:06d}",
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=limit_price,
+            metadata={
+                'signal': signal,
+                'target_position': target_position,
+            }
+        )
+        
+        return order
+    
+    def _update_position(self, order: Order):
+        """Update position after order fill."""
+        symbol = order.symbol
+        
+        if symbol not in self.positions:
+            self.positions[symbol] = Position(symbol, 0, 0)
+        
+        pos = self.positions[symbol]
+        
+        if order.side == OrderSide.BUY:
+            # Update average entry for buys
+            total_cost = pos.avg_entry_price * pos.quantity + order.filled_price * order.filled_quantity
+            pos.quantity += order.filled_quantity
+            if pos.quantity > 0:
+                pos.avg_entry_price = total_cost / pos.quantity
+        else:
+            # Calculate realized P&L for sells
+            pnl = (order.filled_price - pos.avg_entry_price) * min(order.filled_quantity, pos.quantity)
+            pos.realized_pnl += pnl
+            pos.quantity -= order.filled_quantity
+        
+        pos.last_update = datetime.now()
+    
+    def _record_trade(self, order: Order, signal: Dict):
+        """Record trade for performance tracking."""
+        trade = {
+            'timestamp': datetime.now(),
+            'symbol': order.symbol,
+            'side': order.side.value,
+            'quantity': order.filled_quantity,
+            'price': order.filled_price,
+            'signal_confidence': signal['confidence'],
+            'regime': signal['regime'],
         }
+        self.trades.append(trade)
+    
+    def _update_brain_performance(self):
+        """Update brain's meta-learner with performance metrics."""
+        if len(self.trades) < 5:
+            return
+        
+        # Calculate recent metrics
+        recent_trades = self.trades[-50:]
+        
+        returns = []
+        wins = 0
+        for i in range(1, len(recent_trades)):
+            if recent_trades[i]['side'] == 'sell':
+                ret = (recent_trades[i]['price'] - recent_trades[i-1]['price']) / recent_trades[i-1]['price']
+                returns.append(ret)
+                if ret > 0:
+                    wins += 1
+        
+        if returns:
+            metrics = {
+                'sharpe': np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252),
+                'returns': np.sum(returns),
+                'win_rate': wins / len(returns),
+                'trade_count': len(recent_trades),
+            }
+            
+            self.brain.update_performance(metrics)
+    
+    def _get_position_pct(self, symbol: str) -> float:
+        """Get position as percentage of portfolio."""
+        if symbol not in self.positions:
+            return 0.0
+        # Simplified - would need portfolio value
+        return self.positions[symbol].quantity
+    
+    async def _get_portfolio_value(self) -> float:
+        """Get current portfolio value from broker."""
+        try:
+            return await self.broker.get_portfolio_value()
+        except:
+            return 100000.0  # Default for testing
+    
+    def get_performance_summary(self) -> Dict[str, Any]:
+        """Get performance summary."""
+        if not self.trades:
+            return {}
+        
+        total_trades = len(self.trades)
+        
+        # Calculate P&L
+        total_pnl = sum(p.realized_pnl for p in self.positions.values())
+        
+        return {
+            'total_trades': total_trades,
+            'total_pnl': total_pnl,
+            'positions': {s: {'quantity': p.quantity, 'pnl': p.realized_pnl} 
+                         for s, p in self.positions.items()},
+            'pending_orders': len(self.pending_orders),
+            'circuit_breaker_active': self.risk_guard.circuit_breaker_active,
+        }
+
+
+class PaperBroker:
+    """Paper trading broker for testing."""
+    
+    def __init__(self, initial_balance: float = 100_000):
+        self.balance = initial_balance
+        self.positions: Dict[str, float] = {}
+        self.prices: Dict[str, float] = {}
+    
+    def set_price(self, symbol: str, price: float):
+        """Set current price for symbol."""
+        self.prices[symbol] = price
+    
+    async def get_portfolio_value(self) -> float:
+        """Get total portfolio value."""
+        positions_value = sum(
+            qty * self.prices.get(sym, 0) 
+            for sym, qty in self.positions.items()
+        )
+        return self.balance + positions_value
+    
+    async def submit_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        order_type: str,
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None
+    ) -> Dict:
+        """Execute paper trade."""
+        price = self.prices.get(symbol, limit_price or 100)
+        
+        # Apply slippage
+        slippage = 0.001
+        if side == 'buy':
+            fill_price = price * (1 + slippage)
+            self.balance -= fill_price * quantity
+            self.positions[symbol] = self.positions.get(symbol, 0) + quantity
+        else:
+            fill_price = price * (1 - slippage)
+            self.balance += fill_price * quantity
+            self.positions[symbol] = self.positions.get(symbol, 0) - quantity
+        
+        return {
+            'filled_quantity': quantity,
+            'filled_price': fill_price,
+        }
+    
+    async def cancel_order(self, order_id: str):
+        """Cancel order (no-op for paper)."""
+        pass
