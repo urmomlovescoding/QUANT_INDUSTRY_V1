@@ -27,6 +27,8 @@ import { SlideDoctrine } from './views/SlideDoctrine'
 import { Backtesting } from './views/Backtesting'
 import { MonteCarlo } from './views/MonteCarlo'
 import { Correlation } from './views/Correlation'
+import { BacktestViz } from './views/BacktestViz'
+import { PnLAttribution } from './components/PnLAttribution'
 
 // Neural AI views
 import { NeuralAnalysis } from './views/NeuralAnalysis'
@@ -93,6 +95,8 @@ function AppContent() {
 
           {/* Analytics */}
           <Route path="/backtesting" element={<Backtesting />} />
+          <Route path="/backtest-viz" element={<BacktestViz />} />
+          <Route path="/pnl-attribution" element={<PnLAttribution />} />
           <Route path="/monte-carlo" element={<MonteCarlo />} />
           <Route path="/correlation" element={<Correlation />} />
 

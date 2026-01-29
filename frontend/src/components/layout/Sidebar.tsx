@@ -85,6 +85,8 @@ const navSections: NavSection[] = [
     title: 'ANALYTICS',
     items: [
       { path: '/backtesting', icon: Timer, label: 'Backtesting' },
+      { path: '/backtest-viz', icon: LineChart, label: 'Backtest Viz' },
+      { path: '/pnl-attribution', icon: Activity, label: 'P&L Attribution' },
       { path: '/monte-carlo', icon: Dice5, label: 'Monte Carlo' },
       { path: '/correlation', icon: GitBranch, label: 'Correlation' },
     ],
