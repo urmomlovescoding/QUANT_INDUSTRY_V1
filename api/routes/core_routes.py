@@ -21,23 +21,35 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-# Market data service singleton
+# Market data service - initialized per-request to handle event loop changes
 _market_service = None
+_service_loop_id = None
 
 
 async def get_service():
     """Dependency to get market data service."""
-    global _market_service
+    global _market_service, _service_loop_id
+    import asyncio
     
-    if _market_service is None:
+    # Get current event loop id
+    try:
+        current_loop = asyncio.get_running_loop()
+        current_loop_id = id(current_loop)
+    except RuntimeError:
+        current_loop_id = None
+    
+    # Reinitialize if loop changed or service doesn't exist
+    if _market_service is None or _service_loop_id != current_loop_id:
         try:
-            from backend.services.market_data_service import get_market_data_service
-            _market_service = await get_market_data_service()
+            from backend.services.market_data_service import MarketDataService
+            _market_service = await MarketDataService.create()
+            _service_loop_id = current_loop_id
+            logger.info(f"Market data service initialized (mode: {_market_service.data_mode})")
         except Exception as e:
             logger.error(f"Failed to initialize market data service: {e}")
-            # Return a mock service that always uses mock data
             from backend.services.market_data_service import MarketDataService
             _market_service = MarketDataService()
+            _service_loop_id = current_loop_id
     
     return _market_service
 

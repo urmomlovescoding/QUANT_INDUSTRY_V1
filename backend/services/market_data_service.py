@@ -126,12 +126,21 @@ class MarketDataService:
                 )
                 self._alpaca = AlpacaProvider(alpaca_config)
                 await self._alpaca.connect()
-                logger.info("✅ Alpaca provider connected")
+                logger.info("[OK] Alpaca provider connected")
             except Exception as e:
                 logger.error(f"Failed to initialize Alpaca: {e}")
                 self._alpaca = None
         else:
-            logger.warning("⚠️ Alpaca not configured - using mock data")
+            logger.warning("[WARN] Alpaca not configured - using mock data")
+    
+    async def close(self):
+        """Clean up resources."""
+        if self._alpaca:
+            try:
+                await self._alpaca.disconnect()
+            except Exception:
+                pass
+            self._alpaca = None
     
     @property
     def data_mode(self) -> str:

@@ -53,15 +53,23 @@ try:
 except ImportError:
     logger.info("PyTorch not available, GPU features disabled")
 
-# TensorFlow detection
-HAS_TF = False
-TF_GPU_AVAILABLE = False
-try:
-    import tensorflow as tf
-    HAS_TF = True
-    TF_GPU_AVAILABLE = len(tf.config.list_physical_devices('GPU')) > 0
-except ImportError:
-    pass
+# TensorFlow detection - LAZY LOADED to avoid slow startup
+HAS_TF = None  # None = not checked yet
+TF_GPU_AVAILABLE = None
+
+def _check_tensorflow():
+    """Lazy check for TensorFlow (slow to import)."""
+    global HAS_TF, TF_GPU_AVAILABLE
+    if HAS_TF is not None:
+        return HAS_TF
+    try:
+        import tensorflow as tf
+        HAS_TF = True
+        TF_GPU_AVAILABLE = len(tf.config.list_physical_devices('GPU')) > 0
+    except ImportError:
+        HAS_TF = False
+        TF_GPU_AVAILABLE = False
+    return HAS_TF
 
 # ML Libraries detection
 HAS_SKLEARN = False
@@ -132,12 +140,15 @@ def get_gpu_utilization() -> Dict[str, float]:
 
 def get_ml_capabilities() -> Dict[str, Any]:
     """Get available ML/DL/RL capabilities"""
+    # Lazy check TensorFlow only when this function is called
+    tf_available = _check_tensorflow()
+    
     return {
         'pytorch': HAS_TORCH,
         'cuda': HAS_CUDA,
         'mps': HAS_MPS,
-        'tensorflow': HAS_TF,
-        'tf_gpu': TF_GPU_AVAILABLE,
+        'tensorflow': tf_available,
+        'tf_gpu': TF_GPU_AVAILABLE if tf_available else False,
         'sklearn': HAS_SKLEARN,
         'xgboost': HAS_XGBOOST,
         'lightgbm': HAS_LIGHTGBM,
