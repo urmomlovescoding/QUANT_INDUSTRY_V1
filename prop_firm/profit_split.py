@@ -231,7 +231,7 @@ class ProfitSplitCalculator:
         payouts = (
             self.db.query(Payout)
             .filter_by(trader_id=trader_id)
-            .order_by(Payout.created_at.desc())
+            .order_by(Payout.requested_at.desc())
             .limit(limit)
             .all()
         )

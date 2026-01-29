@@ -42,7 +42,7 @@ class Trader(Base):
     """Trader profile and account information."""
     __tablename__ = "prop_traders"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     
     # Identity
     email = Column(String(255), unique=True, nullable=False, index=True)
@@ -92,7 +92,7 @@ class Challenge(Base):
     """Trading challenge/evaluation configuration."""
     __tablename__ = "prop_challenges"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     trader_id = Column(BigInteger, ForeignKey("prop_traders.id"), nullable=False)
     
     # Challenge type
@@ -179,7 +179,7 @@ class Evaluation(Base):
     """Daily evaluation snapshots for tracking progress."""
     __tablename__ = "prop_evaluations"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     challenge_id = Column(BigInteger, ForeignKey("prop_challenges.id"), nullable=False)
     trader_id = Column(BigInteger, ForeignKey("prop_traders.id"), nullable=False)
     
@@ -234,7 +234,7 @@ class TraderAccount(Base):
     """Funded trading account after passing challenge."""
     __tablename__ = "prop_accounts"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     trader_id = Column(BigInteger, ForeignKey("prop_traders.id"), nullable=False)
     challenge_id = Column(BigInteger, ForeignKey("prop_challenges.id"))
     
@@ -287,7 +287,7 @@ class PropTrade(Base):
     """Individual trade records for prop trading."""
     __tablename__ = "prop_trades"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     trader_id = Column(BigInteger, ForeignKey("prop_traders.id"), nullable=False)
     challenge_id = Column(BigInteger, ForeignKey("prop_challenges.id"))
     account_id = Column(BigInteger, ForeignKey("prop_accounts.id"))
@@ -336,7 +336,7 @@ class PerformanceMetrics(Base):
     """Aggregated performance metrics for leaderboards and analytics."""
     __tablename__ = "prop_performance_metrics"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     trader_id = Column(BigInteger, ForeignKey("prop_traders.id"), nullable=False, unique=True)
     
     # Overall stats
@@ -384,7 +384,7 @@ class Payout(Base):
     """Profit payout records."""
     __tablename__ = "prop_payouts"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     trader_id = Column(BigInteger, ForeignKey("prop_traders.id"), nullable=False)
     account_id = Column(BigInteger, ForeignKey("prop_accounts.id"), nullable=False)
     
