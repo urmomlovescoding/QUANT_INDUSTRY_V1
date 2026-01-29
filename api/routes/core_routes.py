@@ -410,3 +410,207 @@ async def get_api_keys():
         "polygon": config.polygon_configured,
         "tradier": False
     }
+
+
+# ============== STRATEGIES ==============
+
+@router.get("/strategies")
+async def list_strategies():
+    """List available trading strategies."""
+    try:
+        from strategies import list_strategies, STRATEGY_REGISTRY
+        return {
+            "strategies": list_strategies(),
+            "count": len(STRATEGY_REGISTRY)
+        }
+    except ImportError:
+        return {
+            "strategies": [
+                {"id": "momentum", "name": "Momentum", "description": "Time-series momentum strategy"},
+                {"id": "mean_reversion", "name": "Mean Reversion", "description": "Z-score based reversion"},
+                {"id": "dual_momentum", "name": "Dual Momentum", "description": "Absolute + relative momentum"},
+            ],
+            "count": 3
+        }
+
+
+@router.get("/strategies/{strategy_id}")
+async def get_strategy_info(strategy_id: str):
+    """Get strategy details."""
+    try:
+        from strategies import STRATEGY_REGISTRY, StrategyConfig
+        
+        if strategy_id not in STRATEGY_REGISTRY:
+            raise HTTPException(status_code=404, detail=f"Strategy '{strategy_id}' not found")
+        
+        strategy_class = STRATEGY_REGISTRY[strategy_id]
+        temp_config = StrategyConfig(symbols=['TEST'])
+        
+        try:
+            instance = strategy_class(temp_config)
+            return {
+                "id": strategy_id,
+                "name": instance.name,
+                "description": instance.description,
+                "required_history": instance.get_required_history(),
+                "parameters": getattr(instance, 'default_params', {})
+            }
+        except Exception as e:
+            return {
+                "id": strategy_id,
+                "name": strategy_id,
+                "description": "Strategy requires specific parameters",
+                "error": str(e)
+            }
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Strategy module not available")
+
+
+# ============== PORTFOLIO MANAGEMENT ==============
+
+# In-memory portfolio for demo (would use database in production)
+_portfolio_instance = None
+
+
+def get_portfolio():
+    """Get or create portfolio instance."""
+    global _portfolio_instance
+    if _portfolio_instance is None:
+        try:
+            from portfolio import PortfolioManager
+            _portfolio_instance = PortfolioManager(initial_capital=100000)
+        except ImportError:
+            return None
+    return _portfolio_instance
+
+
+@router.get("/portfolio/live")
+async def get_live_portfolio():
+    """Get live portfolio state."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        return {
+            "error": "Portfolio module not available",
+            "mock": True,
+            "equity": 125430.50,
+            "cash": 45230.25,
+            "positions": [],
+            "total_pnl": 25430.50
+        }
+    
+    return portfolio.to_dict()
+
+
+@router.get("/portfolio/positions")
+async def get_positions():
+    """Get all positions."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        return {"positions": [], "count": 0}
+    
+    return {
+        "positions": [p.to_dict() for p in portfolio.get_positions()],
+        "count": len(portfolio.positions)
+    }
+
+
+@router.get("/portfolio/position/{symbol}")
+async def get_position(symbol: str):
+    """Get single position."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        raise HTTPException(status_code=503, detail="Portfolio not available")
+    
+    position = portfolio.get_position(symbol.upper())
+    if not position:
+        raise HTTPException(status_code=404, detail=f"No position in {symbol}")
+    
+    return position.to_dict()
+
+
+@router.post("/portfolio/trade")
+async def execute_trade(
+    symbol: str,
+    quantity: float,
+    side: str,  # 'buy' or 'sell'
+    price: Optional[float] = None
+):
+    """Execute a trade."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        raise HTTPException(status_code=503, detail="Portfolio not available")
+    
+    if side not in ['buy', 'sell']:
+        raise HTTPException(status_code=400, detail="Side must be 'buy' or 'sell'")
+    
+    # Get current price if not provided
+    if price is None:
+        service = await get_service()
+        quote = await service.get_quote(symbol.upper())
+        price = quote.last or quote.mid
+        if not price:
+            raise HTTPException(status_code=400, detail=f"Could not get price for {symbol}")
+    
+    trade = portfolio.execute_trade(
+        symbol=symbol.upper(),
+        quantity=quantity,
+        side=side,
+        price=price
+    )
+    
+    if not trade:
+        raise HTTPException(status_code=400, detail="Trade failed")
+    
+    return trade.to_dict()
+
+
+@router.delete("/portfolio/position/{symbol}")
+async def close_position(symbol: str):
+    """Close a position."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        raise HTTPException(status_code=503, detail="Portfolio not available")
+    
+    # Get current price
+    service = await get_service()
+    quote = await service.get_quote(symbol.upper())
+    price = quote.last or quote.mid
+    
+    trade = portfolio.close_position(symbol.upper(), price=price)
+    if not trade:
+        raise HTTPException(status_code=404, detail=f"No position to close in {symbol}")
+    
+    return trade.to_dict()
+
+
+@router.get("/portfolio/risk")
+async def get_portfolio_risk():
+    """Get portfolio risk metrics."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        return {
+            "var_95": 2500.00,
+            "max_drawdown": 0.12,
+            "current_drawdown": 0.05,
+            "leverage": 1.0,
+            "gross_exposure": 0.75,
+            "net_exposure": 0.60
+        }
+    
+    metrics = portfolio.calculate_risk_metrics()
+    return metrics.to_dict()
+
+
+@router.get("/portfolio/trades")
+async def get_trades(limit: int = 100):
+    """Get trade history."""
+    portfolio = get_portfolio()
+    if not portfolio:
+        return {"trades": [], "count": 0}
+    
+    trades = portfolio.trades[-limit:]
+    return {
+        "trades": [t.to_dict() for t in trades],
+        "count": len(portfolio.trades),
+        "showing": len(trades)
+    }

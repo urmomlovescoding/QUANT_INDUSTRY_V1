@@ -138,6 +138,47 @@ cd QUANT_INDUSTRY_V1/frontend
 npm run dev
 ```
 
+## 🆕 Recent Additions (Jan 29, Session 2)
+
+### Frontend Backtest Integration
+- `frontend/src/services/backtestApi.ts` - API client for backtest service
+- `frontend/src/views/BacktestViz.tsx` - Full backtest runner UI with:
+  - Strategy selection (momentum, mean reversion, trend following)
+  - Symbol universe presets
+  - Real-time job progress tracking
+  - Result visualization
+
+### Trading Strategies Framework
+- `strategies/base.py` - Base strategy class + technical indicators
+- `strategies/momentum.py` - Momentum strategies:
+  - MomentumStrategy (classic time-series)
+  - DualMomentumStrategy (Antonacci's method)
+  - RSIMomentumStrategy
+  - MACDMomentumStrategy
+- `strategies/mean_reversion.py` - Mean reversion strategies:
+  - BollingerMeanReversion
+  - ZScoreMeanReversion
+  - RSIMeanReversion
+  - PairsTrading
+
+### Portfolio Management
+- `portfolio/manager.py` - Full portfolio management:
+  - Position tracking (long/short)
+  - Trade execution with slippage/commission
+  - Real-time P&L calculation
+  - Risk metrics (VaR, drawdown, exposure)
+  - Trade statistics
+
+### New API Endpoints
+- `GET /api/strategies` - List available strategies
+- `GET /api/strategies/{id}` - Strategy details
+- `GET /api/portfolio/live` - Live portfolio state
+- `GET /api/portfolio/positions` - All positions
+- `POST /api/portfolio/trade` - Execute trade
+- `DELETE /api/portfolio/position/{symbol}` - Close position
+- `GET /api/portfolio/risk` - Risk metrics
+- `GET /api/portfolio/trades` - Trade history
+
 ## 🧪 Quick Test
 
 ```python
