@@ -5,7 +5,7 @@ Handles new trader registration, KYC, and challenge enrollment.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 import hashlib
 import secrets
