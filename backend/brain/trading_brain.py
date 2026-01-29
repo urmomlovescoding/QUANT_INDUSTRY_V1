@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 try:
     from brain.math.integration import (
+        # Phase 1: Regime + Position Sizing
         IntegratedRegimeDetector,
         IntegratedPositionSizer,
         RiskManager,
@@ -32,7 +33,14 @@ try:
         MarketRegime,
         create_regime_detector,
         create_position_sizer,
-        create_risk_manager
+        create_risk_manager,
+        # Phase 2: Alpha + Execution
+        IntegratedAlphaGenerator,
+        IntegratedExecutionOptimizer,
+        AlphaSignal,
+        ExecutionPlan,
+        create_alpha_generator,
+        create_execution_optimizer,
     )
     MATH_AVAILABLE = True
 except ImportError as e:
@@ -205,10 +213,24 @@ class TradingBrain:
             # Track if regime detector is fitted
             self.regime_fitted = False
             
-            logger.info("TradingBrain initialized WITH math integration")
+            # === PHASE 2: Alpha + Execution ===
+            # Alpha signal generator (momentum + mean reversion + trend)
+            self.alpha_generator = create_alpha_generator(
+                momentum_lookback=20,
+                trend_lookback=50
+            )
+            
+            # Execution optimizer (Almgren-Chriss + Kyle impact)
+            self.execution_optimizer = create_execution_optimizer(
+                volatility=0.20  # Default, updated per-asset
+            )
+            
+            logger.info("TradingBrain initialized WITH math integration (Phase 1 + 2)")
         else:
             self.regime_detector = None
             self.position_sizer = None
+            self.alpha_generator = None
+            self.execution_optimizer = None
             self.risk_manager = None
             self.regime_fitted = False
             logger.info("TradingBrain initialized WITHOUT math integration")
@@ -274,6 +296,7 @@ class TradingBrain:
                 - quote: Current quote
                 - news: Recent news (optional)
                 - options_flow: Options flow data (optional)
+                - avg_volume: Average daily volume (for execution)
         """
 
         # Gather intelligence from all sources
@@ -282,9 +305,18 @@ class TradingBrain:
         # Get regime alignment AND regime state for position sizing
         regime_alignment, regime_state = self._get_regime_alignment(market_data)
         
+        # === PHASE 2: Alpha signal generation ===
+        alpha_signal = self._get_alpha_signal(market_data)
+        
         technical_score = self._get_technical_score(symbol, market_data)
         sentiment_score = self._get_sentiment_score(symbol, market_data)
         flow_score = self._get_flow_score(symbol, market_data)
+        
+        # Blend alpha signal into technical score
+        if alpha_signal is not None:
+            # Alpha signal contributes to technical analysis
+            alpha_contribution = alpha_signal.composite_alpha * 50  # Scale to -50 to 50
+            technical_score = technical_score * 0.6 + alpha_contribution * 0.4
 
         # Analyze each cycle
         cycle_decisions = {}
@@ -464,6 +496,44 @@ class TradingBrain:
         except Exception as e:
             logger.error(f"Volatility estimation error: {e}")
             return 0.20
+    
+    def _get_alpha_signal(self, market_data: Dict) -> Optional['AlphaSignal']:
+        """
+        Generate alpha signal using momentum, mean reversion, and trend factors.
+        
+        Returns AlphaSignal with composite score and factor breakdown.
+        """
+        if not MATH_AVAILABLE or self.alpha_generator is None:
+            return None
+        
+        try:
+            # Extract asset prices
+            prices = self._extract_prices_for_regime(market_data)
+            if prices is None or len(prices) < 50:
+                return None
+            
+            # Extract market prices for CAPM (SPY)
+            market_prices = None
+            if "spy_ohlcv" in market_data:
+                spy_ohlcv = market_data["spy_ohlcv"]
+                if spy_ohlcv and len(spy_ohlcv) > 0:
+                    market_prices = np.array([
+                        d.get("close", d.get("Close", 0)) for d in spy_ohlcv
+                    ])
+            
+            # Generate alpha signal
+            alpha = self.alpha_generator.generate(prices, market_prices)
+            
+            logger.debug(
+                f"Alpha signal: {alpha.composite_alpha:.2f} "
+                f"({alpha.signal_strength}, driver={alpha.primary_driver})"
+            )
+            
+            return alpha
+            
+        except Exception as e:
+            logger.error(f"Alpha signal generation error: {e}")
+            return None
 
     def _get_technical_score(self, symbol: str, market_data: Dict) -> float:
         """Calculate technical analysis score"""
@@ -975,6 +1045,126 @@ class TradingBrain:
             "status": "available",
             "fitted": self.regime_fitted,
             "n_regimes": self.regime_detector.n_regimes
+        }
+    
+    # === PHASE 2: EXECUTION METHODS ===
+    
+    def get_execution_plan(
+        self,
+        symbol: str,
+        shares: float,
+        market_data: Dict,
+        urgency: str = "medium"
+    ) -> Optional['ExecutionPlan']:
+        """
+        Get optimal execution plan for an order.
+        
+        Args:
+            symbol: Stock symbol
+            shares: Number of shares to trade
+            market_data: Market data dict with ohlcv, quote, avg_volume
+            urgency: "low", "medium", "high"
+        
+        Returns:
+            ExecutionPlan with strategy, trajectory, and cost estimates
+        """
+        if not MATH_AVAILABLE or self.execution_optimizer is None:
+            return None
+        
+        try:
+            price = market_data.get("quote", {}).get("price", 0)
+            if price <= 0:
+                return None
+            
+            # Get average daily volume
+            avg_volume = market_data.get("avg_volume", 1000000)
+            
+            # Estimate volatility
+            volatility = self._estimate_volatility(market_data)
+            
+            # Create execution plan
+            plan = self.execution_optimizer.plan_execution(
+                shares=shares,
+                price=price,
+                avg_daily_volume=avg_volume,
+                volatility=volatility,
+                urgency=urgency
+            )
+            
+            logger.info(
+                f"Execution plan for {shares:.0f} shares of {symbol}: "
+                f"strategy={plan.strategy}, impact={plan.estimated_impact_pct:.2%}"
+            )
+            
+            return plan
+            
+        except Exception as e:
+            logger.error(f"Execution planning error: {e}")
+            return None
+    
+    def adjust_order_for_impact(
+        self,
+        shares: float,
+        market_data: Dict,
+        max_impact_pct: float = 0.005
+    ) -> float:
+        """
+        Reduce order size to limit market impact.
+        
+        Args:
+            shares: Desired share count
+            market_data: Market data dict
+            max_impact_pct: Maximum acceptable impact (0.005 = 50 bps)
+        
+        Returns:
+            Adjusted share count
+        """
+        if not MATH_AVAILABLE or self.execution_optimizer is None:
+            return shares
+        
+        try:
+            price = market_data.get("quote", {}).get("price", 0)
+            avg_volume = market_data.get("avg_volume", 1000000)
+            volatility = self._estimate_volatility(market_data)
+            
+            adjusted = self.execution_optimizer.adjust_size_for_impact(
+                desired_shares=shares,
+                price=price,
+                avg_daily_volume=avg_volume,
+                volatility=volatility,
+                max_impact_pct=max_impact_pct
+            )
+            
+            return adjusted
+            
+        except Exception as e:
+            logger.error(f"Impact adjustment error: {e}")
+            return shares
+    
+    def get_alpha_analysis(self, market_data: Dict) -> Optional[Dict]:
+        """
+        Get detailed alpha signal analysis.
+        
+        Returns breakdown of alpha factors.
+        """
+        alpha = self._get_alpha_signal(market_data)
+        if alpha is None:
+            return None
+        
+        return {
+            "composite_alpha": alpha.composite_alpha,
+            "confidence": alpha.confidence,
+            "signal_strength": alpha.signal_strength,
+            "primary_driver": alpha.primary_driver,
+            "factors": {
+                "momentum": alpha.momentum_alpha,
+                "mean_reversion": alpha.mean_reversion_alpha,
+                "trend": alpha.trend_alpha
+            },
+            "capm": {
+                "beta": alpha.beta,
+                "alpha": alpha.capm_alpha
+            } if alpha.beta is not None else None
         }
 
 

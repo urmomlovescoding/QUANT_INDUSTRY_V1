@@ -81,6 +81,7 @@ from .microstructure import (
     InformationShare,
 )
 from .integration import (
+    # Phase 1
     IntegratedRegimeDetector,
     IntegratedPositionSizer,
     RiskManager,
@@ -90,6 +91,13 @@ from .integration import (
     create_regime_detector,
     create_position_sizer,
     create_risk_manager,
+    # Phase 2
+    IntegratedAlphaGenerator,
+    IntegratedExecutionOptimizer,
+    AlphaSignal,
+    ExecutionPlan,
+    create_alpha_generator,
+    create_execution_optimizer,
 )
 
 __all__ = [
@@ -114,8 +122,12 @@ __all__ = [
     'TradingRewardFunction',
     # Microstructure
     'KyleModel', 'AlmgrenChriss', 'RollModel', 'VPIN', 'MarketMaking', 'InformationShare',
-    # Integration (TradingBrain bridge)
+    # Integration Phase 1 (Regime + Position Sizing)
     'IntegratedRegimeDetector', 'IntegratedPositionSizer', 'RiskManager',
     'RegimeState', 'MarketRegime', 'PositionSizeResult',
     'create_regime_detector', 'create_position_sizer', 'create_risk_manager',
+    # Integration Phase 2 (Alpha + Execution)
+    'IntegratedAlphaGenerator', 'IntegratedExecutionOptimizer',
+    'AlphaSignal', 'ExecutionPlan',
+    'create_alpha_generator', 'create_execution_optimizer',
 ]

@@ -576,3 +576,423 @@ def create_risk_manager(
         drawdown_threshold=drawdown_threshold,
         critical_drawdown=critical_drawdown
     )
+
+
+# =============================================================================
+# PHASE 2: ALPHA GENERATION & EXECUTION
+# =============================================================================
+
+from .factors import CAPM, FamaFrench, AlphaModel
+from .microstructure import KyleModel, AlmgrenChriss
+
+
+@dataclass
+class AlphaSignal:
+    """Combined alpha signal with factor attribution."""
+    composite_alpha: float  # -1 to 1
+    confidence: float
+    
+    # Factor contributions
+    momentum_alpha: float
+    mean_reversion_alpha: float
+    trend_alpha: float
+    
+    # CAPM metrics (if available)
+    beta: Optional[float] = None
+    capm_alpha: Optional[float] = None
+    
+    # Signal metadata
+    signal_strength: str = "weak"  # weak, moderate, strong
+    primary_driver: str = "mixed"
+
+
+@dataclass  
+class ExecutionPlan:
+    """Optimal execution plan with impact estimates."""
+    strategy: str  # "immediate", "twap", "vwap", "optimal"
+    urgency: str   # "low", "medium", "high"
+    
+    # Trajectory (for multi-period execution)
+    n_periods: int
+    trajectory: List[float]  # Remaining shares after each period
+    
+    # Cost estimates
+    estimated_impact_pct: float
+    estimated_cost_bps: float
+    
+    # Kyle lambda (if estimated)
+    kyle_lambda: Optional[float] = None
+    
+    # Recommendations
+    slice_size_pct: float = 10.0  # % of order per slice
+    time_between_slices: int = 60  # seconds
+
+
+class IntegratedAlphaGenerator:
+    """
+    Generates alpha signals from price data using multiple factors.
+    
+    Combines:
+    - Momentum (trend-following)
+    - Mean reversion (contrarian)
+    - CAPM alpha (vs market)
+    - Technical factors
+    """
+    
+    def __init__(
+        self,
+        momentum_lookback: int = 20,
+        mean_reversion_lookback: int = 5,
+        trend_lookback: int = 50
+    ):
+        self.momentum_lookback = momentum_lookback
+        self.mean_reversion_lookback = mean_reversion_lookback
+        self.trend_lookback = trend_lookback
+        
+        self.alpha_model = AlphaModel(lookback=momentum_lookback)
+    
+    def generate(
+        self,
+        prices: np.ndarray,
+        market_prices: Optional[np.ndarray] = None
+    ) -> AlphaSignal:
+        """
+        Generate composite alpha signal.
+        
+        Args:
+            prices: Asset price series
+            market_prices: Market (SPY/benchmark) prices for CAPM
+        """
+        if len(prices) < self.trend_lookback:
+            return self._default_signal()
+        
+        returns = np.diff(np.log(prices))
+        
+        # 1. Momentum alpha (trend-following)
+        momentum = self._momentum_signal(returns)
+        
+        # 2. Mean reversion alpha (contrarian)
+        mean_rev = self._mean_reversion_signal(prices)
+        
+        # 3. Trend alpha (long-term direction)
+        trend = self._trend_signal(prices)
+        
+        # 4. CAPM alpha (if market data available)
+        beta = None
+        capm_alpha = None
+        if market_prices is not None and len(market_prices) == len(prices):
+            market_returns = np.diff(np.log(market_prices))
+            try:
+                capm = CAPM(returns, market_returns)
+                beta = capm.beta
+                capm_alpha = capm.alpha * 252  # Annualized
+            except Exception:
+                pass
+        
+        # Combine signals
+        self.alpha_model.signals = {}
+        self.alpha_model.weights = {}
+        
+        self.alpha_model.add_signal("momentum", np.array([momentum]), weight=0.35)
+        self.alpha_model.add_signal("mean_reversion", np.array([mean_rev]), weight=0.25)
+        self.alpha_model.add_signal("trend", np.array([trend]), weight=0.40)
+        
+        # Composite
+        composite = (
+            0.35 * momentum +
+            0.25 * mean_rev +
+            0.40 * trend
+        )
+        composite = np.clip(composite, -1, 1)
+        
+        # Confidence based on signal agreement
+        signals = [momentum, mean_rev, trend]
+        signal_std = np.std(signals)
+        confidence = max(0.3, 1 - signal_std)  # Lower std = higher confidence
+        
+        # Signal strength
+        abs_alpha = abs(composite)
+        if abs_alpha > 0.6:
+            strength = "strong"
+        elif abs_alpha > 0.3:
+            strength = "moderate"
+        else:
+            strength = "weak"
+        
+        # Primary driver
+        abs_signals = [abs(momentum), abs(mean_rev), abs(trend)]
+        drivers = ["momentum", "mean_reversion", "trend"]
+        primary = drivers[np.argmax(abs_signals)]
+        
+        return AlphaSignal(
+            composite_alpha=composite,
+            confidence=confidence,
+            momentum_alpha=momentum,
+            mean_reversion_alpha=mean_rev,
+            trend_alpha=trend,
+            beta=beta,
+            capm_alpha=capm_alpha,
+            signal_strength=strength,
+            primary_driver=primary
+        )
+    
+    def _momentum_signal(self, returns: np.ndarray) -> float:
+        """Momentum: recent return relative to history."""
+        if len(returns) < self.momentum_lookback:
+            return 0.0
+        
+        recent = returns[-self.momentum_lookback:]
+        cumulative_return = np.exp(recent.sum()) - 1
+        
+        # Normalize to -1, 1
+        # Assume >10% monthly return is extreme
+        return np.clip(cumulative_return / 0.10, -1, 1)
+    
+    def _mean_reversion_signal(self, prices: np.ndarray) -> float:
+        """Mean reversion: deviation from recent average."""
+        if len(prices) < self.mean_reversion_lookback * 2:
+            return 0.0
+        
+        current = prices[-1]
+        recent_avg = np.mean(prices[-self.mean_reversion_lookback:])
+        longer_avg = np.mean(prices[-self.mean_reversion_lookback * 4:])
+        
+        # How far from mean (negative = sell, positive = buy back)
+        deviation = (recent_avg - current) / longer_avg
+        
+        return np.clip(deviation * 10, -1, 1)  # Scale
+    
+    def _trend_signal(self, prices: np.ndarray) -> float:
+        """Trend: slope of price over lookback period."""
+        if len(prices) < self.trend_lookback:
+            return 0.0
+        
+        recent_prices = prices[-self.trend_lookback:]
+        x = np.arange(len(recent_prices))
+        
+        # Linear regression slope
+        slope = np.polyfit(x, recent_prices, 1)[0]
+        
+        # Normalize by average price
+        avg_price = np.mean(recent_prices)
+        trend_pct = slope / avg_price * self.trend_lookback
+        
+        return np.clip(trend_pct * 10, -1, 1)
+    
+    def _default_signal(self) -> AlphaSignal:
+        """Return neutral signal when data insufficient."""
+        return AlphaSignal(
+            composite_alpha=0.0,
+            confidence=0.3,
+            momentum_alpha=0.0,
+            mean_reversion_alpha=0.0,
+            trend_alpha=0.0,
+            signal_strength="weak",
+            primary_driver="insufficient_data"
+        )
+
+
+class IntegratedExecutionOptimizer:
+    """
+    Execution optimization using Almgren-Chriss and Kyle models.
+    
+    Determines:
+    - Order slicing strategy
+    - Expected market impact
+    - Optimal execution trajectory
+    """
+    
+    def __init__(
+        self,
+        default_volatility: float = 0.20,
+        default_eta: float = 0.01,      # Temporary impact
+        default_gamma: float = 0.001    # Permanent impact
+    ):
+        self.default_vol = default_volatility
+        self.default_eta = default_eta
+        self.default_gamma = default_gamma
+        
+        self.kyle_model = KyleModel()
+        self.kyle_lambda = None
+    
+    def estimate_impact(
+        self,
+        order_size: float,
+        avg_daily_volume: float,
+        volatility: float,
+        price: float
+    ) -> float:
+        """
+        Estimate market impact as percentage.
+        
+        Uses square-root impact model:
+        Impact = k * sigma * sqrt(Q / ADV)
+        
+        Where k ~ 0.5 for liquid stocks.
+        """
+        if avg_daily_volume <= 0:
+            return 0.05  # 5 bps default
+        
+        # Participation rate
+        participation = order_size / avg_daily_volume
+        
+        # Square-root model
+        k = 0.5
+        impact = k * volatility * np.sqrt(participation)
+        
+        # Apply Kyle lambda if estimated
+        if self.kyle_lambda is not None:
+            impact *= (1 + self.kyle_lambda)
+        
+        return impact
+    
+    def calibrate_kyle(
+        self,
+        price_changes: np.ndarray,
+        order_flow: np.ndarray
+    ):
+        """Calibrate Kyle's lambda from historical data."""
+        try:
+            self.kyle_lambda = self.kyle_model.estimate(price_changes, order_flow)
+            logger.info(f"Kyle lambda calibrated: {self.kyle_lambda:.6f}")
+        except Exception as e:
+            logger.warning(f"Kyle calibration failed: {e}")
+    
+    def plan_execution(
+        self,
+        shares: float,
+        price: float,
+        avg_daily_volume: float,
+        volatility: float,
+        urgency: str = "medium",
+        risk_aversion: float = 1.0
+    ) -> ExecutionPlan:
+        """
+        Create optimal execution plan.
+        
+        Args:
+            shares: Number of shares to execute
+            price: Current price
+            avg_daily_volume: Average daily volume
+            volatility: Annualized volatility
+            urgency: "low", "medium", "high"
+            risk_aversion: Risk aversion parameter for Almgren-Chriss
+        """
+        dollar_value = shares * price
+        participation = shares / max(avg_daily_volume, 1)
+        
+        # Determine strategy based on order size
+        if participation < 0.01:
+            # Small order: execute immediately
+            return ExecutionPlan(
+                strategy="immediate",
+                urgency=urgency,
+                n_periods=1,
+                trajectory=[shares, 0],
+                estimated_impact_pct=self.estimate_impact(
+                    shares, avg_daily_volume, volatility, price
+                ),
+                estimated_cost_bps=5,
+                slice_size_pct=100.0,
+                time_between_slices=0
+            )
+        
+        # Larger orders: use Almgren-Chriss
+        if urgency == "high":
+            n_periods = 5
+            risk_aversion *= 2
+        elif urgency == "low":
+            n_periods = 20
+            risk_aversion *= 0.5
+        else:
+            n_periods = 10
+        
+        # Create Almgren-Chriss model
+        ac = AlmgrenChriss(
+            total_shares=shares,
+            time_periods=n_periods,
+            volatility=volatility / np.sqrt(252),  # Daily vol
+            eta=self.default_eta,
+            gamma=self.default_gamma
+        )
+        
+        # Optimal trajectory
+        trajectory = ac.optimal_trajectory(risk_aversion)
+        
+        # Cost estimates
+        costs = ac.execution_cost(trajectory)
+        total_cost_pct = costs['total'] / (shares * price)
+        cost_bps = total_cost_pct * 10000
+        
+        # Impact estimate
+        impact_pct = self.estimate_impact(shares, avg_daily_volume, volatility, price)
+        
+        # Slice size
+        avg_trade = shares / n_periods
+        slice_pct = (avg_trade / shares) * 100
+        
+        # Time between (assume 6.5 hour trading day)
+        minutes_per_period = int(390 / n_periods)
+        
+        return ExecutionPlan(
+            strategy="optimal" if urgency != "high" else "accelerated",
+            urgency=urgency,
+            n_periods=n_periods,
+            trajectory=trajectory.tolist(),
+            estimated_impact_pct=impact_pct,
+            estimated_cost_bps=cost_bps,
+            kyle_lambda=self.kyle_lambda,
+            slice_size_pct=slice_pct,
+            time_between_slices=minutes_per_period * 60
+        )
+    
+    def adjust_size_for_impact(
+        self,
+        desired_shares: float,
+        price: float,
+        avg_daily_volume: float,
+        volatility: float,
+        max_impact_pct: float = 0.005  # 50 bps
+    ) -> float:
+        """
+        Reduce order size to stay within impact limits.
+        
+        Returns adjusted share count.
+        """
+        impact = self.estimate_impact(desired_shares, avg_daily_volume, volatility, price)
+        
+        if impact <= max_impact_pct:
+            return desired_shares
+        
+        # Scale down proportionally
+        scale = (max_impact_pct / impact) ** 2  # Square root relationship
+        adjusted = desired_shares * scale
+        
+        logger.info(
+            f"Reduced order from {desired_shares:.0f} to {adjusted:.0f} shares "
+            f"(impact: {impact:.2%} -> {max_impact_pct:.2%})"
+        )
+        
+        return adjusted
+
+
+# Factory functions for Phase 2
+
+def create_alpha_generator(
+    momentum_lookback: int = 20,
+    trend_lookback: int = 50
+) -> IntegratedAlphaGenerator:
+    """Create an alpha signal generator."""
+    return IntegratedAlphaGenerator(
+        momentum_lookback=momentum_lookback,
+        trend_lookback=trend_lookback
+    )
+
+
+def create_execution_optimizer(
+    volatility: float = 0.20
+) -> IntegratedExecutionOptimizer:
+    """Create an execution optimizer."""
+    return IntegratedExecutionOptimizer(
+        default_volatility=volatility
+    )
