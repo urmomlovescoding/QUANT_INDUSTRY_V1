@@ -127,6 +127,26 @@ from .backtester import (
     MonteCarloSimulator,
     MonteCarloResult,
 )
+from .multi_agent import (
+    # Phase 5 - Multi-Agent System
+    AgentManager,
+    TradingAgent,
+    AgentSignal,
+    AggregatedSignal,
+    AgentState,
+    SignalType,
+    AggregationMethod,
+    AgentPerformance,
+    # Built-in Agents
+    MomentumAgent,
+    MeanReversionAgent,
+    BreakoutAgent,
+    VolatilityAgent,
+    # Factory functions
+    create_default_agent_team,
+    create_momentum_team,
+    create_mean_reversion_team,
+)
 
 __all__ = [
     # Markov
@@ -169,4 +189,9 @@ __all__ = [
     'StrategyDSL',
     'WalkForwardOptimizer', 'WalkForwardResult',
     'MonteCarloSimulator', 'MonteCarloResult',
+    # Phase 5 - Multi-Agent System
+    'AgentManager', 'TradingAgent', 'AgentSignal', 'AggregatedSignal',
+    'AgentState', 'SignalType', 'AggregationMethod', 'AgentPerformance',
+    'MomentumAgent', 'MeanReversionAgent', 'BreakoutAgent', 'VolatilityAgent',
+    'create_default_agent_team', 'create_momentum_team', 'create_mean_reversion_team',
 ]

@@ -1112,3 +1112,232 @@ async def run_monte_carlo(
     except Exception as e:
         logger.error(f"Monte Carlo error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# MULTI-AGENT SYSTEM ENDPOINT (PHASE 5)
+# ==============================================================================
+
+# Global agent manager instance
+_agent_manager = None
+
+def get_agent_manager():
+    """Get or create the global agent manager."""
+    global _agent_manager
+    if _agent_manager is None:
+        from brain.math.multi_agent import create_default_agent_team
+        _agent_manager = create_default_agent_team()
+        _agent_manager.start_all()
+        logger.info("Multi-agent system initialized with default team")
+    return _agent_manager
+
+
+@router.get("/agents/status")
+async def get_agents_status():
+    """Get status of all trading agents."""
+    try:
+        manager = get_agent_manager()
+        return manager.get_status()
+    except Exception as e:
+        logger.error(f"Agent status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agents/consensus")
+async def get_agent_consensus(
+    ticker: str = "SPY",
+    period: str = "1M"
+):
+    """
+    Get consensus decision from all agents for a symbol.
+    
+    Returns aggregated signal from multiple trading strategies.
+    """
+    try:
+        import numpy as np
+        
+        service = await get_service()
+        manager = get_agent_manager()
+        
+        # Period mapping
+        period_map = {"1W": 5, "1M": 21, "3M": 63, "6M": 126, "1Y": 252}
+        limit = period_map.get(period, 63) + 50  # Extra for lookback
+        
+        bars = await service.get_bars(ticker, timeframe="1d", limit=limit)
+        
+        if not bars or len(bars) < 30:
+            raise HTTPException(status_code=400, detail=f"Insufficient data for {ticker}")
+        
+        # Extract market data
+        closes = [bar.close if hasattr(bar, 'close') else bar.get('close', 0) for bar in bars]
+        highs = [bar.high if hasattr(bar, 'high') else bar.get('high', 0) for bar in bars]
+        lows = [bar.low if hasattr(bar, 'low') else bar.get('low', 0) for bar in bars]
+        
+        market_data = {
+            'closes': closes,
+            'highs': highs,
+            'lows': lows
+        }
+        
+        # Get consensus
+        decision = manager.get_consensus_decision(ticker, market_data)
+        
+        if not decision:
+            return {
+                "ticker": ticker,
+                "signal": "NO_SIGNAL",
+                "message": "Insufficient agent signals"
+            }
+        
+        # Get individual agent signals for detail
+        signals = manager.get_agent_signals(ticker, market_data)
+        agent_details = []
+        for sig in signals:
+            agent = manager.agents.get(sig.agent_id)
+            agent_details.append({
+                "agent": agent.name if agent else sig.agent_id,
+                "signal": sig.signal_type.name,
+                "confidence": round(sig.confidence, 2),
+                "position_pct": round(sig.target_position_pct * 100, 1),
+                "reasoning": sig.reasoning
+            })
+        
+        return {
+            "ticker": ticker,
+            "consensus": {
+                "signal": decision.consensus_signal.name,
+                "confidence": round(decision.consensus_confidence, 2),
+                "position_pct": round(decision.target_position_pct * 100, 1),
+                "agreement": f"{decision.agreement_ratio:.0%}",
+                "weighted_signal": round(decision.weighted_signal, 2)
+            },
+            "agents": agent_details,
+            "recommendation": _get_recommendation(decision)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Agent consensus error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _get_recommendation(decision) -> str:
+    """Generate human-readable recommendation."""
+    signal = decision.consensus_signal.name
+    confidence = decision.consensus_confidence
+    agreement = decision.agreement_ratio
+    
+    if signal == "STRONG_BUY":
+        action = "Strong Buy"
+    elif signal == "BUY":
+        action = "Buy"
+    elif signal == "STRONG_SELL":
+        action = "Strong Sell"
+    elif signal == "SELL":
+        action = "Sell"
+    else:
+        return "Hold - No clear directional signal from agents"
+    
+    if agreement >= 0.75:
+        consensus = "Strong consensus"
+    elif agreement >= 0.5:
+        consensus = "Moderate consensus"
+    else:
+        consensus = "Weak consensus"
+    
+    if confidence >= 0.7:
+        conf_str = "high confidence"
+    elif confidence >= 0.4:
+        conf_str = "moderate confidence"
+    else:
+        conf_str = "low confidence"
+    
+    return f"{action} - {consensus} ({agreement:.0%}) with {conf_str}"
+
+
+@router.post("/agents/portfolio")
+async def get_portfolio_allocation(
+    tickers: str = "SPY,QQQ,AAPL,MSFT",
+    period: str = "1M"
+):
+    """
+    Get recommended portfolio allocation across multiple symbols.
+    """
+    try:
+        import numpy as np
+        
+        service = await get_service()
+        manager = get_agent_manager()
+        
+        symbols = [t.strip() for t in tickers.split(",")]
+        period_map = {"1W": 5, "1M": 21, "3M": 63, "6M": 126, "1Y": 252}
+        limit = period_map.get(period, 63) + 50
+        
+        all_market_data = {}
+        
+        for symbol in symbols:
+            try:
+                bars = await service.get_bars(symbol, timeframe="1d", limit=limit)
+                if bars and len(bars) >= 30:
+                    all_market_data[symbol] = {
+                        'closes': [bar.close if hasattr(bar, 'close') else bar.get('close', 0) for bar in bars],
+                        'highs': [bar.high if hasattr(bar, 'high') else bar.get('high', 0) for bar in bars],
+                        'lows': [bar.low if hasattr(bar, 'low') else bar.get('low', 0) for bar in bars]
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to fetch {symbol}: {e}")
+        
+        if not all_market_data:
+            raise HTTPException(status_code=400, detail="No valid data for any symbols")
+        
+        # Get allocations
+        allocations = manager.get_portfolio_allocation(
+            list(all_market_data.keys()),
+            all_market_data
+        )
+        
+        # Format response
+        portfolio = []
+        total_long = 0
+        total_short = 0
+        
+        for symbol, alloc in allocations.items():
+            pct = alloc * 100
+            if pct > 0:
+                total_long += pct
+            else:
+                total_short += abs(pct)
+            
+            portfolio.append({
+                "symbol": symbol,
+                "allocation_pct": round(pct, 1),
+                "direction": "LONG" if pct > 0 else "SHORT" if pct < 0 else "FLAT"
+            })
+        
+        # Add symbols with no position
+        for symbol in all_market_data.keys():
+            if symbol not in allocations:
+                portfolio.append({
+                    "symbol": symbol,
+                    "allocation_pct": 0,
+                    "direction": "FLAT"
+                })
+        
+        return {
+            "portfolio": sorted(portfolio, key=lambda x: abs(x["allocation_pct"]), reverse=True),
+            "summary": {
+                "total_long_pct": round(total_long, 1),
+                "total_short_pct": round(total_short, 1),
+                "net_exposure_pct": round(total_long - total_short, 1),
+                "gross_exposure_pct": round(total_long + total_short, 1),
+                "cash_pct": round(100 - total_long - total_short, 1)
+            },
+            "agent_count": len(manager.agents)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Portfolio allocation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
