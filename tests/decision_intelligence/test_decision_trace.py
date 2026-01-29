@@ -11,8 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from decision_intelligence.decision_trace import (
     DecisionTrace,
-    DecisionNode,
-    DecisionEdge,
+    TraceNode as DecisionNode,
+    TraceEdge as DecisionEdge,
 )
 
 

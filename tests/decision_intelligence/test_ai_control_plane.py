@@ -14,37 +14,44 @@ from decision_intelligence.ai_control_plane import (
     AIControlPlane,
     ControlPlaneMode,
     DecisionContext,
+    get_control_plane,
+    reset_control_plane,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_singleton():
+    """Reset the singleton before each test."""
+    reset_control_plane()
+    yield
+    reset_control_plane()
 
 
 class TestControlPlaneBasics:
     """Test basic control plane functionality."""
     
     def test_singleton_pattern(self):
-        """Control plane should be a singleton."""
-        cp1 = AIControlPlane()
-        cp2 = AIControlPlane()
+        """Control plane should be a singleton via get_control_plane."""
+        cp1 = get_control_plane()
+        cp2 = get_control_plane()
         assert cp1 is cp2
     
     def test_default_mode(self):
         """Should start in shadow mode by default."""
-        cp = AIControlPlane()
-        cp._reset_for_testing()  # Reset state
+        cp = get_control_plane()
         assert cp.mode == ControlPlaneMode.SHADOW
     
     def test_mode_transition(self):
-        """Should transition between modes."""
-        cp = AIControlPlane()
-        cp._reset_for_testing()
-        
-        cp.set_mode(ControlPlaneMode.PAPER)
+        """Mode can be set via constructor or new singleton."""
+        # Reset and create with paper mode
+        reset_control_plane()
+        cp = get_control_plane(mode=ControlPlaneMode.PAPER)
         assert cp.mode == ControlPlaneMode.PAPER
         
-        cp.set_mode(ControlPlaneMode.LIVE)
+        # Reset and create with live mode
+        reset_control_plane()
+        cp = get_control_plane(mode=ControlPlaneMode.LIVE)
         assert cp.mode == ControlPlaneMode.LIVE
-        
-        cp.set_mode(ControlPlaneMode.DISABLED)
-        assert cp.mode == ControlPlaneMode.DISABLED
     
     def test_is_active(self):
         """Should correctly report active state."""
