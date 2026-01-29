@@ -89,9 +89,9 @@ class Trade(Base):
     # Status
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, index=True)
     
-    # Metadata
+    # Extra data
     notes = Column(Text)
-    metadata = Column(JSON, default=dict)
+    extra_data = Column(JSON, default=dict)  # renamed from 'metadata' (reserved)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
