@@ -10,6 +10,12 @@ const isDev = import.meta.env.DEV;
 export const API_BASE_URL = isDev ? 'http://localhost:8000' : '';
 
 export const API_ENDPOINTS = {
+  // ML Brain
+  BRAIN: `${API_BASE_URL}/brain`,
+  BRAIN_STATUS: `${API_BASE_URL}/brain/status`,
+  BRAIN_SIGNALS: `${API_BASE_URL}/brain/signal`,
+  BRAIN_BOTS: `${API_BASE_URL}/brain/bots`,
+  
   // Options Flow
   OPTIONS_FLOW: `${API_BASE_URL}/api/v1/options-flow`,
   

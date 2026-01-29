@@ -143,6 +143,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load news events routes: {e}")
 
+# ML Brain routes
+try:
+    from api.routes.brain_routes import router as brain_router
+    app.include_router(brain_router)
+    logger.info("Loaded ML Brain routes")
+except Exception as e:
+    logger.warning(f"Could not load ML Brain routes: {e}")
+
 
 @app.get("/")
 async def root():
