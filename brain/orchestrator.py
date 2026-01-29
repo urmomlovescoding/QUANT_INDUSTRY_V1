@@ -225,12 +225,21 @@ class MLBrain:
         if bot_id in self._bot_callbacks:
             del self._bot_callbacks[bot_id]
     
-    async def initialize(self, trading_brain=None):
+    async def initialize(self, trading_brain=None, multi_timeframe: bool = False):
         """Initialize the brain with models."""
         if trading_brain is not None:
             self.trading_brain = trading_brain
+            self.multi_timeframe = hasattr(trading_brain, 'get_all_signals')
+        elif multi_timeframe:
+            # Create multi-timeframe brain
+            from brain.nn import create_multi_timeframe_brain
+            self.trading_brain = create_multi_timeframe_brain(
+                input_dim=32,
+                timeframes=['1m', '5m', '15m', '1h', '4h', '1d', '1w']
+            )
+            self.multi_timeframe = True
         else:
-            # Create default brain
+            # Create default single-timeframe brain
             from brain.nn import create_trading_brain
             self.trading_brain = create_trading_brain(
                 input_dim=32,
@@ -238,8 +247,9 @@ class MLBrain:
                 action_type="discrete",
                 use_meta_learner=True
             )
+            self.multi_timeframe = False
         
-        logger.info("ML Brain models initialized")
+        logger.info(f"ML Brain models initialized (multi_timeframe={self.multi_timeframe})")
     
     async def train(
         self,
@@ -446,6 +456,93 @@ class MLBrain:
         await self._broadcast_signal(signal)
         
         return signal
+    
+    async def generate_multi_timeframe_signals(
+        self,
+        symbol: str,
+        timeframe_data: Dict[str, torch.Tensor],
+        current_price: float
+    ) -> Dict[str, TradingSignal]:
+        """
+        Generate signals for ALL trading horizons from multi-timeframe data.
+        
+        Args:
+            symbol: Trading symbol
+            timeframe_data: Dict mapping timeframe name to data tensor
+                           e.g., {'1m': tensor, '5m': tensor, '1h': tensor, ...}
+            current_price: Current market price
+            
+        Returns:
+            Dict mapping horizon name to TradingSignal
+            e.g., {'scalp': signal, 'intraday': signal, 'swing': signal}
+        """
+        if self.trading_brain is None:
+            logger.warning("Trading brain not initialized")
+            return {}
+        
+        if not self.multi_timeframe:
+            logger.warning("Brain not configured for multi-timeframe. Use single generate_signal.")
+            return {}
+        
+        # Get all horizon signals from brain
+        all_signals = self.trading_brain.get_all_signals(timeframe_data)
+        
+        # Convert to TradingSignal objects
+        result = {}
+        
+        # Horizon-specific parameters
+        horizon_params = {
+            'scalp': {'sl_pct': 0.005, 'tp_pct': 0.003, 'signal_type': SignalType.MOMENTUM},
+            'intraday': {'sl_pct': 0.015, 'tp_pct': 0.02, 'signal_type': SignalType.COMPOSITE},
+            'swing': {'sl_pct': 0.03, 'tp_pct': 0.05, 'signal_type': SignalType.COMPOSITE},
+            'position': {'sl_pct': 0.05, 'tp_pct': 0.10, 'signal_type': SignalType.REGIME},
+            'macro': {'sl_pct': 0.10, 'tp_pct': 0.20, 'signal_type': SignalType.REGIME},
+        }
+        
+        for horizon, brain_output in all_signals.items():
+            if 'error' in brain_output:
+                continue
+            
+            self._signal_counter += 1
+            params = horizon_params.get(horizon, horizon_params['intraday'])
+            
+            # Map action to direction
+            action = brain_output['action']
+            if action == 'buy':
+                direction = 1
+            elif action == 'sell':
+                direction = -1
+            else:
+                direction = 0
+            
+            signal = TradingSignal(
+                signal_id=f"SIG_{self._signal_counter:08d}_{horizon.upper()}",
+                timestamp=datetime.now(),
+                symbol=symbol,
+                signal_type=params['signal_type'],
+                direction=direction,
+                strength=brain_output['suggested_size'],
+                confidence=brain_output['confidence'],
+                suggested_size=brain_output['suggested_size'] * 0.1,
+                entry_price=current_price,
+                stop_loss=current_price * (1 - params['sl_pct'] * direction) if direction != 0 else None,
+                take_profit=current_price * (1 + params['tp_pct'] * direction) if direction != 0 else None,
+                regime=brain_output['regime'],
+                features_used=list(self.feature_importance.keys())[:5],
+                model_version="v1.0-mtf",
+                metadata={'horizon': horizon, 'regime_probs': brain_output.get('regime_probs', {})}
+            )
+            
+            self.signal_history.append(signal)
+            result[horizon] = signal
+        
+        # Broadcast all signals
+        for signal in result.values():
+            await self._broadcast_signal(signal)
+        
+        logger.info(f"Generated {len(result)} multi-timeframe signals for {symbol}")
+        
+        return result
     
     async def _broadcast_signal(self, signal: TradingSignal):
         """Send signal to all registered bots."""
