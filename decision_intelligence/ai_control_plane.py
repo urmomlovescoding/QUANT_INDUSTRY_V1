@@ -198,6 +198,35 @@ class AIControlPlane:
         logger.info(f"AIControlPlane initialized in {mode.value} mode")
     
     # =========================================================================
+    # CONVENIENCE PROPERTIES
+    # =========================================================================
+    
+    @property
+    def is_active(self) -> bool:
+        """Check if the control plane is active."""
+        return self.state.is_active
+    
+    @property
+    def kill_switch_engaged(self) -> bool:
+        """Check if the kill switch is engaged."""
+        return self.state.kill_switch_engaged
+    
+    @property
+    def decision_trace(self):
+        """Get the decision trace component."""
+        return self.get_component("decision_trace")
+    
+    @property
+    def exit_learner(self):
+        """Get the exit value learner component."""
+        return self.get_component("exit_learner")
+    
+    @property
+    def shadow_manager(self):
+        """Get the shadow mode manager component."""
+        return self.get_component("shadow_manager")
+    
+    # =========================================================================
     # COMPONENT REGISTRATION
     # =========================================================================
     

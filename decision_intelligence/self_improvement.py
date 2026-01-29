@@ -158,6 +158,20 @@ class SelfImprovementOrchestrator:
         
         logger.info("SelfImprovementOrchestrator initialized")
     
+    # =========================================================================
+    # CONVENIENCE PROPERTIES
+    # =========================================================================
+    
+    @property
+    def control_plane(self):
+        """Get the registered control plane."""
+        return self._control_plane
+    
+    @property
+    def shadow_manager(self):
+        """Get the registered shadow manager."""
+        return self._shadow_manager
+    
     def _init_db(self) -> None:
         """Initialize database."""
         with sqlite3.connect(self.db_path) as conn:
