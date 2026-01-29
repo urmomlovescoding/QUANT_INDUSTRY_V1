@@ -1,20 +1,32 @@
 /**
  * API Client - Centralized HTTP client for backend communication
+ * Features: timeout handling, retry logic, error normalization
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
+const DEFAULT_TIMEOUT = 10000 // 10 seconds
+const MAX_RETRIES = 2
+const RETRY_DELAY = 1000 // 1 second
 
 export interface ApiError {
   status: number
   message: string
   code?: string
   details?: Record<string, unknown>
+  isTimeout?: boolean
+  isNetworkError?: boolean
 }
 
 export interface ApiResponse<T> {
   data: T | null
   error: ApiError | null
   ok: boolean
+}
+
+interface RequestOptions extends RequestInit {
+  timeout?: number
+  retries?: number
+  retryOn?: number[] // HTTP status codes to retry on
 }
 
 class ApiClient {
@@ -28,71 +40,158 @@ class ApiClient {
     }
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
-    const url = `${this.baseUrl}${endpoint}`
+  private async fetchWithTimeout(
+    url: string,
+    options: RequestInit,
+    timeout: number
+  ): Promise<Response> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
 
     try {
       const response = await fetch(url, {
         ...options,
-        headers: {
-          ...this.defaultHeaders,
-          ...options.headers,
-        },
+        signal: controller.signal,
       })
-
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}`
-        try {
-          const errorData = await response.json()
-          errorMessage = errorData.detail || errorData.message || errorMessage
-        } catch {
-          // Use default error message
-        }
-        return {
-          data: null,
-          error: {
-            status: response.status,
-            message: errorMessage,
-          },
-          ok: false,
-        }
-      }
-
-      const data = await response.json()
-      return { data, error: null, ok: true }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Network error'
-      return {
-        data: null,
-        error: { status: 0, message },
-        ok: false,
-      }
+      return response
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 
-  async get<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'GET' })
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  async post<T>(endpoint: string, body?: unknown): Promise<ApiResponse<T>> {
+  private async request<T>(
+    endpoint: string,
+    options: RequestOptions = {}
+  ): Promise<ApiResponse<T>> {
+    const url = `${this.baseUrl}${endpoint}`
+    const {
+      timeout = DEFAULT_TIMEOUT,
+      retries = MAX_RETRIES,
+      retryOn = [502, 503, 504],
+      ...fetchOptions
+    } = options
+
+    let lastError: ApiError | null = null
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await this.fetchWithTimeout(
+          url,
+          {
+            ...fetchOptions,
+            headers: {
+              ...this.defaultHeaders,
+              ...fetchOptions.headers,
+            },
+          },
+          timeout
+        )
+
+        if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}`
+          let errorDetails: Record<string, unknown> | undefined
+          
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.detail || errorData.message || errorMessage
+            errorDetails = errorData
+          } catch {
+            // Use default error message
+          }
+
+          // Check if we should retry this status code
+          if (retryOn.includes(response.status) && attempt < retries) {
+            lastError = {
+              status: response.status,
+              message: errorMessage,
+              details: errorDetails,
+            }
+            await this.delay(RETRY_DELAY * (attempt + 1))
+            continue
+          }
+
+          return {
+            data: null,
+            error: {
+              status: response.status,
+              message: errorMessage,
+              details: errorDetails,
+            },
+            ok: false,
+          }
+        }
+
+        const data = await response.json()
+        return { data, error: null, ok: true }
+      } catch (error) {
+        const isAbortError = error instanceof Error && error.name === 'AbortError'
+        
+        if (isAbortError) {
+          return {
+            data: null,
+            error: {
+              status: 0,
+              message: 'Request timed out',
+              isTimeout: true,
+            },
+            ok: false,
+          }
+        }
+
+        // Network errors - retry if we have attempts left
+        if (attempt < retries) {
+          lastError = {
+            status: 0,
+            message: error instanceof Error ? error.message : 'Network error',
+            isNetworkError: true,
+          }
+          await this.delay(RETRY_DELAY * (attempt + 1))
+          continue
+        }
+
+        const message = error instanceof Error ? error.message : 'Network error'
+        return {
+          data: null,
+          error: { status: 0, message, isNetworkError: true },
+          ok: false,
+        }
+      }
+    }
+
+    // Should never reach here, but return last error just in case
+    return {
+      data: null,
+      error: lastError || { status: 0, message: 'Unknown error' },
+      ok: false,
+    }
+  }
+
+  async get<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, { ...options, method: 'GET' })
+  }
+
+  async post<T>(endpoint: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
+      ...options,
       method: 'POST',
       body: body ? JSON.stringify(body) : undefined,
     })
   }
 
-  async put<T>(endpoint: string, body?: unknown): Promise<ApiResponse<T>> {
+  async put<T>(endpoint: string, body?: unknown, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, {
+      ...options,
       method: 'PUT',
       body: body ? JSON.stringify(body) : undefined,
     })
   }
 
-  async delete<T>(endpoint: string): Promise<ApiResponse<T>> {
-    return this.request<T>(endpoint, { method: 'DELETE' })
+  async delete<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
+    return this.request<T>(endpoint, { ...options, method: 'DELETE' })
   }
 }
 

@@ -6,11 +6,35 @@ FastAPI application bringing together all routes.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# WebSocket manager reference for lifecycle management
+_ws_manager = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup/shutdown tasks."""
+    global _ws_manager
+    # Startup
+    try:
+        from api.websocket.manager import get_ws_manager
+        _ws_manager = get_ws_manager()
+        await _ws_manager.start()
+        logger.info("✅ WebSocket manager started")
+    except Exception as e:
+        logger.warning(f"Could not start WebSocket manager: {e}")
+    
+    yield
+    
+    # Shutdown
+    if _ws_manager:
+        await _ws_manager.stop()
+        logger.info("WebSocket manager stopped")
 
 # Create app
 app = FastAPI(
@@ -18,7 +42,8 @@ app = FastAPI(
     description="Institutional-grade quantitative trading platform",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -37,6 +62,14 @@ try:
     logger.info("Loaded core routes")
 except Exception as e:
     logger.warning(f"Could not load core routes: {e}")
+
+# WebSocket routes
+try:
+    from api.websocket.routes import router as ws_router
+    app.include_router(ws_router)
+    logger.info("Loaded WebSocket routes")
+except Exception as e:
+    logger.warning(f"Could not load WebSocket routes: {e}")
 
 try:
     from api.routes.tax_routes import router as tax_router
