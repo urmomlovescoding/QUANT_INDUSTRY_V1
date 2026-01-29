@@ -1,18 +1,24 @@
-"""
-QUANT_INDUSTRY_V1 Prop Firm Trading Module
+# Prop Firm Module
+# Better than FTMO, TopStep, MFF
 
-Specialized module for passing prop firm evaluations.
-Supports TPT, Apex, FTMO, and other major prop firms.
-"""
-
-from prop_firm.rules import PropFirmRules, AccountConfig, EvaluationTracker
-from prop_firm.manager import PropFirmManager
-from prop_firm.consistency import ConsistencyMonitor
+from .models import Trader, Challenge, Evaluation, TraderAccount, PerformanceMetrics
+from .onboarding import TraderOnboarding
+from .risk_manager import PropFirmRiskManager
+from .profit_split import ProfitSplitCalculator
+from .challenge_engine import ChallengeEngine
+from .leaderboard import Leaderboard
+from .coaching import AICoach
 
 __all__ = [
-    'PropFirmRules',
-    'AccountConfig',
-    'EvaluationTracker',
-    'PropFirmManager',
-    'ConsistencyMonitor',
+    'Trader',
+    'Challenge', 
+    'Evaluation',
+    'TraderAccount',
+    'PerformanceMetrics',
+    'TraderOnboarding',
+    'PropFirmRiskManager',
+    'ProfitSplitCalculator',
+    'ChallengeEngine',
+    'Leaderboard',
+    'AICoach'
 ]
