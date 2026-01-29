@@ -741,3 +741,562 @@ def run_backtest(
     symbols = symbols or list(data.keys())
     
     return engine.run(brain, symbols)
+
+
+# ==============================================================================
+# PHASE 4: ADVANCED BACKTESTING FEATURES
+# ==============================================================================
+
+class StrategyDSL:
+    """
+    Domain-Specific Language for defining trading strategies.
+    
+    Example:
+        strategy = StrategyDSL()
+        strategy.define('''
+            # Momentum Strategy
+            entry_long: rsi(14) < 30 AND sma(20) > sma(50)
+            entry_short: rsi(14) > 70 AND sma(20) < sma(50)
+            exit_long: rsi(14) > 70 OR price < sma(50)
+            exit_short: rsi(14) < 30 OR price > sma(50)
+            position_size: kelly(0.5)
+            stop_loss: atr(14) * 2
+            take_profit: atr(14) * 3
+        ''')
+    """
+    
+    def __init__(self):
+        self.rules = {
+            'entry_long': None,
+            'entry_short': None,
+            'exit_long': None,
+            'exit_short': None,
+            'position_size': 0.02,  # 2% default
+            'stop_loss': None,
+            'take_profit': None
+        }
+        self.indicators = {}
+        self._compiled = False
+    
+    def define(self, dsl_code: str):
+        """Parse DSL strategy definition."""
+        lines = [l.strip() for l in dsl_code.strip().split('\n') if l.strip() and not l.strip().startswith('#')]
+        
+        for line in lines:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip().lower().replace(' ', '_')
+                value = value.strip()
+                
+                if key in self.rules:
+                    self.rules[key] = value
+        
+        self._compiled = True
+        return self
+    
+    def evaluate(self, data: Dict, current_idx: int) -> Dict:
+        """
+        Evaluate strategy rules against current market data.
+        
+        Returns dict with signals: entry_long, entry_short, exit_long, exit_short
+        """
+        if not self._compiled:
+            raise ValueError("Strategy not defined. Call define() first.")
+        
+        # Build indicator context
+        ctx = self._build_context(data, current_idx)
+        
+        result = {
+            'entry_long': self._eval_condition(self.rules['entry_long'], ctx) if self.rules['entry_long'] else False,
+            'entry_short': self._eval_condition(self.rules['entry_short'], ctx) if self.rules['entry_short'] else False,
+            'exit_long': self._eval_condition(self.rules['exit_long'], ctx) if self.rules['exit_long'] else False,
+            'exit_short': self._eval_condition(self.rules['exit_short'], ctx) if self.rules['exit_short'] else False,
+            'position_size': self._eval_size(self.rules['position_size'], ctx),
+            'stop_loss': self._eval_price(self.rules['stop_loss'], ctx),
+            'take_profit': self._eval_price(self.rules['take_profit'], ctx)
+        }
+        
+        return result
+    
+    def _build_context(self, data: Dict, idx: int) -> Dict:
+        """Build evaluation context with indicators."""
+        closes = np.array([d['close'] for d in data[:idx+1]])
+        highs = np.array([d['high'] for d in data[:idx+1]])
+        lows = np.array([d['low'] for d in data[:idx+1]])
+        volumes = np.array([d.get('volume', 0) for d in data[:idx+1]])
+        
+        ctx = {
+            'price': closes[-1] if len(closes) > 0 else 0,
+            'close': closes,
+            'high': highs,
+            'low': lows,
+            'volume': volumes,
+            'idx': idx
+        }
+        
+        # Pre-compute common indicators
+        ctx['sma'] = lambda n: np.mean(closes[-n:]) if len(closes) >= n else closes[-1]
+        ctx['ema'] = lambda n: self._ema(closes, n)
+        ctx['rsi'] = lambda n: self._rsi(closes, n)
+        ctx['atr'] = lambda n: self._atr(highs, lows, closes, n)
+        ctx['bb_upper'] = lambda n, std=2: ctx['sma'](n) + std * np.std(closes[-n:])
+        ctx['bb_lower'] = lambda n, std=2: ctx['sma'](n) - std * np.std(closes[-n:])
+        ctx['macd'] = lambda: self._macd(closes)
+        ctx['momentum'] = lambda n: (closes[-1] / closes[-n] - 1) * 100 if len(closes) >= n else 0
+        
+        return ctx
+    
+    def _eval_condition(self, condition: str, ctx: Dict) -> bool:
+        """Evaluate a condition string."""
+        if not condition:
+            return False
+        
+        try:
+            # Replace DSL syntax with Python
+            expr = condition.upper()
+            expr = expr.replace('AND', 'and').replace('OR', 'or')
+            expr = expr.replace('PRICE', 'ctx["price"]')
+            
+            # Handle function calls like sma(20)
+            import re
+            for func in ['sma', 'ema', 'rsi', 'atr', 'momentum', 'bb_upper', 'bb_lower']:
+                pattern = rf'{func}\s*\(\s*(\d+)\s*\)'
+                expr = re.sub(pattern, rf'ctx["{func}"](\1)', expr, flags=re.IGNORECASE)
+            
+            return eval(expr)
+        except Exception as e:
+            logger.warning(f"Failed to evaluate condition '{condition}': {e}")
+            return False
+    
+    def _eval_size(self, size_rule: str, ctx: Dict) -> float:
+        """Evaluate position size rule."""
+        if not size_rule:
+            return 0.02
+        
+        try:
+            if 'kelly' in size_rule.lower():
+                # Extract Kelly fraction: kelly(0.5)
+                import re
+                match = re.search(r'kelly\s*\(\s*([\d.]+)\s*\)', size_rule, re.IGNORECASE)
+                if match:
+                    fraction = float(match.group(1))
+                    return min(fraction * 0.1, 0.2)  # Cap at 20%
+            return float(size_rule)
+        except:
+            return 0.02
+    
+    def _eval_price(self, price_rule: str, ctx: Dict) -> Optional[float]:
+        """Evaluate stop/target price rule."""
+        if not price_rule:
+            return None
+        
+        try:
+            import re
+            # Handle ATR-based rules: atr(14) * 2
+            match = re.search(r'atr\s*\(\s*(\d+)\s*\)\s*\*\s*([\d.]+)', price_rule, re.IGNORECASE)
+            if match:
+                period = int(match.group(1))
+                multiplier = float(match.group(2))
+                atr_val = ctx['atr'](period)
+                return atr_val * multiplier
+            
+            return float(price_rule)
+        except:
+            return None
+    
+    # Indicator calculations
+    @staticmethod
+    def _ema(data: np.ndarray, period: int) -> float:
+        if len(data) < period:
+            return data[-1] if len(data) > 0 else 0
+        multiplier = 2 / (period + 1)
+        ema = data[-period]
+        for price in data[-period+1:]:
+            ema = (price * multiplier) + (ema * (1 - multiplier))
+        return ema
+    
+    @staticmethod
+    def _rsi(data: np.ndarray, period: int = 14) -> float:
+        if len(data) < period + 1:
+            return 50
+        deltas = np.diff(data[-period-1:])
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        avg_gain = np.mean(gains)
+        avg_loss = np.mean(losses)
+        if avg_loss == 0:
+            return 100
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+    
+    @staticmethod
+    def _atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> float:
+        if len(closes) < period + 1:
+            return highs[-1] - lows[-1] if len(highs) > 0 else 0
+        tr = np.maximum(
+            highs[-period:] - lows[-period:],
+            np.maximum(
+                np.abs(highs[-period:] - closes[-period-1:-1]),
+                np.abs(lows[-period:] - closes[-period-1:-1])
+            )
+        )
+        return np.mean(tr)
+    
+    @staticmethod
+    def _macd(data: np.ndarray) -> Tuple[float, float, float]:
+        if len(data) < 26:
+            return 0, 0, 0
+        fast = StrategyDSL._ema(data, 12)
+        slow = StrategyDSL._ema(data, 26)
+        macd_line = fast - slow
+        # Signal line would need history, simplified here
+        return macd_line, 0, macd_line
+
+
+@dataclass
+class WalkForwardResult:
+    """Results from walk-forward optimization."""
+    in_sample_results: List[BacktestResult]
+    out_of_sample_results: List[BacktestResult]
+    combined_equity: np.ndarray
+    
+    # Metrics
+    avg_is_sharpe: float
+    avg_oos_sharpe: float
+    efficiency_ratio: float  # OOS/IS performance ratio
+    
+    # Best parameters per window
+    best_params: List[Dict]
+    
+    def to_dict(self) -> Dict:
+        return {
+            "windows": len(self.in_sample_results),
+            "avg_is_sharpe": f"{self.avg_is_sharpe:.2f}",
+            "avg_oos_sharpe": f"{self.avg_oos_sharpe:.2f}",
+            "efficiency_ratio": f"{self.efficiency_ratio:.1%}",
+            "total_oos_return": f"{(self.combined_equity[-1]/self.combined_equity[0]-1):.2%}" if len(self.combined_equity) > 0 else "0%"
+        }
+
+
+class WalkForwardOptimizer:
+    """
+    Walk-Forward Optimization Engine.
+    
+    Splits data into rolling windows of in-sample (training) and 
+    out-of-sample (validation) periods to avoid overfitting.
+    """
+    
+    def __init__(
+        self,
+        in_sample_pct: float = 0.70,  # 70% for training
+        n_windows: int = 5,           # Number of walk-forward windows
+        anchored: bool = False         # If True, IS always starts at beginning
+    ):
+        self.in_sample_pct = in_sample_pct
+        self.n_windows = n_windows
+        self.anchored = anchored
+    
+    def optimize(
+        self,
+        brain_factory: Callable,  # Function that creates brain with params
+        data: Dict[str, List[Dict]],
+        param_grid: Dict[str, List],  # Parameter search space
+        config: BacktestConfig = None
+    ) -> WalkForwardResult:
+        """
+        Run walk-forward optimization.
+        
+        Args:
+            brain_factory: Callable(params) -> TradingBrain
+            data: Market data
+            param_grid: Dict of param_name -> list of values to try
+            config: Backtest configuration
+        
+        Returns:
+            WalkForwardResult
+        """
+        # Get data length (use first symbol)
+        first_symbol = list(data.keys())[0]
+        total_bars = len(data[first_symbol])
+        
+        # Calculate window sizes
+        window_size = total_bars // self.n_windows
+        is_size = int(window_size * self.in_sample_pct)
+        oos_size = window_size - is_size
+        
+        is_results = []
+        oos_results = []
+        best_params_list = []
+        combined_equity = [config.initial_capital if config else 100000]
+        
+        for window in range(self.n_windows):
+            # Define window boundaries
+            if self.anchored:
+                is_start = 0
+            else:
+                is_start = window * window_size
+            
+            is_end = is_start + is_size
+            oos_start = is_end
+            oos_end = min(oos_start + oos_size, total_bars)
+            
+            logger.info(f"Window {window+1}/{self.n_windows}: IS[{is_start}:{is_end}], OOS[{oos_start}:{oos_end}]")
+            
+            # Find best params on in-sample
+            best_sharpe = -999
+            best_params = {}
+            best_is_result = None
+            
+            # Grid search
+            param_combinations = self._generate_param_combinations(param_grid)
+            
+            for params in param_combinations:
+                brain = brain_factory(params)
+                engine = BacktestEngine(config)
+                
+                for symbol, ohlcv in data.items():
+                    engine.load_data(symbol, ohlcv[is_start:is_end])
+                
+                try:
+                    result = engine.run(brain, list(data.keys()))
+                    if result.sharpe_ratio > best_sharpe:
+                        best_sharpe = result.sharpe_ratio
+                        best_params = params
+                        best_is_result = result
+                except Exception as e:
+                    logger.warning(f"Backtest failed for params {params}: {e}")
+                    continue
+            
+            if best_is_result is None:
+                continue
+            
+            is_results.append(best_is_result)
+            best_params_list.append(best_params)
+            
+            # Run out-of-sample with best params
+            brain = brain_factory(best_params)
+            engine = BacktestEngine(config)
+            
+            for symbol, ohlcv in data.items():
+                engine.load_data(symbol, ohlcv[oos_start:oos_end])
+            
+            try:
+                oos_result = engine.run(brain, list(data.keys()))
+                oos_results.append(oos_result)
+                
+                # Chain equity curves
+                scale = combined_equity[-1] / oos_result.equity_curve[0] if oos_result.equity_curve[0] > 0 else 1
+                scaled_equity = oos_result.equity_curve * scale
+                combined_equity.extend(scaled_equity[1:].tolist())
+                
+            except Exception as e:
+                logger.warning(f"OOS backtest failed: {e}")
+        
+        # Calculate summary metrics
+        avg_is_sharpe = np.mean([r.sharpe_ratio for r in is_results]) if is_results else 0
+        avg_oos_sharpe = np.mean([r.sharpe_ratio for r in oos_results]) if oos_results else 0
+        efficiency_ratio = avg_oos_sharpe / avg_is_sharpe if avg_is_sharpe > 0 else 0
+        
+        return WalkForwardResult(
+            in_sample_results=is_results,
+            out_of_sample_results=oos_results,
+            combined_equity=np.array(combined_equity),
+            avg_is_sharpe=avg_is_sharpe,
+            avg_oos_sharpe=avg_oos_sharpe,
+            efficiency_ratio=efficiency_ratio,
+            best_params=best_params_list
+        )
+    
+    @staticmethod
+    def _generate_param_combinations(param_grid: Dict[str, List]) -> List[Dict]:
+        """Generate all combinations of parameters."""
+        if not param_grid:
+            return [{}]
+        
+        import itertools
+        keys = list(param_grid.keys())
+        values = list(param_grid.values())
+        
+        combinations = []
+        for combo in itertools.product(*values):
+            combinations.append(dict(zip(keys, combo)))
+        
+        return combinations
+
+
+@dataclass
+class MonteCarloResult:
+    """Results from Monte Carlo simulation."""
+    simulations: int
+    
+    # Return distributions
+    mean_return: float
+    median_return: float
+    std_return: float
+    percentile_5: float
+    percentile_95: float
+    
+    # Risk metrics
+    probability_of_loss: float
+    max_drawdown_mean: float
+    max_drawdown_95: float
+    
+    # VaR
+    var_95: float  # 5% VaR
+    cvar_95: float  # Expected shortfall
+    
+    # All equity curves (for visualization)
+    equity_curves: np.ndarray
+    
+    def to_dict(self) -> Dict:
+        return {
+            "simulations": self.simulations,
+            "mean_return": f"{self.mean_return:.2%}",
+            "median_return": f"{self.median_return:.2%}",
+            "return_std": f"{self.std_return:.2%}",
+            "5th_percentile": f"{self.percentile_5:.2%}",
+            "95th_percentile": f"{self.percentile_95:.2%}",
+            "prob_of_loss": f"{self.probability_of_loss:.1%}",
+            "max_dd_mean": f"{self.max_drawdown_mean:.2%}",
+            "max_dd_95": f"{self.max_drawdown_95:.2%}",
+            "var_95": f"{self.var_95:.2%}",
+            "cvar_95": f"{self.cvar_95:.2%}"
+        }
+
+
+class MonteCarloSimulator:
+    """
+    Monte Carlo simulation for strategy performance analysis.
+    
+    Generates multiple possible paths by:
+    1. Trade resampling (bootstrap)
+    2. Return shuffling
+    3. Parametric simulation (normal/student-t)
+    """
+    
+    def __init__(
+        self,
+        n_simulations: int = 1000,
+        method: str = "bootstrap"  # bootstrap, shuffle, parametric
+    ):
+        self.n_simulations = n_simulations
+        self.method = method
+    
+    def simulate_from_trades(
+        self,
+        trades: List[Trade],
+        initial_capital: float = 100000,
+        n_trades_per_sim: int = None
+    ) -> MonteCarloResult:
+        """
+        Run Monte Carlo simulation by resampling trades.
+        """
+        if not trades:
+            raise ValueError("No trades provided for simulation")
+        
+        n_trades = n_trades_per_sim or len(trades)
+        trade_returns = np.array([t.pnl_pct for t in trades])
+        
+        equity_curves = np.zeros((self.n_simulations, n_trades + 1))
+        equity_curves[:, 0] = initial_capital
+        
+        for sim in range(self.n_simulations):
+            if self.method == "bootstrap":
+                # Random sampling with replacement
+                sampled_returns = np.random.choice(trade_returns, size=n_trades, replace=True)
+            elif self.method == "shuffle":
+                # Random permutation
+                sampled_returns = np.random.permutation(trade_returns)
+                if len(sampled_returns) < n_trades:
+                    sampled_returns = np.tile(sampled_returns, n_trades // len(sampled_returns) + 1)[:n_trades]
+            else:  # parametric
+                # Fit distribution and sample
+                mu, sigma = np.mean(trade_returns), np.std(trade_returns)
+                sampled_returns = np.random.normal(mu, sigma, n_trades)
+            
+            # Build equity curve
+            for i, ret in enumerate(sampled_returns):
+                equity_curves[sim, i + 1] = equity_curves[sim, i] * (1 + ret)
+        
+        # Calculate metrics
+        final_equity = equity_curves[:, -1]
+        total_returns = (final_equity - initial_capital) / initial_capital
+        
+        # Max drawdowns per simulation
+        max_drawdowns = []
+        for sim in range(self.n_simulations):
+            curve = equity_curves[sim]
+            peak = np.maximum.accumulate(curve)
+            dd = (peak - curve) / peak
+            max_drawdowns.append(np.max(dd))
+        max_drawdowns = np.array(max_drawdowns)
+        
+        return MonteCarloResult(
+            simulations=self.n_simulations,
+            mean_return=np.mean(total_returns),
+            median_return=np.median(total_returns),
+            std_return=np.std(total_returns),
+            percentile_5=np.percentile(total_returns, 5),
+            percentile_95=np.percentile(total_returns, 95),
+            probability_of_loss=np.mean(total_returns < 0),
+            max_drawdown_mean=np.mean(max_drawdowns),
+            max_drawdown_95=np.percentile(max_drawdowns, 95),
+            var_95=np.percentile(total_returns, 5),  # 5% worst case
+            cvar_95=np.mean(total_returns[total_returns <= np.percentile(total_returns, 5)]),
+            equity_curves=equity_curves
+        )
+    
+    def simulate_from_returns(
+        self,
+        daily_returns: np.ndarray,
+        initial_capital: float = 100000,
+        days_forward: int = 252
+    ) -> MonteCarloResult:
+        """
+        Run Monte Carlo simulation using daily returns.
+        """
+        equity_curves = np.zeros((self.n_simulations, days_forward + 1))
+        equity_curves[:, 0] = initial_capital
+        
+        mu = np.mean(daily_returns)
+        sigma = np.std(daily_returns)
+        
+        for sim in range(self.n_simulations):
+            if self.method == "bootstrap":
+                sampled_returns = np.random.choice(daily_returns, size=days_forward, replace=True)
+            elif self.method == "shuffle":
+                sampled_returns = np.random.permutation(daily_returns)
+                if len(sampled_returns) < days_forward:
+                    sampled_returns = np.tile(sampled_returns, days_forward // len(sampled_returns) + 1)[:days_forward]
+            else:  # parametric (GBM-like)
+                sampled_returns = np.random.normal(mu, sigma, days_forward)
+            
+            # Build equity curve
+            equity_curves[sim, 1:] = initial_capital * np.cumprod(1 + sampled_returns)
+        
+        # Calculate metrics
+        final_equity = equity_curves[:, -1]
+        total_returns = (final_equity - initial_capital) / initial_capital
+        
+        max_drawdowns = []
+        for sim in range(self.n_simulations):
+            curve = equity_curves[sim]
+            peak = np.maximum.accumulate(curve)
+            dd = (peak - curve) / peak
+            max_drawdowns.append(np.max(dd))
+        max_drawdowns = np.array(max_drawdowns)
+        
+        return MonteCarloResult(
+            simulations=self.n_simulations,
+            mean_return=np.mean(total_returns),
+            median_return=np.median(total_returns),
+            std_return=np.std(total_returns),
+            percentile_5=np.percentile(total_returns, 5),
+            percentile_95=np.percentile(total_returns, 95),
+            probability_of_loss=np.mean(total_returns < 0),
+            max_drawdown_mean=np.mean(max_drawdowns),
+            max_drawdown_95=np.percentile(max_drawdowns, 95),
+            var_95=np.percentile(total_returns, 5),
+            cvar_95=np.mean(total_returns[total_returns <= np.percentile(total_returns, 5)]),
+            equity_curves=equity_curves
+        )

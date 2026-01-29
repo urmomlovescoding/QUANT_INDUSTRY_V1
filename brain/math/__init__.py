@@ -106,6 +106,27 @@ from .integration import (
     create_risk_monitor,
     create_regime_shift_detector,
 )
+from .backtester import (
+    # Phase 4 - Advanced Backtesting
+    BacktestEngine,
+    BacktestConfig,
+    BacktestResult,
+    Portfolio,
+    Order,
+    Position,
+    Trade,
+    OrderSide,
+    OrderStatus,
+    run_backtest,
+    # Strategy DSL
+    StrategyDSL,
+    # Walk-Forward Optimization
+    WalkForwardOptimizer,
+    WalkForwardResult,
+    # Monte Carlo Simulation
+    MonteCarloSimulator,
+    MonteCarloResult,
+)
 
 __all__ = [
     # Markov
@@ -141,4 +162,11 @@ __all__ = [
     'IntegratedRiskMonitor', 'RegimeShiftDetector',
     'RiskAlert', 'TailRiskMetrics',
     'create_risk_monitor', 'create_regime_shift_detector',
+    # Phase 4 - Advanced Backtesting
+    'BacktestEngine', 'BacktestConfig', 'BacktestResult',
+    'Portfolio', 'Order', 'Position', 'Trade', 'OrderSide', 'OrderStatus',
+    'run_backtest',
+    'StrategyDSL',
+    'WalkForwardOptimizer', 'WalkForwardResult',
+    'MonteCarloSimulator', 'MonteCarloResult',
 ]

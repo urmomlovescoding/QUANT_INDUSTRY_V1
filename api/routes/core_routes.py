@@ -995,3 +995,120 @@ async def run_backtest(
     except Exception as e:
         logger.error(f"Backtest error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# MONTE CARLO SIMULATION ENDPOINT
+# ==============================================================================
+
+@router.post("/monte-carlo/simulate")
+async def run_monte_carlo(
+    ticker: str = "SPY",
+    period: str = "1Y",
+    simulations: int = 500,
+    days_forward: int = 252,
+    method: str = "bootstrap"  # bootstrap, shuffle, parametric
+):
+    """
+    Run Monte Carlo simulation for future returns distribution.
+    
+    Returns:
+        - Distribution of possible outcomes
+        - VaR and CVaR metrics
+        - Probability of loss
+    """
+    try:
+        import numpy as np
+        
+        service = await get_service()
+        
+        # Period mapping
+        period_map = {"6M": 126, "1Y": 252, "2Y": 504, "5Y": 1260}
+        limit = period_map.get(period, 252)
+        
+        bars = await service.get_bars(ticker, timeframe="1d", limit=limit)
+        
+        if not bars or len(bars) < 50:
+            raise HTTPException(status_code=400, detail=f"Insufficient data for {ticker}")
+        
+        # Extract returns
+        closes = np.array([bar.close if hasattr(bar, 'close') else bar.get('close', 0) for bar in bars])
+        daily_returns = np.diff(closes) / closes[:-1]
+        
+        # Run simulations
+        initial_capital = 100000
+        n_sims = min(simulations, 1000)  # Cap at 1000
+        days = min(days_forward, 504)  # Cap at 2 years
+        
+        equity_curves = np.zeros((n_sims, days + 1))
+        equity_curves[:, 0] = initial_capital
+        
+        mu = np.mean(daily_returns)
+        sigma = np.std(daily_returns)
+        
+        for sim in range(n_sims):
+            if method == "bootstrap":
+                sampled = np.random.choice(daily_returns, size=days, replace=True)
+            elif method == "shuffle":
+                sampled = np.random.permutation(daily_returns)
+                if len(sampled) < days:
+                    sampled = np.tile(sampled, days // len(sampled) + 1)[:days]
+            else:  # parametric
+                sampled = np.random.normal(mu, sigma, days)
+            
+            equity_curves[sim, 1:] = initial_capital * np.cumprod(1 + sampled)
+        
+        # Calculate metrics
+        final_equity = equity_curves[:, -1]
+        total_returns = (final_equity - initial_capital) / initial_capital
+        
+        # Max drawdowns
+        max_drawdowns = []
+        for sim in range(n_sims):
+            curve = equity_curves[sim]
+            peak = np.maximum.accumulate(curve)
+            dd = (peak - curve) / peak
+            max_drawdowns.append(np.max(dd))
+        max_drawdowns = np.array(max_drawdowns)
+        
+        # Percentile curves for visualization (10th, 50th, 90th)
+        percentile_10 = np.percentile(equity_curves, 10, axis=0)
+        percentile_50 = np.percentile(equity_curves, 50, axis=0)
+        percentile_90 = np.percentile(equity_curves, 90, axis=0)
+        
+        return {
+            "ticker": ticker,
+            "simulations": n_sims,
+            "days_forward": days,
+            "method": method,
+            "historical": {
+                "mean_daily_return": round(mu * 100, 4),
+                "daily_volatility": round(sigma * 100, 4),
+                "data_points": len(daily_returns)
+            },
+            "results": {
+                "mean_return": round(np.mean(total_returns) * 100, 2),
+                "median_return": round(np.median(total_returns) * 100, 2),
+                "std_return": round(np.std(total_returns) * 100, 2),
+                "percentile_5": round(np.percentile(total_returns, 5) * 100, 2),
+                "percentile_25": round(np.percentile(total_returns, 25) * 100, 2),
+                "percentile_75": round(np.percentile(total_returns, 75) * 100, 2),
+                "percentile_95": round(np.percentile(total_returns, 95) * 100, 2),
+                "probability_of_loss": round(np.mean(total_returns < 0) * 100, 1),
+                "var_95": round(np.percentile(total_returns, 5) * 100, 2),
+                "cvar_95": round(np.mean(total_returns[total_returns <= np.percentile(total_returns, 5)]) * 100, 2),
+                "max_dd_mean": round(np.mean(max_drawdowns) * 100, 2),
+                "max_dd_95": round(np.percentile(max_drawdowns, 95) * 100, 2)
+            },
+            "curves": {
+                "percentile_10": percentile_10[::max(1, days//50)].tolist(),  # Subsample for frontend
+                "percentile_50": percentile_50[::max(1, days//50)].tolist(),
+                "percentile_90": percentile_90[::max(1, days//50)].tolist()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Monte Carlo error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
