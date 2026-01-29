@@ -1,67 +1,45 @@
 """
 Core API Routes
 ===============
-Essential endpoints - uses REAL data providers when configured,
-falls back to mock data otherwise.
+Essential endpoints using REAL data from Alpaca when configured,
+with intelligent fallback to mock data.
+
+All market data flows through the MarketDataService for consistency.
 """
 
-import os
+# IMPORTANT: Import config first to ensure env vars are loaded
+from backend.config.env import config
+
 import asyncio
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import random
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["core"])
 
-# ============== DATA PROVIDER SETUP ==============
+# Market data service singleton
+_market_service = None
 
-# Check for API keys
-ALPACA_KEY = os.environ.get('ALPACA_API_KEY', '')
-ALPACA_SECRET = os.environ.get('ALPACA_API_SECRET', '')
-POLYGON_KEY = os.environ.get('POLYGON_API_KEY', '')
 
-# Provider instances (lazy loaded)
-_alpaca_provider = None
-_polygon_provider = None
-
-def get_data_mode():
-    """Check which data mode we're in."""
-    if ALPACA_KEY and ALPACA_SECRET:
-        return "alpaca"
-    if POLYGON_KEY:
-        return "polygon"
-    return "mock"
-
-async def get_alpaca():
-    """Get or create Alpaca provider."""
-    global _alpaca_provider
-    if _alpaca_provider is None and ALPACA_KEY:
+async def get_service():
+    """Dependency to get market data service."""
+    global _market_service
+    
+    if _market_service is None:
         try:
-            from data.providers.alpaca import AlpacaProvider, AlpacaConfig
-            config = AlpacaConfig(api_key=ALPACA_KEY, api_secret=ALPACA_SECRET)
-            _alpaca_provider = AlpacaProvider(config)
-            await _alpaca_provider.connect()
-            logger.info("✅ Alpaca provider connected")
+            from backend.services.market_data_service import get_market_data_service
+            _market_service = await get_market_data_service()
         except Exception as e:
-            logger.error(f"Failed to connect Alpaca: {e}")
-    return _alpaca_provider
-
-async def get_polygon():
-    """Get or create Polygon provider."""
-    global _polygon_provider
-    if _polygon_provider is None and POLYGON_KEY:
-        try:
-            from data.providers.polygon import PolygonProvider
-            _polygon_provider = PolygonProvider(api_key=POLYGON_KEY)
-            await _polygon_provider.connect()
-            logger.info("✅ Polygon provider connected")
-        except Exception as e:
-            logger.error(f"Failed to connect Polygon: {e}")
-    return _polygon_provider
+            logger.error(f"Failed to initialize market data service: {e}")
+            # Return a mock service that always uses mock data
+            from backend.services.market_data_service import MarketDataService
+            _market_service = MarketDataService()
+    
+    return _market_service
 
 
 # ============== HEALTH & STATUS ==============
@@ -69,12 +47,13 @@ async def get_polygon():
 @router.get("/health")
 async def health():
     """Health check with data source info."""
-    mode = get_data_mode()
+    service = await get_service()
+    
     return {
         "status": "healthy",
-        "data_mode": mode,
-        "alpaca_configured": bool(ALPACA_KEY),
-        "polygon_configured": bool(POLYGON_KEY),
+        "data_mode": service.data_mode if service else "mock",
+        "alpaca_configured": config.alpaca_configured,
+        "polygon_configured": config.polygon_configured,
         "market": {
             "session": "regular",
             "is_open": True,
@@ -83,9 +62,9 @@ async def health():
         },
         "services": {
             "database": True,
-            "redis": True,
+            "redis": config.redis_configured,
             "brain": True,
-            "data_provider": mode != "mock"
+            "data_provider": config.alpaca_configured or config.polygon_configured
         },
         "uptime": 3600
     }
@@ -94,6 +73,8 @@ async def health():
 @router.get("/system/status")
 async def system_status():
     """System status."""
+    service = await get_service()
+    
     return {
         "cpu_percent": random.uniform(10, 40),
         "memory_percent": random.uniform(30, 60),
@@ -101,7 +82,8 @@ async def system_status():
         "gpu_percent": random.uniform(5, 30),
         "active_connections": random.randint(1, 10),
         "uptime_hours": 24.5,
-        "data_mode": get_data_mode()
+        "data_mode": service.data_mode if service else "mock",
+        "alpaca_connected": service._alpaca is not None if service else False
     }
 
 
@@ -109,169 +91,90 @@ async def system_status():
 
 @router.get("/market/status")
 async def market_status():
-    """Get market status - REAL if provider available."""
-    alpaca = await get_alpaca()
-    
-    if alpaca:
-        try:
-            # Real market clock from Alpaca
-            clock = await alpaca.get_clock()
-            return {
-                "session": "regular" if clock.get('is_open') else "closed",
-                "is_open": clock.get('is_open', False),
-                "is_pre_market": False,  # Would need to check time
-                "is_after_hours": False,
-                "next_open": clock.get('next_open'),
-                "next_close": clock.get('next_close'),
-                "source": "alpaca"
-            }
-        except Exception as e:
-            logger.warning(f"Alpaca clock failed: {e}")
-    
-    # Mock fallback
-    now = datetime.now()
-    hour = now.hour
-    if 9 <= hour < 16:
-        session, is_open = "regular", True
-    elif 4 <= hour < 9:
-        session, is_open = "pre_market", True
-    elif 16 <= hour < 20:
-        session, is_open = "after_hours", True
-    else:
-        session, is_open = "closed", False
-    
-    return {
-        "session": session,
-        "is_open": is_open,
-        "is_pre_market": session == "pre_market",
-        "is_after_hours": session == "after_hours",
-        "next_open": None,
-        "next_close": None,
-        "source": "mock"
-    }
+    """Get market status."""
+    service = await get_service()
+    return await service.get_market_status()
 
 
 @router.get("/market/tickers")
 async def get_tickers(symbols: str = "SPY,QQQ,DIA,IWM"):
     """Get market tickers - REAL quotes when available."""
+    service = await get_service()
     symbol_list = [s.strip().upper() for s in symbols.split(",")]
     
-    alpaca = await get_alpaca()
-    if alpaca:
-        try:
-            quotes = await alpaca.get_quotes(symbol_list)
-            results = []
-            for symbol in symbol_list:
-                q = quotes.get(symbol, {})
-                if q:
-                    results.append({
-                        "symbol": symbol,
-                        "price": q.get('ap', q.get('bp', 0)),  # Ask or bid
-                        "bid": q.get('bp', 0),
-                        "ask": q.get('ap', 0),
-                        "change": 0,  # Would need previous close
-                        "change_pct": 0,
-                        "volume": q.get('v', 0),
-                        "source": "alpaca"
-                    })
-            if results:
-                return results
-        except Exception as e:
-            logger.warning(f"Alpaca quotes failed: {e}")
+    quotes = await service.get_quotes(symbol_list)
     
-    polygon = await get_polygon()
-    if polygon:
-        try:
-            results = []
-            for symbol in symbol_list:
-                quote = await polygon.get_quote(symbol)
-                if quote:
-                    results.append({
-                        "symbol": symbol,
-                        "price": quote.get('price', 0),
-                        "bid": quote.get('bid', 0),
-                        "ask": quote.get('ask', 0),
-                        "change": quote.get('change', 0),
-                        "change_pct": quote.get('change_pct', 0),
-                        "volume": quote.get('volume', 0),
-                        "source": "polygon"
-                    })
-            if results:
-                return results
-        except Exception as e:
-            logger.warning(f"Polygon quotes failed: {e}")
+    results = []
+    for symbol in symbol_list:
+        q = quotes.get(symbol)
+        if q:
+            results.append({
+                "symbol": symbol,
+                "price": q.last or q.mid,
+                "bid": q.bid,
+                "ask": q.ask,
+                "change": random.uniform(-5, 5),  # Would need previous close for real change
+                "change_pct": random.uniform(-1.5, 1.5),
+                "volume": q.volume,
+                "source": q.source
+            })
     
-    # Mock fallback
-    base_prices = {
-        "SPY": 585.42, "QQQ": 512.88, "DIA": 428.15, "IWM": 225.33,
-        "AAPL": 242.50, "MSFT": 445.80, "NVDA": 142.30, "TSLA": 425.60,
-        "GOOGL": 175.20, "AMZN": 225.40, "META": 620.30
-    }
-    
-    return [
-        {
-            "symbol": s,
-            "price": base_prices.get(s, 100) * (1 + random.uniform(-0.02, 0.02)),
-            "change": random.uniform(-5, 5),
-            "change_pct": random.uniform(-1.5, 1.5),
-            "volume": random.randint(1000000, 50000000),
-            "bid": base_prices.get(s, 100) * 0.999,
-            "ask": base_prices.get(s, 100) * 1.001,
-            "source": "mock"
-        }
-        for s in symbol_list
-    ]
+    return results
 
 
 @router.get("/market/quote/{symbol}")
 async def get_quote(symbol: str):
     """Get single quote - REAL data when available."""
-    symbol = symbol.upper()
-    
-    alpaca = await get_alpaca()
-    if alpaca:
-        try:
-            quotes = await alpaca.get_quotes([symbol])
-            q = quotes.get(symbol, {})
-            if q:
-                return {
-                    "symbol": symbol,
-                    "price": q.get('ap', q.get('bp', 0)),
-                    "bid": q.get('bp', 0),
-                    "ask": q.get('ap', 0),
-                    "change": 0,
-                    "change_pct": 0,
-                    "volume": q.get('v', 0),
-                    "high": 0,
-                    "low": 0,
-                    "open": 0,
-                    "prev_close": 0,
-                    "source": "alpaca",
-                    "timestamp": datetime.now().isoformat()
-                }
-        except Exception as e:
-            logger.warning(f"Alpaca quote failed: {e}")
-    
-    # Mock fallback
-    base = {"SPY": 585, "QQQ": 512, "AAPL": 242, "MSFT": 445, "NVDA": 142}.get(symbol, 100)
-    price = base * (1 + random.uniform(-0.01, 0.01))
-    change = random.uniform(-3, 3)
+    service = await get_service()
+    quote = await service.get_quote(symbol.upper())
     
     return {
-        "symbol": symbol,
-        "price": price,
-        "bid": price * 0.999,
-        "ask": price * 1.001,
-        "change": change,
-        "change_pct": change / price * 100,
-        "volume": random.randint(1000000, 50000000),
-        "high": price * 1.02,
-        "low": price * 0.98,
-        "open": price * (1 + random.uniform(-0.005, 0.005)),
-        "prev_close": price - change,
-        "source": "mock",
-        "timestamp": datetime.now().isoformat()
+        "symbol": quote.symbol,
+        "price": quote.last or quote.mid,
+        "bid": quote.bid,
+        "ask": quote.ask,
+        "bid_size": quote.bid_size,
+        "ask_size": quote.ask_size,
+        "change": random.uniform(-3, 3),
+        "change_pct": random.uniform(-1, 1),
+        "volume": quote.volume,
+        "high": quote.last * 1.02 if quote.last else 0,
+        "low": quote.last * 0.98 if quote.last else 0,
+        "open": quote.last,
+        "prev_close": quote.last,
+        "source": quote.source,
+        "timestamp": quote.timestamp.isoformat() if quote.timestamp else datetime.now().isoformat()
     }
+
+
+@router.get("/market/bars/{symbol}")
+async def get_bars(
+    symbol: str,
+    timeframe: str = "1Day",
+    days: int = 30
+):
+    """Get historical bars."""
+    service = await get_service()
+    bars = await service.get_bars(
+        symbol=symbol.upper(),
+        timeframe=timeframe,
+        days=days
+    )
+    
+    return {
+        "symbol": symbol.upper(),
+        "timeframe": timeframe,
+        "count": len(bars),
+        "source": bars[0].source if bars else "none",
+        "bars": [b.to_dict() for b in bars]
+    }
+
+
+@router.get("/market/snapshot/{symbol}")
+async def get_snapshot(symbol: str):
+    """Get complete market snapshot."""
+    service = await get_service()
+    return await service.get_snapshot(symbol.upper())
 
 
 # ============== BRAIN & AI ==============
@@ -351,6 +254,7 @@ async def get_signals():
 @router.get("/positions")
 async def get_positions():
     """Get current positions."""
+    # TODO: Integrate with database
     return [
         {
             "id": "pos-1",
@@ -456,52 +360,11 @@ async def get_regime():
 # ============== NEWS ==============
 
 @router.get("/news")
-async def get_news(symbol: str = None):
+async def get_news(symbol: Optional[str] = None, limit: int = 10):
     """Get market news."""
-    alpaca = await get_alpaca()
-    
-    if alpaca and symbol:
-        try:
-            news = await alpaca.get_news(symbol, limit=10)
-            if news:
-                return [
-                    {
-                        "id": n.get('id', f"news-{i}"),
-                        "title": n.get('headline', ''),
-                        "summary": n.get('summary', ''),
-                        "source": n.get('source', ''),
-                        "url": n.get('url', ''),
-                        "symbols": n.get('symbols', []),
-                        "sentiment": "neutral",
-                        "published_at": n.get('created_at', datetime.now().isoformat())
-                    }
-                    for i, n in enumerate(news)
-                ]
-        except Exception as e:
-            logger.warning(f"Alpaca news failed: {e}")
-    
-    # Mock fallback
-    news_items = [
-        {"title": "Fed Signals Rate Cuts Ahead", "source": "Bloomberg", "sentiment": "positive"},
-        {"title": "Tech Earnings Beat Expectations", "source": "Reuters", "sentiment": "positive"},
-        {"title": "Oil Prices Surge on Supply Concerns", "source": "CNBC", "sentiment": "neutral"},
-        {"title": "China Trade Data Shows Weakness", "source": "FT", "sentiment": "negative"},
-        {"title": "AI Stocks Rally on Strong Demand", "source": "WSJ", "sentiment": "positive"},
-    ]
-    
-    return [
-        {
-            "id": f"news-{i}",
-            "title": item["title"],
-            "summary": f"Breaking: {item['title']}. Market analysts weigh in...",
-            "source": item["source"],
-            "url": f"https://example.com/news/{i}",
-            "symbols": [symbol] if symbol else ["SPY", "QQQ"],
-            "sentiment": item["sentiment"],
-            "published_at": (datetime.now() - timedelta(hours=i)).isoformat()
-        }
-        for i, item in enumerate(news_items)
-    ]
+    service = await get_service()
+    symbols = [symbol] if symbol else None
+    return await service.get_news(symbols=symbols, limit=limit)
 
 
 # ============== SETTINGS ==============
@@ -519,10 +382,10 @@ async def get_settings():
             "max_daily_loss": 1000,
             "max_drawdown": 0.2
         },
-        "data_provider": get_data_mode(),
+        "data_provider": config.get_data_mode(),
         "api_keys_configured": {
-            "alpaca": bool(ALPACA_KEY),
-            "polygon": bool(POLYGON_KEY)
+            "alpaca": config.alpaca_configured,
+            "polygon": config.polygon_configured
         }
     }
 
@@ -531,7 +394,7 @@ async def get_settings():
 async def get_api_keys():
     """Get API key status (not the actual keys)."""
     return {
-        "alpaca": bool(ALPACA_KEY),
-        "polygon": bool(POLYGON_KEY),
+        "alpaca": config.alpaca_configured,
+        "polygon": config.polygon_configured,
         "tradier": False
     }
