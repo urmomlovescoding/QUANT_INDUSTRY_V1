@@ -762,6 +762,44 @@ class AIControlPlane:
         self.state.trades_today = 0
         self.state.shadow_decisions_today = 0
         logger.info("Daily counters reset")
+    
+    def set_mode(self, mode: ControlPlaneMode) -> None:
+        """
+        Set the control plane mode.
+        
+        Args:
+            mode: The new mode to set
+        """
+        old_mode = self.mode
+        self.mode = mode
+        self.state.mode = mode
+        
+        # Update is_active based on mode
+        self.state.is_active = mode in (
+            ControlPlaneMode.LIVE,
+            ControlPlaneMode.PAPER,
+        )
+        
+        logger.info(f"Control plane mode changed: {old_mode.value} -> {mode.value}")
+        self._save_state()
+    
+    def _reset_for_testing(self) -> None:
+        """
+        Reset the control plane state for testing.
+        Clears all state and components.
+        """
+        self.state = ControlPlaneState(
+            mode=self.mode,
+            is_active=self.mode in (ControlPlaneMode.LIVE, ControlPlaneMode.PAPER),
+            kill_switch_engaged=False,
+        )
+        self._components.clear()
+        self._component_callbacks.clear()
+        self._contexts.clear()
+        self._safety_checks.clear()
+        self._on_decision.clear()
+        self._on_safety_violation.clear()
+        logger.info("Control plane reset for testing")
 
 
 # =============================================================================
