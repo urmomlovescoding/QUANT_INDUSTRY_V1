@@ -98,6 +98,13 @@ from .integration import (
     ExecutionPlan,
     create_alpha_generator,
     create_execution_optimizer,
+    # Phase 3
+    IntegratedRiskMonitor,
+    RegimeShiftDetector,
+    RiskAlert,
+    TailRiskMetrics,
+    create_risk_monitor,
+    create_regime_shift_detector,
 )
 
 __all__ = [
@@ -130,4 +137,8 @@ __all__ = [
     'IntegratedAlphaGenerator', 'IntegratedExecutionOptimizer',
     'AlphaSignal', 'ExecutionPlan',
     'create_alpha_generator', 'create_execution_optimizer',
+    # Integration Phase 3 (Risk Layer)
+    'IntegratedRiskMonitor', 'RegimeShiftDetector',
+    'RiskAlert', 'TailRiskMetrics',
+    'create_risk_monitor', 'create_regime_shift_detector',
 ]

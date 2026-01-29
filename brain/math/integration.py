@@ -12,6 +12,7 @@ This module:
 import numpy as np
 from typing import Dict, Optional, Tuple, List
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 import logging
 
@@ -996,3 +997,467 @@ def create_execution_optimizer(
     return IntegratedExecutionOptimizer(
         default_volatility=volatility
     )
+
+
+# =============================================================================
+# PHASE 3: RISK LAYER - CVaR, Circuit Breakers, Regime Alerts
+# =============================================================================
+
+from .portfolio import CVaROptimizer
+from .statistics import ChangePointDetection
+
+
+@dataclass
+class RiskAlert:
+    """Risk alert from monitoring system."""
+    alert_type: str  # "drawdown", "var_breach", "regime_shift", "volatility_spike"
+    severity: str    # "info", "warning", "critical"
+    message: str
+    value: float
+    threshold: float
+    timestamp: datetime = field(default_factory=datetime.now)
+    
+    def to_dict(self) -> Dict:
+        return {
+            "type": self.alert_type,
+            "severity": self.severity,
+            "message": self.message,
+            "value": self.value,
+            "threshold": self.threshold,
+            "timestamp": self.timestamp.isoformat()
+        }
+
+
+@dataclass
+class TailRiskMetrics:
+    """Tail risk metrics from CVaR analysis."""
+    var_95: float      # Value at Risk (95%)
+    var_99: float      # Value at Risk (99%)
+    cvar_95: float     # Conditional VaR (95%)
+    cvar_99: float     # Conditional VaR (99%)
+    max_loss: float    # Worst historical loss
+    
+    # Risk-adjusted
+    expected_shortfall: float  # Same as CVaR
+    tail_ratio: float          # Gain in best days / loss in worst days
+
+
+class IntegratedRiskMonitor:
+    """
+    Real-time risk monitoring with alerts and circuit breakers.
+    
+    Monitors:
+    - Portfolio drawdown
+    - VaR/CVaR breaches
+    - Volatility spikes
+    - Regime shifts (via change point detection)
+    """
+    
+    def __init__(
+        self,
+        # Drawdown thresholds
+        drawdown_warning: float = 0.05,    # 5% warning
+        drawdown_critical: float = 0.10,   # 10% reduce positions
+        drawdown_halt: float = 0.20,       # 20% stop trading
+        
+        # VaR thresholds
+        var_limit_pct: float = 0.02,       # 2% daily VaR limit
+        
+        # Volatility thresholds
+        vol_warning_mult: float = 1.5,     # 1.5x normal vol = warning
+        vol_critical_mult: float = 2.5,    # 2.5x = critical
+        
+        # Lookback periods
+        vol_lookback: int = 20,
+        var_lookback: int = 252
+    ):
+        self.drawdown_warning = drawdown_warning
+        self.drawdown_critical = drawdown_critical
+        self.drawdown_halt = drawdown_halt
+        
+        self.var_limit = var_limit_pct
+        
+        self.vol_warning = vol_warning_mult
+        self.vol_critical = vol_critical_mult
+        
+        self.vol_lookback = vol_lookback
+        self.var_lookback = var_lookback
+        
+        # State tracking
+        self.peak_equity = 0
+        self.current_equity = 0
+        self.returns_history: List[float] = []
+        self.baseline_vol: Optional[float] = None
+        
+        # Alerts
+        self.active_alerts: List[RiskAlert] = []
+        self.circuit_breaker_active = False
+    
+    def update(
+        self,
+        equity: float,
+        daily_return: Optional[float] = None
+    ) -> List[RiskAlert]:
+        """
+        Update risk state and check for alerts.
+        
+        Returns list of new alerts.
+        """
+        alerts = []
+        
+        # Update equity tracking
+        self.current_equity = equity
+        if equity > self.peak_equity:
+            self.peak_equity = equity
+        
+        # Update returns history
+        if daily_return is not None:
+            self.returns_history.append(daily_return)
+            if len(self.returns_history) > self.var_lookback:
+                self.returns_history = self.returns_history[-self.var_lookback:]
+        
+        # Check drawdown
+        dd_alert = self._check_drawdown()
+        if dd_alert:
+            alerts.append(dd_alert)
+        
+        # Check VaR
+        var_alert = self._check_var()
+        if var_alert:
+            alerts.append(var_alert)
+        
+        # Check volatility
+        vol_alert = self._check_volatility()
+        if vol_alert:
+            alerts.append(vol_alert)
+        
+        # Update active alerts
+        self.active_alerts = [a for a in alerts if a.severity in ["warning", "critical"]]
+        
+        # Circuit breaker
+        self.circuit_breaker_active = any(
+            a.severity == "critical" for a in alerts
+        )
+        
+        return alerts
+    
+    @property
+    def current_drawdown(self) -> float:
+        """Current drawdown from peak."""
+        if self.peak_equity <= 0:
+            return 0
+        return (self.peak_equity - self.current_equity) / self.peak_equity
+    
+    def _check_drawdown(self) -> Optional[RiskAlert]:
+        """Check drawdown levels."""
+        dd = self.current_drawdown
+        
+        if dd >= self.drawdown_halt:
+            return RiskAlert(
+                alert_type="drawdown",
+                severity="critical",
+                message=f"CIRCUIT BREAKER: Drawdown {dd:.1%} exceeds halt threshold",
+                value=dd,
+                threshold=self.drawdown_halt
+            )
+        elif dd >= self.drawdown_critical:
+            return RiskAlert(
+                alert_type="drawdown",
+                severity="warning",
+                message=f"Drawdown {dd:.1%} exceeds critical threshold - reduce positions",
+                value=dd,
+                threshold=self.drawdown_critical
+            )
+        elif dd >= self.drawdown_warning:
+            return RiskAlert(
+                alert_type="drawdown",
+                severity="info",
+                message=f"Drawdown {dd:.1%} exceeds warning threshold",
+                value=dd,
+                threshold=self.drawdown_warning
+            )
+        return None
+    
+    def _check_var(self) -> Optional[RiskAlert]:
+        """Check VaR limits."""
+        if len(self.returns_history) < 20:
+            return None
+        
+        returns = np.array(self.returns_history)
+        var_95 = np.percentile(returns, 5)  # 5th percentile = 95% VaR
+        
+        if abs(var_95) > self.var_limit:
+            return RiskAlert(
+                alert_type="var_breach",
+                severity="warning",
+                message=f"Daily VaR ({abs(var_95):.2%}) exceeds limit ({self.var_limit:.2%})",
+                value=abs(var_95),
+                threshold=self.var_limit
+            )
+        return None
+    
+    def _check_volatility(self) -> Optional[RiskAlert]:
+        """Check for volatility spikes."""
+        if len(self.returns_history) < self.vol_lookback * 2:
+            return None
+        
+        returns = np.array(self.returns_history)
+        
+        # Recent vs historical volatility
+        recent_vol = np.std(returns[-self.vol_lookback:])
+        
+        if self.baseline_vol is None:
+            self.baseline_vol = np.std(returns[:-self.vol_lookback])
+        
+        if self.baseline_vol > 0:
+            vol_ratio = recent_vol / self.baseline_vol
+            
+            if vol_ratio >= self.vol_critical:
+                return RiskAlert(
+                    alert_type="volatility_spike",
+                    severity="critical",
+                    message=f"Volatility spike: {vol_ratio:.1f}x normal",
+                    value=vol_ratio,
+                    threshold=self.vol_critical
+                )
+            elif vol_ratio >= self.vol_warning:
+                return RiskAlert(
+                    alert_type="volatility_spike",
+                    severity="warning",
+                    message=f"Elevated volatility: {vol_ratio:.1f}x normal",
+                    value=vol_ratio,
+                    threshold=self.vol_warning
+                )
+        return None
+    
+    def compute_tail_risk(self, returns: Optional[np.ndarray] = None) -> TailRiskMetrics:
+        """
+        Compute comprehensive tail risk metrics.
+        
+        Uses CVaR (Expected Shortfall) for coherent risk measurement.
+        """
+        if returns is None:
+            returns = np.array(self.returns_history)
+        
+        if len(returns) < 20:
+            # Default conservative estimates
+            return TailRiskMetrics(
+                var_95=0.02,
+                var_99=0.04,
+                cvar_95=0.03,
+                cvar_99=0.05,
+                max_loss=0.05,
+                expected_shortfall=0.03,
+                tail_ratio=1.0
+            )
+        
+        sorted_returns = np.sort(returns)
+        n = len(returns)
+        
+        # VaR (negative returns = losses)
+        var_95 = -np.percentile(returns, 5)
+        var_99 = -np.percentile(returns, 1)
+        
+        # CVaR (Expected Shortfall) - mean of losses beyond VaR
+        idx_95 = int(0.05 * n)
+        idx_99 = int(0.01 * n)
+        
+        cvar_95 = -np.mean(sorted_returns[:max(idx_95, 1)])
+        cvar_99 = -np.mean(sorted_returns[:max(idx_99, 1)])
+        
+        # Max loss
+        max_loss = -np.min(returns)
+        
+        # Tail ratio: best days / worst days
+        best_5pct = np.mean(sorted_returns[-max(idx_95, 1):])
+        worst_5pct = np.mean(sorted_returns[:max(idx_95, 1)])
+        tail_ratio = abs(best_5pct / worst_5pct) if worst_5pct != 0 else 1.0
+        
+        return TailRiskMetrics(
+            var_95=var_95,
+            var_99=var_99,
+            cvar_95=cvar_95,
+            cvar_99=cvar_99,
+            max_loss=max_loss,
+            expected_shortfall=cvar_95,
+            tail_ratio=tail_ratio
+        )
+    
+    def get_position_limit(self, regime_state: Optional['RegimeState'] = None) -> float:
+        """
+        Get position limit multiplier based on current risk state.
+        
+        Returns value between 0 (no trading) and 1 (full capacity).
+        """
+        if self.circuit_breaker_active:
+            return 0.0
+        
+        base = 1.0
+        
+        # Drawdown adjustment
+        dd = self.current_drawdown
+        if dd >= self.drawdown_critical:
+            base *= 0.5
+        elif dd >= self.drawdown_warning:
+            base *= 0.75
+        
+        # Regime adjustment
+        if regime_state is not None:
+            base *= regime_state.position_scalar
+        
+        # Volatility adjustment
+        if self.active_alerts:
+            vol_alerts = [a for a in self.active_alerts if a.alert_type == "volatility_spike"]
+            if vol_alerts:
+                if vol_alerts[0].severity == "critical":
+                    base *= 0.25
+                else:
+                    base *= 0.5
+        
+        return max(0, min(1, base))
+
+
+class RegimeShiftDetector:
+    """
+    Detects regime shifts using change point detection.
+    
+    Monitors for:
+    - Mean shifts (trend reversals)
+    - Variance shifts (volatility regime changes)
+    - Structural breaks
+    """
+    
+    def __init__(
+        self,
+        min_segment: int = 20,
+        sensitivity: float = 1.0  # Higher = more sensitive
+    ):
+        self.min_segment = min_segment
+        self.sensitivity = sensitivity
+        
+        self.last_change_point: Optional[int] = None
+        self.regime_history: List[Dict] = []
+    
+    def detect(self, prices: np.ndarray) -> Dict:
+        """
+        Detect regime shifts in price series.
+        
+        Returns:
+            has_shift: Whether a recent shift was detected
+            change_points: List of detected change points
+            current_regime: Description of current regime
+        """
+        if len(prices) < self.min_segment * 2:
+            return {
+                "has_shift": False,
+                "change_points": [],
+                "current_regime": "insufficient_data"
+            }
+        
+        returns = np.diff(np.log(prices))
+        
+        # Detect mean shifts (CUSUM)
+        cusum_result = ChangePointDetection.cusum(
+            returns,
+            threshold=1.5 / self.sensitivity
+        )
+        
+        # Detect variance shifts (on squared returns)
+        vol_changes = ChangePointDetection.binary_segmentation(
+            returns ** 2,
+            min_segment=self.min_segment,
+            threshold=np.log(len(returns)) / self.sensitivity
+        )
+        
+        # Combine change points
+        all_changes = sorted(set(cusum_result["change_points"] + vol_changes))
+        
+        # Check for recent shift
+        recent_threshold = min(20, len(returns) // 5)
+        has_recent_shift = any(
+            cp > len(returns) - recent_threshold
+            for cp in all_changes
+        )
+        
+        # Characterize current regime
+        if len(returns) >= self.min_segment:
+            recent_returns = returns[-self.min_segment:]
+            recent_mean = np.mean(recent_returns) * 252
+            recent_vol = np.std(recent_returns) * np.sqrt(252)
+            
+            if recent_mean > 0.10 and recent_vol < 0.20:
+                current_regime = "strong_uptrend"
+            elif recent_mean > 0.05:
+                current_regime = "uptrend"
+            elif recent_mean < -0.10 and recent_vol > 0.25:
+                current_regime = "crisis"
+            elif recent_mean < -0.05:
+                current_regime = "downtrend"
+            elif recent_vol > 0.30:
+                current_regime = "high_volatility"
+            else:
+                current_regime = "neutral"
+        else:
+            current_regime = "neutral"
+        
+        # Generate alert if shift detected
+        result = {
+            "has_shift": has_recent_shift,
+            "change_points": all_changes,
+            "current_regime": current_regime,
+            "cusum_max": cusum_result["max_cusum"],
+            "n_variance_shifts": len(vol_changes)
+        }
+        
+        if has_recent_shift and self.last_change_point != all_changes[-1] if all_changes else True:
+            self.last_change_point = all_changes[-1] if all_changes else None
+            self.regime_history.append({
+                "timestamp": datetime.now(),
+                "regime": current_regime,
+                "change_point": self.last_change_point
+            })
+        
+        return result
+    
+    def get_regime_alert(self, detection_result: Dict) -> Optional[RiskAlert]:
+        """Convert detection result to alert if warranted."""
+        if not detection_result["has_shift"]:
+            return None
+        
+        regime = detection_result["current_regime"]
+        
+        severity = "info"
+        if regime in ["crisis", "high_volatility"]:
+            severity = "critical"
+        elif regime in ["downtrend"]:
+            severity = "warning"
+        
+        return RiskAlert(
+            alert_type="regime_shift",
+            severity=severity,
+            message=f"Regime shift detected: now in {regime} regime",
+            value=detection_result["cusum_max"],
+            threshold=1.5 / self.sensitivity
+        )
+
+
+# Factory functions for Phase 3
+
+def create_risk_monitor(
+    drawdown_critical: float = 0.10,
+    drawdown_halt: float = 0.20,
+    var_limit: float = 0.02
+) -> IntegratedRiskMonitor:
+    """Create a risk monitor with circuit breakers."""
+    return IntegratedRiskMonitor(
+        drawdown_critical=drawdown_critical,
+        drawdown_halt=drawdown_halt,
+        var_limit_pct=var_limit
+    )
+
+
+def create_regime_shift_detector(
+    sensitivity: float = 1.0
+) -> RegimeShiftDetector:
+    """Create a regime shift detector."""
+    return RegimeShiftDetector(sensitivity=sensitivity)

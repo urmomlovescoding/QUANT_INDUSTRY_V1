@@ -614,3 +614,384 @@ async def get_trades(limit: int = 100):
         "count": len(portfolio.trades),
         "showing": len(trades)
     }
+
+
+# ==============================================================================
+# TRADING BRAIN INTEGRATION - Phase 1-3 Math Features
+# ==============================================================================
+
+# Singleton TradingBrain instance
+_trading_brain = None
+
+def get_trading_brain():
+    """Get or create TradingBrain singleton."""
+    global _trading_brain
+    if _trading_brain is None:
+        try:
+            from backend.brain.trading_brain import TradingBrain
+            _trading_brain = TradingBrain(account_equity=100000)
+            logger.info("TradingBrain initialized with math integration")
+        except Exception as e:
+            logger.error(f"Failed to initialize TradingBrain: {e}")
+            return None
+    return _trading_brain
+
+
+@router.get("/regime/detect")
+async def detect_market_regime(symbol: str = "SPY"):
+    """
+    Detect current market regime using HMM-based detection.
+    
+    Returns regime state with:
+    - Current regime (BULL_STRONG, BULL_WEAK, NEUTRAL, BEAR_WEAK, BEAR_STRONG, CRISIS, EUPHORIA)
+    - Confidence level
+    - Volatility regime
+    - Risk adjustments (position scalar, stop multiplier)
+    """
+    brain = get_trading_brain()
+    if brain is None:
+        raise HTTPException(status_code=503, detail="TradingBrain not available")
+    
+    # Fetch market data
+    try:
+        service = await get_service()
+        bars = await service.get_bars(symbol, timeframe="1d", limit=252)
+        
+        if not bars:
+            raise HTTPException(status_code=400, detail=f"No data available for {symbol}")
+        
+        # Prepare market data for brain
+        import numpy as np
+        ohlcv = [
+            {
+                'timestamp': bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else str(bar.get('timestamp', '')),
+                'open': bar.open if hasattr(bar, 'open') else bar.get('open', 0),
+                'high': bar.high if hasattr(bar, 'high') else bar.get('high', 0),
+                'low': bar.low if hasattr(bar, 'low') else bar.get('low', 0),
+                'close': bar.close if hasattr(bar, 'close') else bar.get('close', 0),
+                'volume': bar.volume if hasattr(bar, 'volume') else bar.get('volume', 0),
+            }
+            for bar in bars
+        ]
+        
+        market_data = {'ohlcv': ohlcv, 'spy_ohlcv': ohlcv}
+        
+        # Get regime alignment and state
+        alignment, regime_state = brain._get_regime_alignment(market_data)
+        
+        if regime_state is None:
+            return {
+                "regime": "NEUTRAL",
+                "confidence": 0.5,
+                "alignment": 0.0,
+                "volatility_regime": "normal",
+                "position_scalar": 0.75,
+                "stop_multiplier": 1.0,
+                "fitted": brain.regime_fitted,
+                "message": "Regime detection not fitted (insufficient data)"
+            }
+        
+        return {
+            "regime": regime_state.regime.value,
+            "confidence": regime_state.confidence,
+            "alignment": alignment,
+            "volatility_regime": regime_state.volatility_regime,
+            "trend_strength": regime_state.trend_strength,
+            "expected_return": regime_state.expected_return,
+            "expected_volatility": regime_state.expected_volatility,
+            "regime_duration": regime_state.regime_duration,
+            "position_scalar": regime_state.position_scalar,
+            "stop_multiplier": regime_state.stop_multiplier,
+            "profit_multiplier": regime_state.profit_multiplier,
+            "probabilities": regime_state.probabilities,
+            "fitted": brain.regime_fitted
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Regime detection error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/risk/report")
+async def get_risk_report(symbol: str = "SPY"):
+    """
+    Get comprehensive risk report.
+    
+    Includes:
+    - Circuit breaker status
+    - Drawdown metrics
+    - CVaR/VaR tail risk
+    - Regime shift detection
+    - Position limits
+    """
+    brain = get_trading_brain()
+    if brain is None:
+        raise HTTPException(status_code=503, detail="TradingBrain not available")
+    
+    try:
+        # Fetch market data for regime shift detection
+        market_data = None
+        try:
+            service = await get_service()
+            bars = await service.get_bars(symbol, timeframe="1d", limit=252)
+            if bars:
+                ohlcv = [
+                    {
+                        'timestamp': bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else str(bar.get('timestamp', '')),
+                        'close': bar.close if hasattr(bar, 'close') else bar.get('close', 0),
+                    }
+                    for bar in bars
+                ]
+                market_data = {'ohlcv': ohlcv}
+        except Exception as e:
+            logger.warning(f"Could not fetch market data for risk report: {e}")
+        
+        # Get full risk report
+        report = brain.get_full_risk_report(market_data)
+        
+        return report
+        
+    except Exception as e:
+        logger.error(f"Risk report error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/brain/analyze")
+async def analyze_symbol(symbol: str = "AAPL"):
+    """
+    Run full TradingBrain analysis on a symbol.
+    
+    Returns decision with:
+    - Direction (LONG/SHORT/NEUTRAL)
+    - Confidence level
+    - Position size (Kelly-adjusted)
+    - Entry/stop/target prices
+    - Factors and warnings
+    """
+    brain = get_trading_brain()
+    if brain is None:
+        raise HTTPException(status_code=503, detail="TradingBrain not available")
+    
+    try:
+        service = await get_service()
+        
+        # Fetch OHLCV data
+        bars = await service.get_bars(symbol, timeframe="1d", limit=100)
+        if not bars:
+            raise HTTPException(status_code=400, detail=f"No data for {symbol}")
+        
+        # Get current quote
+        quote = await service.get_quote(symbol)
+        
+        # Fetch SPY for regime detection
+        spy_bars = await service.get_bars("SPY", timeframe="1d", limit=100)
+        
+        # Prepare market data
+        ohlcv = [
+            {
+                'timestamp': bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else str(bar.get('timestamp', '')),
+                'open': bar.open if hasattr(bar, 'open') else bar.get('open', 0),
+                'high': bar.high if hasattr(bar, 'high') else bar.get('high', 0),
+                'low': bar.low if hasattr(bar, 'low') else bar.get('low', 0),
+                'close': bar.close if hasattr(bar, 'close') else bar.get('close', 0),
+                'volume': bar.volume if hasattr(bar, 'volume') else bar.get('volume', 0),
+            }
+            for bar in bars
+        ]
+        
+        spy_ohlcv = [
+            {
+                'timestamp': bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else str(bar.get('timestamp', '')),
+                'open': bar.open if hasattr(bar, 'open') else bar.get('open', 0),
+                'high': bar.high if hasattr(bar, 'high') else bar.get('high', 0),
+                'low': bar.low if hasattr(bar, 'low') else bar.get('low', 0),
+                'close': bar.close if hasattr(bar, 'close') else bar.get('close', 0),
+                'volume': bar.volume if hasattr(bar, 'volume') else bar.get('volume', 0),
+            }
+            for bar in spy_bars
+        ] if spy_bars else ohlcv
+        
+        market_data = {
+            'ohlcv': ohlcv,
+            'spy_ohlcv': spy_ohlcv,
+            'quote': {
+                'price': quote.last or quote.mid,
+                'bid': quote.bid,
+                'ask': quote.ask,
+            },
+            'avg_volume': sum(bar.volume if hasattr(bar, 'volume') else bar.get('volume', 0) for bar in bars[-20:]) / 20
+        }
+        
+        # Run brain analysis
+        decision = brain.think(symbol, market_data)
+        
+        return decision.to_dict()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Brain analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/brain/status")
+async def get_brain_status():
+    """Get TradingBrain status including math integration."""
+    brain = get_trading_brain()
+    if brain is None:
+        return {
+            "initialized": False,
+            "math_available": False,
+            "message": "TradingBrain not initialized"
+        }
+    
+    return {
+        "initialized": True,
+        "math_available": brain.risk_monitor is not None,
+        "regime_detector": brain.get_regime_status(),
+        "risk_status": brain.get_risk_status(),
+        "account_equity": brain.account_equity
+    }
+
+
+# ==============================================================================
+# BACKTESTING ENDPOINT
+# ==============================================================================
+
+@router.post("/backtest/run")
+async def run_backtest(
+    ticker: str = "SPY",
+    strategy: str = "sma_cross",
+    period: str = "1Y",
+    capital: float = 100000
+):
+    """
+    Run a simple backtest using available strategies.
+    
+    Strategies:
+    - sma_cross: SMA crossover (20/50)
+    - rsi_oversold: RSI < 30 buy, RSI > 70 sell
+    - macd_cross: MACD crossover
+    - momentum: Price momentum
+    """
+    try:
+        import numpy as np
+        
+        # Fetch historical data
+        service = await get_service()
+        
+        # Period mapping
+        period_map = {
+            "6M": 126,
+            "1Y": 252,
+            "2Y": 504,
+            "5Y": 1260,
+            "MAX": 2520
+        }
+        limit = period_map.get(period, 252)
+        
+        bars = await service.get_bars(ticker, timeframe="1d", limit=limit)
+        
+        if not bars or len(bars) < 50:
+            raise HTTPException(status_code=400, detail=f"Insufficient data for {ticker}")
+        
+        # Extract prices
+        closes = np.array([
+            bar.close if hasattr(bar, 'close') else bar.get('close', 0)
+            for bar in bars
+        ])
+        
+        # Simple SMA crossover backtest
+        if strategy == "sma_cross":
+            short_window = 20
+            long_window = 50
+            
+            short_ma = np.convolve(closes, np.ones(short_window)/short_window, mode='valid')
+            long_ma = np.convolve(closes, np.ones(long_window)/long_window, mode='valid')
+            
+            # Align arrays
+            offset = short_window - 1
+            long_ma_aligned = long_ma[offset - (long_window - short_window):]
+            short_ma_aligned = short_ma[:len(long_ma_aligned)]
+            closes_aligned = closes[long_window-1:long_window-1+len(long_ma_aligned)]
+            
+            # Generate signals
+            signals = np.where(short_ma_aligned > long_ma_aligned, 1, -1)
+            
+        elif strategy == "rsi_oversold":
+            # Simple RSI calculation
+            delta = np.diff(closes)
+            gain = np.where(delta > 0, delta, 0)
+            loss = np.where(delta < 0, -delta, 0)
+            
+            avg_gain = np.convolve(gain, np.ones(14)/14, mode='valid')
+            avg_loss = np.convolve(loss, np.ones(14)/14, mode='valid')
+            
+            rs = avg_gain / (avg_loss + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
+            
+            signals = np.where(rsi < 30, 1, np.where(rsi > 70, -1, 0))
+            closes_aligned = closes[14:14+len(signals)]
+            
+        else:
+            # Default momentum
+            returns = np.diff(closes) / closes[:-1]
+            momentum = np.convolve(returns, np.ones(20)/20, mode='valid')
+            signals = np.where(momentum > 0, 1, -1)
+            closes_aligned = closes[20:20+len(signals)]
+        
+        # Calculate returns
+        price_returns = np.diff(closes_aligned) / closes_aligned[:-1]
+        strategy_returns = signals[:-1] * price_returns
+        
+        # Metrics
+        cumulative = np.cumprod(1 + strategy_returns)
+        total_return = (cumulative[-1] - 1) * 100
+        
+        # Annualize
+        n_years = len(strategy_returns) / 252
+        annual_return = ((cumulative[-1]) ** (1/max(n_years, 0.1)) - 1) * 100
+        
+        # Sharpe
+        daily_std = np.std(strategy_returns)
+        sharpe = (np.mean(strategy_returns) / daily_std) * np.sqrt(252) if daily_std > 0 else 0
+        
+        # Max drawdown
+        peak = np.maximum.accumulate(cumulative)
+        drawdown = (peak - cumulative) / peak
+        max_dd = np.max(drawdown) * 100
+        
+        # Win rate
+        wins = np.sum(strategy_returns > 0)
+        total_trades = np.sum(strategy_returns != 0)
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+        
+        # Final equity
+        final_equity = capital * cumulative[-1]
+        
+        return {
+            "status": "completed",
+            "ticker": ticker,
+            "strategy": strategy,
+            "period": period,
+            "metrics": {
+                "total_return": round(total_return, 2),
+                "annual_return": round(annual_return, 2),
+                "sharpe_ratio": round(sharpe, 2),
+                "max_drawdown": round(max_dd, 2),
+                "win_rate": round(win_rate, 1),
+                "total_trades": int(total_trades),
+                "final_equity": round(final_equity, 2),
+                "initial_capital": capital
+            },
+            "equity_curve": (cumulative * capital).tolist()[-100:],  # Last 100 points
+            "benchmark_return": round((closes[-1] / closes[0] - 1) * 100, 2)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Backtest error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -41,6 +41,13 @@ try:
         ExecutionPlan,
         create_alpha_generator,
         create_execution_optimizer,
+        # Phase 3: Risk Layer
+        IntegratedRiskMonitor,
+        RegimeShiftDetector,
+        RiskAlert,
+        TailRiskMetrics,
+        create_risk_monitor,
+        create_regime_shift_detector,
     )
     MATH_AVAILABLE = True
 except ImportError as e:
@@ -225,12 +232,29 @@ class TradingBrain:
                 volatility=0.20  # Default, updated per-asset
             )
             
-            logger.info("TradingBrain initialized WITH math integration (Phase 1 + 2)")
+            # === PHASE 3: Risk Layer ===
+            # Real-time risk monitoring with circuit breakers
+            self.risk_monitor = create_risk_monitor(
+                drawdown_critical=0.10,
+                drawdown_halt=0.20,
+                var_limit=0.02
+            )
+            self.risk_monitor.peak_equity = account_equity
+            self.risk_monitor.current_equity = account_equity
+            
+            # Regime shift detector (change point detection)
+            self.shift_detector = create_regime_shift_detector(
+                sensitivity=1.0
+            )
+            
+            logger.info("TradingBrain initialized WITH math integration (Phase 1-3)")
         else:
             self.regime_detector = None
             self.position_sizer = None
             self.alpha_generator = None
             self.execution_optimizer = None
+            self.risk_monitor = None
+            self.shift_detector = None
             self.risk_manager = None
             self.regime_fitted = False
             logger.info("TradingBrain initialized WITHOUT math integration")
@@ -1166,6 +1190,141 @@ class TradingBrain:
                 "alpha": alpha.capm_alpha
             } if alpha.beta is not None else None
         }
+    
+    # === PHASE 3: RISK MONITORING METHODS ===
+    
+    def update_risk_state(
+        self,
+        equity: float,
+        daily_return: Optional[float] = None
+    ) -> List[Dict]:
+        """
+        Update risk monitoring state and get any alerts.
+        
+        Args:
+            equity: Current portfolio equity
+            daily_return: Today's return (optional, for VaR)
+        
+        Returns:
+            List of alert dictionaries
+        """
+        # Update basic equity tracking
+        self.account_equity = equity
+        if MATH_AVAILABLE and self.risk_manager is not None:
+            self.risk_manager.update_equity(equity)
+        
+        # Update risk monitor
+        if not MATH_AVAILABLE or self.risk_monitor is None:
+            return []
+        
+        try:
+            alerts = self.risk_monitor.update(equity, daily_return)
+            return [a.to_dict() for a in alerts]
+        except Exception as e:
+            logger.error(f"Risk state update error: {e}")
+            return []
+    
+    def check_circuit_breaker(self) -> Dict:
+        """
+        Check if circuit breaker is active.
+        
+        Returns:
+            Dictionary with circuit breaker status and reason
+        """
+        if not MATH_AVAILABLE or self.risk_monitor is None:
+            return {"active": False, "reason": "risk_monitor_unavailable"}
+        
+        return {
+            "active": self.risk_monitor.circuit_breaker_active,
+            "drawdown": self.risk_monitor.current_drawdown,
+            "alerts": [a.to_dict() for a in self.risk_monitor.active_alerts],
+            "position_limit": self.risk_monitor.get_position_limit()
+        }
+    
+    def get_tail_risk_metrics(self) -> Optional[Dict]:
+        """
+        Get CVaR and other tail risk metrics.
+        
+        Returns comprehensive tail risk analysis.
+        """
+        if not MATH_AVAILABLE or self.risk_monitor is None:
+            return None
+        
+        try:
+            metrics = self.risk_monitor.compute_tail_risk()
+            return {
+                "var_95": metrics.var_95,
+                "var_99": metrics.var_99,
+                "cvar_95": metrics.cvar_95,
+                "cvar_99": metrics.cvar_99,
+                "expected_shortfall": metrics.expected_shortfall,
+                "max_loss": metrics.max_loss,
+                "tail_ratio": metrics.tail_ratio
+            }
+        except Exception as e:
+            logger.error(f"Tail risk computation error: {e}")
+            return None
+    
+    def detect_regime_shift(self, market_data: Dict) -> Optional[Dict]:
+        """
+        Detect regime shifts using change point detection.
+        
+        Returns:
+            Dictionary with shift detection results
+        """
+        if not MATH_AVAILABLE or self.shift_detector is None:
+            return None
+        
+        try:
+            prices = self._extract_prices_for_regime(market_data)
+            if prices is None:
+                return None
+            
+            result = self.shift_detector.detect(prices)
+            
+            # Get alert if shift detected
+            alert = self.shift_detector.get_regime_alert(result)
+            
+            return {
+                "has_shift": result["has_shift"],
+                "current_regime": result["current_regime"],
+                "change_points": result["change_points"],
+                "cusum_score": result["cusum_max"],
+                "alert": alert.to_dict() if alert else None
+            }
+        except Exception as e:
+            logger.error(f"Regime shift detection error: {e}")
+            return None
+    
+    def get_full_risk_report(self, market_data: Optional[Dict] = None) -> Dict:
+        """
+        Get comprehensive risk report combining all monitors.
+        
+        Returns full risk state for dashboard/reporting.
+        """
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "circuit_breaker": self.check_circuit_breaker(),
+            "drawdown": {
+                "current": self.risk_monitor.current_drawdown if self.risk_monitor else 0,
+                "peak_equity": self.risk_monitor.peak_equity if self.risk_monitor else 0,
+                "current_equity": self.account_equity
+            },
+            "tail_risk": self.get_tail_risk_metrics(),
+            "regime": self.get_regime_status(),
+            "position_limit_pct": 100 * (
+                self.risk_monitor.get_position_limit() if self.risk_monitor else 1.0
+            ),
+            "trading_allowed": not (
+                self.risk_monitor.circuit_breaker_active if self.risk_monitor else False
+            )
+        }
+        
+        # Add regime shift detection if market data provided
+        if market_data:
+            report["regime_shift"] = self.detect_regime_shift(market_data)
+        
+        return report
 
 
 # Singleton instance
