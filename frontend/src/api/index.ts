@@ -18,6 +18,8 @@ export {
   settingsApi,
   screenerApi,
   neuralApi,
+  decisionIntelApi,
+  dataIntegrityApi,
 } from './client'
 
 export type {
@@ -70,4 +72,12 @@ export type {
   SectorData,
   MoversData,
   MoverStock,
+  // Decision Intelligence types
+  ControlPlaneStatus,
+  DecisionContext,
+  DecisionTraceStats,
+  ExitRecommendation,
+  ShadowComponent,
+  SelfImprovementStatus,
+  DataMode,
 } from './client'

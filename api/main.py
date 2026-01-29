@@ -68,6 +68,13 @@ try:
 except Exception as e:
     logger.warning(f"Could not load backtest routes: {e}")
 
+try:
+    from api.routes.decision_intelligence_routes import router as decision_intel_router
+    app.include_router(decision_intel_router)
+    logger.info("Loaded decision intelligence routes")
+except Exception as e:
+    logger.warning(f"Could not load decision intelligence routes: {e}")
+
 
 @app.get("/")
 async def root():

@@ -56,7 +56,9 @@ export interface UseWebSocketReturn {
   disconnect: () => void;
 }
 
-const DEFAULT_WS_URL = `ws://${window.location.hostname}:8000/ws/connect`;
+// Use environment variable or default to localhost:8000
+const WS_HOST = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8000`;
+const DEFAULT_WS_URL = `${WS_HOST}/ws/connect`;
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const {

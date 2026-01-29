@@ -228,6 +228,15 @@ except ImportError as e:
     PERFORMANCE_MIDDLEWARE_AVAILABLE = False
     logger.warning(f"Performance middleware not available: {e}")
 
+# Import Decision Intelligence routes
+try:
+    from api.routes.decision_intelligence_routes import router as decision_intel_router
+    DECISION_INTEL_ROUTES_AVAILABLE = True
+    logger.info("Decision Intelligence routes loaded")
+except ImportError as e:
+    DECISION_INTEL_ROUTES_AVAILABLE = False
+    logger.warning(f"Decision Intelligence routes not available: {e}")
+
 app = FastAPI(
     title="QUANT INDUSTRY API",
     description="Professional Trading Platform Backend",
@@ -8184,6 +8193,14 @@ async def update_settings_put(settings_data: Dict[str, Any]):
 async def get_neural_analyze(symbol: str):
     """Alias endpoint for neural analysis (frontend uses /analyze, backend has /analysis)"""
     return await get_neural_analysis(symbol)
+
+
+# ============== DECISION INTELLIGENCE ROUTES ==============
+
+# Include Decision Intelligence router if available
+if DECISION_INTEL_ROUTES_AVAILABLE:
+    app.include_router(decision_intel_router)
+    logger.info("Decision Intelligence routes registered")
 
 
 # ============== RUN SERVER ==============

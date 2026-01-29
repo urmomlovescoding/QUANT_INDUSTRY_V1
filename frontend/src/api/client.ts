@@ -673,3 +673,162 @@ export interface MoverStock {
   change_pct: number
   volume: number
 }
+
+// ==================== DECISION INTELLIGENCE TYPES ====================
+
+export interface ControlPlaneStatus {
+  mode: 'shadow' | 'paper' | 'live' | 'disabled'
+  is_active: boolean
+  kill_switch_engaged: boolean
+  decisions_today: number
+  trades_today: number
+  shadow_decisions_today: number
+  components_registered: string[]
+  safety_checks_count: number
+  contexts_cached: number
+}
+
+export interface DecisionContext {
+  context_id: string
+  timestamp: string
+  symbol: string
+  regime: string
+  regime_confidence: number
+  signal_direction: 'LONG' | 'SHORT' | null
+  signal_confidence: number
+  signal_source: string
+  risk_approved: boolean
+  risk_adjusted_size: number
+  risk_warnings: string[]
+  execution_allowed: boolean
+  execution_mode: string
+  decisions: Array<{
+    timestamp: string
+    component: string
+    decision: string
+    reason: string
+    data: Record<string, unknown>
+  }>
+}
+
+export interface DecisionTraceStats {
+  total_nodes: number
+  total_edges: number
+  outcomes: Record<string, number>
+  components: Record<string, number>
+  graph_available: boolean
+}
+
+export interface ExitRecommendation {
+  action: 'hold' | 'exit'
+  reason: string
+  confidence: number
+  expected_value_hold: number
+  expected_value_exit: number
+  state: {
+    regime: string
+    time_bucket: number
+    pnl_bucket: number
+    volatility_bucket: number
+  }
+  is_shadow: boolean
+}
+
+export interface ShadowComponent {
+  component_id: string
+  component_name: string
+  version: string
+  status: 'shadow' | 'parallel' | 'candidate' | 'promoted' | 'rejected'
+  created_at: string
+  decisions_count: number
+  correct_decisions: number
+  accuracy: number
+  total_shadow_pnl: number
+  live_comparison_count: number
+  agreement_rate: number
+  outperformance_rate: number
+  promotion_score: number
+}
+
+export interface SelfImprovementStatus {
+  current_phase: string
+  active_cycle: null | {
+    cycle_id: string
+    trigger: string
+    started_at: string
+    phase: string
+    component_name: string
+    old_version: string
+    new_version: string | null
+  }
+  consecutive_failures: number
+  total_cycles: number
+  successful_cycles: number
+  config: {
+    drift_threshold: number
+    validation_days: number
+    improvement_threshold: number
+  }
+}
+
+// ==================== DECISION INTELLIGENCE API ====================
+
+export const decisionIntelApi = {
+  // Control Plane
+  getControlPlaneStatus: () => api.get<ControlPlaneStatus>('/api/decision-intelligence/control-plane/status'),
+  getControlPlaneHealth: () => api.get<Record<string, unknown>>('/api/decision-intelligence/control-plane/health'),
+  engageKillSwitch: (reason: string) => 
+    api.post<void>('/api/decision-intelligence/control-plane/kill-switch', { reason }),
+  releaseKillSwitch: (reason: string) => 
+    api.post<void>('/api/decision-intelligence/control-plane/kill-switch/release', { reason }),
+
+  // Decision Trace
+  getDecisionTraceStats: () => api.get<DecisionTraceStats>('/api/decision-intelligence/trace/stats'),
+  getDecisionPath: (contextId: string) => 
+    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/trace/path/${contextId}`),
+  getFailurePatterns: (days?: number) => 
+    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/trace/failure-patterns${days ? `?days=${days}` : ''}`),
+  getSuccessPatterns: (days?: number) => 
+    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/trace/success-patterns${days ? `?days=${days}` : ''}`),
+
+  // Exit Value Learning
+  getExitRecommendation: (positionId: string, currentState: Record<string, unknown>) =>
+    api.post<ExitRecommendation>(`/api/decision-intelligence/exit-learning/recommend/${positionId}`, currentState),
+  getExitLearnerStats: () => api.get<Record<string, unknown>>('/api/decision-intelligence/exit-learning/stats'),
+  getValueSurface: (regime: string, direction?: string) =>
+    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/exit-learning/value-surface/${regime}${direction ? `?direction=${direction}` : ''}`),
+
+  // Shadow Mode
+  getShadowComponents: () => api.get<ShadowComponent[]>('/api/decision-intelligence/shadow/components'),
+  getShadowReport: (componentId: string) => 
+    api.get<Record<string, unknown>>(`/api/decision-intelligence/shadow/report/${componentId}`),
+  getShadowComparison: () => api.get<Record<string, unknown>>('/api/decision-intelligence/shadow/comparison'),
+
+  // Self Improvement
+  getSelfImprovementStatus: () => api.get<SelfImprovementStatus>('/api/decision-intelligence/self-improvement/status'),
+  getImprovementHistory: (limit?: number) =>
+    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/self-improvement/history${limit ? `?limit=${limit}` : ''}`),
+  triggerImprovement: (componentName: string) =>
+    api.post<Record<string, unknown>>('/api/decision-intelligence/self-improvement/trigger', { component_name: componentName }),
+}
+
+// ==================== DATA INTEGRITY API ====================
+
+export interface DataMode {
+  mode: 'live' | 'paper' | 'backtest' | 'simulation'
+  available: boolean
+  modes: Record<string, string>
+  current_description: string
+  quality_stats: Record<string, unknown>
+  timestamp: string
+}
+
+export const dataIntegrityApi = {
+  getDataMode: () => api.get<DataMode>('/api/data-mode'),
+  setDataMode: (mode: string, reason?: string) => 
+    api.post<DataMode>('/api/data-mode', { mode, reason }),
+  getIntegrityStatus: () => api.get<Record<string, unknown>>('/api/data-integrity/status'),
+  getPriceWithProvenance: (symbol: string) => 
+    api.get<Record<string, unknown>>(`/api/data-integrity/price/${symbol}`),
+  getStalenessStatus: () => api.get<Record<string, unknown>>('/api/data/staleness'),
+}

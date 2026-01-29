@@ -59,28 +59,42 @@
 
 ## Implementation Plan
 
-### Layer 1: AI Control Plane (P0)
+### Layer 1: AI Control Plane (P0) ✅ COMPLETE
 - Central coordinator for all AI components
 - Unified state management
 - Safety interlocks between components
 - Kill switch integration
 
-### Layer 2: Decision Trace with Causality (P1)
+### Layer 2: Decision Trace with Causality (P1) ✅ COMPLETE
 - NetworkX-based decision graph
 - Link decisions → outcomes → learnings
 - Query interface for root cause analysis
 
-### Layer 3: Exit-Value Learning (P1)
+### Layer 3: Exit-Value Learning (P1) ✅ COMPLETE
 - RMDP formulation for exit timing
 - Regime-conditional exit policies
 - Bellman update for value function
 
-### Layer 4: Shadow Mode Framework (P1)
+### Layer 4: Shadow Mode Framework (P1) ✅ COMPLETE
 - Unified shadow execution mode
 - Parallel live/shadow comparison
 - Automatic promotion criteria
 
-### Layer 5: Self-Improvement Orchestration (P2)
+### Layer 5: Self-Improvement Orchestration (P2) ✅ COMPLETE
 - Wire drift detection → retraining
 - Automated model versioning
 - A/B testing framework
+
+### P3: Frontend-Backend Connection Audit/Improvement
+- Audit all API endpoints and WebSocket connections
+- Check for missing error handling, loading states, disconnection recovery
+- Ensure all backend capabilities are properly exposed to frontend
+- Fix any broken or incomplete data flows
+- Add proper TypeScript types matching backend schemas
+
+### P4: General UI Cleanup / Make It Better
+- Audit UI for inconsistencies, broken layouts, poor UX
+- Improve dashboard readability and information hierarchy
+- Clean up component styling for professional look
+- Add missing feedback (toasts, loading indicators, confirmations)
+- Mobile responsiveness if applicable
