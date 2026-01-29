@@ -7,7 +7,7 @@ Real-time price aggregation across multiple exchanges.
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Callable, Set
+from typing import Optional, List, Dict, Any, Callable, Set, Tuple
 from enum import Enum
 from collections import defaultdict
 import logging
@@ -551,6 +551,3 @@ class PriceNormalizer:
                 return base, quote
                 
         return symbol, ""
-
-
-from typing import Tuple
