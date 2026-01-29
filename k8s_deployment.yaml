@@ -1,0 +1,613 @@
+# Kubernetes Deployment Configuration
+# QUANT_INDUSTRY_V1 - High Availability Trading System
+#
+# Features:
+# - Auto-scaling based on CPU and custom metrics
+# - Multi-zone redundancy
+# - Rolling updates with zero downtime
+# - Resource limits and requests
+# - Health checks and readiness probes
+#
+# Usage: kubectl apply -f k8s_deployment.yaml
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quant-trading
+  labels:
+    app: quant-industry
+    environment: production
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quant-config
+  namespace: quant-trading
+data:
+  LOG_LEVEL: "INFO"
+  REDIS_HOST: "redis-master.quant-trading.svc.cluster.local"
+  REDIS_PORT: "6379"
+  DATABASE_POOL_SIZE: "10"
+  FEATURE_STORE_URL: "http://feature-store.quant-trading.svc.cluster.local:8080"
+  EXECUTION_MODE: "production"
+  MAX_CONCURRENT_STRATEGIES: "50"
+  RISK_CHECK_ENABLED: "true"
+
+---
+# Secret for sensitive data (base64 encoded)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: quant-secrets
+  namespace: quant-trading
+type: Opaque
+data:
+  # Replace with actual base64-encoded secrets
+  DATABASE_URL: cG9zdGdyZXM6Ly91c2VyOnBhc3NAZGIuZXhhbXBsZS5jb206NTQzMi90cmFkaW5n
+  API_KEY: WU9VUl9BUElfS0VZX0hFUkU=
+  BROKER_API_SECRET: QlJPS0VSX1NFQ1JFVF9IRVJFCg==
+
+---
+# Trading Engine Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-engine
+  namespace: quant-trading
+  labels:
+    app: trading-engine
+    component: core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: trading-engine
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: trading-engine
+        component: core
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - trading-engine
+              topologyKey: topology.kubernetes.io/zone
+      containers:
+      - name: trading-engine
+        image: quant-industry/trading-engine:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        - containerPort: 9090
+          name: metrics
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        envFrom:
+        - configMapRef:
+            name: quant-config
+        - secretRef:
+            name: quant-secrets
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        volumeMounts:
+        - name: model-storage
+          mountPath: /models
+        - name: config-volume
+          mountPath: /app/config
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage-pvc
+      - name: config-volume
+        configMap:
+          name: quant-config
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: trading-engine
+
+---
+# ML Inference Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-inference
+  namespace: quant-trading
+  labels:
+    app: ml-inference
+    component: ml
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ml-inference
+  template:
+    metadata:
+      labels:
+        app: ml-inference
+        component: ml
+    spec:
+      containers:
+      - name: ml-inference
+        image: quant-industry/ml-inference:latest
+        ports:
+        - containerPort: 8080
+          name: grpc
+        - containerPort: 9091
+          name: metrics
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "1000m"
+            nvidia.com/gpu: "0"  # Set to 1 if GPU available
+          limits:
+            memory: "4Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: "0"
+        envFrom:
+        - configMapRef:
+            name: quant-config
+        livenessProbe:
+          grpc:
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        readinessProbe:
+          grpc:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: model-storage
+          mountPath: /models
+          readOnly: true
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: model-storage-pvc
+
+---
+# Data Pipeline Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-pipeline
+  namespace: quant-trading
+  labels:
+    app: data-pipeline
+    component: data
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: data-pipeline
+  template:
+    metadata:
+      labels:
+        app: data-pipeline
+        component: data
+    spec:
+      containers:
+      - name: data-pipeline
+        image: quant-industry/data-pipeline:latest
+        ports:
+        - containerPort: 8001
+          name: http
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        envFrom:
+        - configMapRef:
+            name: quant-config
+        - secretRef:
+            name: quant-secrets
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8001
+          periodSeconds: 10
+
+---
+# Risk Monitor Deployment (Critical - Always Running)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-monitor
+  namespace: quant-trading
+  labels:
+    app: risk-monitor
+    component: risk
+    criticality: high
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: risk-monitor
+  template:
+    metadata:
+      labels:
+        app: risk-monitor
+        component: risk
+    spec:
+      priorityClassName: system-cluster-critical
+      containers:
+      - name: risk-monitor
+        image: quant-industry/risk-monitor:latest
+        ports:
+        - containerPort: 8002
+          name: http
+        - containerPort: 9092
+          name: metrics
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        envFrom:
+        - configMapRef:
+            name: quant-config
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          periodSeconds: 5
+          failureThreshold: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8002
+          periodSeconds: 3
+
+---
+# Trading Engine Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-engine
+  namespace: quant-trading
+spec:
+  selector:
+    app: trading-engine
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8000
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
+
+---
+# ML Inference Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-inference
+  namespace: quant-trading
+spec:
+  selector:
+    app: ml-inference
+  ports:
+  - name: grpc
+    port: 8080
+    targetPort: 8080
+  - name: metrics
+    port: 9091
+    targetPort: 9091
+  type: ClusterIP
+
+---
+# Horizontal Pod Autoscaler for Trading Engine
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: trading-engine-hpa
+  namespace: quant-trading
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: trading-engine
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: orders_per_second
+      target:
+        type: AverageValue
+        averageValue: "100"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 4
+        periodSeconds: 15
+      selectPolicy: Max
+
+---
+# Horizontal Pod Autoscaler for ML Inference
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ml-inference-hpa
+  namespace: quant-trading
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ml-inference
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Pods
+    pods:
+      metric:
+        name: inference_latency_p99
+      target:
+        type: AverageValue
+        averageValue: "50"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+    scaleUp:
+      stabilizationWindowSeconds: 30
+
+---
+# Persistent Volume Claim for Model Storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-storage-pvc
+  namespace: quant-trading
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# Pod Disruption Budget for Trading Engine
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trading-engine-pdb
+  namespace: quant-trading
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: trading-engine
+
+---
+# Pod Disruption Budget for Risk Monitor
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: risk-monitor-pdb
+  namespace: quant-trading
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: risk-monitor
+
+---
+# Network Policy - Restrict ingress/egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trading-network-policy
+  namespace: quant-trading
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: quant-trading
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: quant-trading
+  - to:  # Allow external broker APIs
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+# ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trading-engine-monitor
+  namespace: quant-trading
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: trading-engine
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+
+---
+# PrometheusRule for Alerts
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: trading-alerts
+  namespace: quant-trading
+spec:
+  groups:
+  - name: trading.rules
+    rules:
+    - alert: HighOrderLatency
+      expr: histogram_quantile(0.99, rate(order_latency_seconds_bucket[5m])) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High order latency detected"
+        description: "P99 order latency is {{ $value }}s"
+    
+    - alert: TradingEngineDown
+      expr: up{job="trading-engine"} == 0
+      for: 30s
+      labels:
+        severity: critical
+      annotations:
+        summary: "Trading engine instance down"
+    
+    - alert: RiskBreachDetected
+      expr: risk_breach_total > 0
+      for: 0s
+      labels:
+        severity: critical
+      annotations:
+        summary: "Risk breach detected - immediate review required"
+    
+    - alert: HighErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Error rate above 1%"
+
+---
+# Ingress for external access (if needed)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: trading-ingress
+  namespace: quant-trading
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+spec:
+  tls:
+  - hosts:
+    - api.trading.example.com
+    secretName: trading-tls
+  rules:
+  - host: api.trading.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: trading-engine
+            port:
+              number: 80

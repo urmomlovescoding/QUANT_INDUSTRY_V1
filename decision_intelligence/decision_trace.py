@@ -718,6 +718,286 @@ class DecisionTrace:
 
 
 # =============================================================================
+# BAYESIAN CAUSAL MODEL (P2 Enhancement)
+# =============================================================================
+
+class BayesianCausalModel:
+    """
+    Enhanced causal model using Bayesian network approach.
+    
+    Provides:
+    - Probabilistic causal inference
+    - Conditional probability estimation
+    - Root cause probability scoring
+    - Counterfactual reasoning support
+    
+    Uses simplified Bayesian network without Pyro dependency.
+    """
+    
+    def __init__(self, decision_trace: 'DecisionTrace'):
+        self.trace = decision_trace
+        
+        # Conditional probability tables (learned from data)
+        self.cpt: Dict[str, Dict[str, float]] = {}
+        
+        # Node prior probabilities
+        self.priors: Dict[str, float] = {}
+        
+        # Causal structure (parent -> children)
+        self.causal_structure: Dict[str, Set[str]] = {}
+        
+        self._fitted = False
+        
+        logger.info("BayesianCausalModel initialized")
+    
+    def fit(self, lookback_days: int = 90) -> None:
+        """
+        Learn causal structure and probabilities from historical data.
+        
+        Estimates:
+        - P(outcome | decision, regime, component)
+        - P(decision | regime)
+        - Causal graph structure
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+        
+        with sqlite3.connect(self.trace.db_path) as conn:
+            # Get historical nodes
+            cursor = conn.execute("""
+                SELECT node_type, component, decision, regime, outcome
+                FROM nodes
+                WHERE timestamp > ? AND outcome IS NOT NULL
+            """, (cutoff,))
+            rows = cursor.fetchall()
+        
+        if len(rows) < 10:
+            logger.warning("Insufficient data for Bayesian model fitting")
+            return
+        
+        # Count occurrences for probability estimation
+        outcome_counts: Dict[str, Dict[str, int]] = {}
+        decision_counts: Dict[str, Dict[str, int]] = {}
+        regime_counts: Dict[str, int] = {}
+        total = len(rows)
+        
+        for node_type, component, decision, regime, outcome in rows:
+            # Regime prior
+            regime = regime or "unknown"
+            regime_counts[regime] = regime_counts.get(regime, 0) + 1
+            
+            # P(outcome | component, decision)
+            key = f"{component}:{decision}"
+            if key not in outcome_counts:
+                outcome_counts[key] = {}
+            outcome = outcome or "unknown"
+            outcome_counts[key][outcome] = outcome_counts[key].get(outcome, 0) + 1
+            
+            # P(decision | regime)
+            if regime not in decision_counts:
+                decision_counts[regime] = {}
+            decision_counts[regime][decision] = decision_counts[regime].get(decision, 0) + 1
+        
+        # Calculate conditional probabilities
+        # P(outcome | component:decision)
+        for key, counts in outcome_counts.items():
+            total_key = sum(counts.values())
+            for outcome, count in counts.items():
+                cpt_key = f"P(outcome={outcome}|{key})"
+                self.cpt[cpt_key] = count / total_key
+        
+        # P(decision | regime)
+        for regime, counts in decision_counts.items():
+            total_regime = sum(counts.values())
+            for decision, count in counts.items():
+                cpt_key = f"P(decision={decision}|regime={regime})"
+                self.cpt[cpt_key] = count / total_regime
+        
+        # Regime priors
+        for regime, count in regime_counts.items():
+            self.priors[f"regime={regime}"] = count / total
+        
+        # Build causal structure from edges
+        with sqlite3.connect(self.trace.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DISTINCT source_id, target_id FROM edges
+            """)
+            for source, target in cursor.fetchall():
+                # Extract node types from IDs
+                if source not in self.causal_structure:
+                    self.causal_structure[source] = set()
+                self.causal_structure[source].add(target)
+        
+        self._fitted = True
+        logger.info(f"BayesianCausalModel fitted with {len(self.cpt)} probability entries")
+    
+    def infer_outcome_probability(
+        self,
+        component: str,
+        decision: str,
+        regime: str = None,
+    ) -> Dict[str, float]:
+        """
+        Infer probability distribution over outcomes given evidence.
+        
+        P(outcome | component, decision, regime)
+        """
+        if not self._fitted:
+            self.fit()
+        
+        probabilities = {}
+        key = f"{component}:{decision}"
+        
+        # Get all outcomes for this key
+        for cpt_key, prob in self.cpt.items():
+            if key in cpt_key and cpt_key.startswith("P(outcome="):
+                # Extract outcome
+                outcome = cpt_key.split("outcome=")[1].split("|")[0]
+                probabilities[outcome] = prob
+        
+        # Apply regime prior if available
+        if regime:
+            regime_prior = self.priors.get(f"regime={regime}", 0.5)
+            for outcome in probabilities:
+                probabilities[outcome] *= regime_prior
+        
+        # Normalize
+        total = sum(probabilities.values()) or 1
+        return {k: v / total for k, v in probabilities.items()}
+    
+    def compute_root_cause_probability(
+        self,
+        outcome_node_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Compute probability scores for potential root causes.
+        
+        Uses Bayesian inference to score how likely each upstream
+        decision contributed to the outcome.
+        """
+        if not self._fitted:
+            self.fit()
+        
+        # Get the outcome node
+        with sqlite3.connect(self.trace.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT outcome, pnl FROM nodes WHERE node_id = ?
+            """, (outcome_node_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return []
+            
+            target_outcome, pnl = row
+        
+        # Get all upstream nodes
+        root_causes = self.trace.find_root_causes(outcome_node_id)
+        
+        scored_causes = []
+        for node in root_causes:
+            # Compute probability of this outcome given this node's decision
+            key = f"{node.component}:{node.decision}"
+            
+            # P(outcome | decision)
+            cpt_key = f"P(outcome={target_outcome}|{key})"
+            prob = self.cpt.get(cpt_key, 0.5)  # Default to 0.5 if unknown
+            
+            # Apply regime adjustment
+            if node.regime:
+                regime_key = f"P(decision={node.decision}|regime={node.regime})"
+                regime_prob = self.cpt.get(regime_key, 0.5)
+                prob = prob * regime_prob
+            
+            scored_causes.append({
+                'node_id': node.node_id,
+                'component': node.component,
+                'decision': node.decision,
+                'regime': node.regime,
+                'causal_probability': prob,
+                'timestamp': node.timestamp.isoformat(),
+            })
+        
+        # Sort by causal probability
+        scored_causes.sort(key=lambda x: x['causal_probability'], reverse=True)
+        
+        return scored_causes
+    
+    def counterfactual_analysis(
+        self,
+        context_id: str,
+        alternative_decision: str,
+        at_component: str,
+    ) -> Dict[str, float]:
+        """
+        Estimate counterfactual outcome: "What if we had decided differently?"
+        
+        Computes P(outcome | alternative_decision) - P(outcome | actual_decision)
+        """
+        if not self._fitted:
+            self.fit()
+        
+        # Get actual decision path
+        path = self.trace.get_decision_path(context_id)
+        if not path:
+            return {}
+        
+        # Find the node for the target component
+        actual_decision = None
+        regime = None
+        for node in path:
+            if node['component'] == at_component:
+                actual_decision = node['decision']
+                break
+        
+        if not actual_decision:
+            return {}
+        
+        # Get actual outcome probabilities
+        actual_probs = self.infer_outcome_probability(at_component, actual_decision, regime)
+        
+        # Get counterfactual outcome probabilities
+        counter_probs = self.infer_outcome_probability(at_component, alternative_decision, regime)
+        
+        # Compute difference (counterfactual effect)
+        effect = {}
+        all_outcomes = set(actual_probs.keys()) | set(counter_probs.keys())
+        
+        for outcome in all_outcomes:
+            actual = actual_probs.get(outcome, 0)
+            counter = counter_probs.get(outcome, 0)
+            effect[outcome] = {
+                'actual_probability': actual,
+                'counterfactual_probability': counter,
+                'causal_effect': counter - actual,
+            }
+        
+        return effect
+    
+    def get_model_summary(self) -> Dict[str, Any]:
+        """Get summary of the Bayesian model."""
+        return {
+            'fitted': self._fitted,
+            'num_probability_entries': len(self.cpt),
+            'num_priors': len(self.priors),
+            'causal_edges': sum(len(v) for v in self.causal_structure.values()),
+            'top_priors': dict(sorted(
+                self.priors.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:10]),
+        }
+
+
+# Add Bayesian model to DecisionTrace
+def _get_bayesian_model(self) -> BayesianCausalModel:
+    """Get or create Bayesian causal model."""
+    if not hasattr(self, '_bayesian_model'):
+        self._bayesian_model = BayesianCausalModel(self)
+    return self._bayesian_model
+
+DecisionTrace.get_bayesian_model = _get_bayesian_model
+
+
+# =============================================================================
 # SINGLETON
 # =============================================================================
 

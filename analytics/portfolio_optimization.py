@@ -651,6 +651,466 @@ class PortfolioOptimizer:
 
 
 # =============================================================================
+# DYNAMIC PORTFOLIO REBALANCING - P2 Task 18
+# =============================================================================
+
+class RebalanceTrigger(Enum):
+    """Types of rebalancing triggers."""
+    PERIODIC = "periodic"  # Time-based
+    THRESHOLD = "threshold"  # Drift-based
+    VOLATILITY = "volatility"  # Volatility-triggered
+    SIGNAL = "signal"  # Signal-triggered
+    HYBRID = "hybrid"  # Combination
+
+
+@dataclass
+class RebalanceSignal:
+    """Signal indicating rebalance is needed."""
+    trigger_type: RebalanceTrigger
+    urgency: float  # 0-1, how urgent is rebalance
+    drift_magnitude: float  # Total portfolio drift
+    details: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class RebalanceOrder:
+    """Order generated for rebalancing."""
+    symbol: str
+    current_weight: float
+    target_weight: float
+    trade_weight: float  # Amount to trade (positive=buy, negative=sell)
+    trade_value: float
+    priority: int = 0  # Higher = execute first
+
+
+class DynamicRebalancer:
+    """
+    Dynamic Portfolio Rebalancing System.
+    
+    Features:
+    - Multiple trigger mechanisms (time, drift, volatility)
+    - Intelligent trade scheduling
+    - Transaction cost optimization
+    - Tax-aware rebalancing
+    - Gradual rebalancing for large positions
+    
+    P2 Task 18: Real-time portfolio rebalancing with predictive analytics.
+    """
+
+    def __init__(
+        self,
+        optimizer: PortfolioOptimizer = None,
+        rebalance_threshold: float = 0.05,  # 5% drift threshold
+        min_trade_size: float = 0.01,  # Minimum trade as % of portfolio
+        max_turnover: float = 0.25,  # Maximum daily turnover
+        tax_rate: float = 0.0,  # Short-term capital gains rate
+        transaction_cost_bps: float = 10,  # Transaction cost in bps
+    ):
+        self.optimizer = optimizer or PortfolioOptimizer()
+        self.rebalance_threshold = rebalance_threshold
+        self.min_trade_size = min_trade_size
+        self.max_turnover = max_turnover
+        self.tax_rate = tax_rate
+        self.transaction_cost_bps = transaction_cost_bps
+        
+        # State tracking
+        self._last_rebalance: Optional[datetime] = None
+        self._target_weights: Optional[np.ndarray] = None
+        self._rebalance_history: List[Dict[str, Any]] = []
+        
+    def check_rebalance_needed(
+        self,
+        current_weights: np.ndarray,
+        target_weights: np.ndarray,
+        volatilities: np.ndarray = None,
+        market_conditions: Dict[str, Any] = None,
+    ) -> Optional[RebalanceSignal]:
+        """
+        Check if rebalancing is needed based on multiple criteria.
+        
+        Args:
+            current_weights: Current portfolio weights
+            target_weights: Target portfolio weights
+            volatilities: Asset volatilities (optional)
+            market_conditions: Market regime info (optional)
+            
+        Returns:
+            RebalanceSignal if rebalance needed, None otherwise
+        """
+        market_conditions = market_conditions or {}
+        
+        # Calculate drift
+        drift = current_weights - target_weights
+        drift_magnitude = np.sum(np.abs(drift))
+        max_drift = np.max(np.abs(drift))
+        
+        signals = []
+        
+        # 1. Threshold-based trigger
+        if max_drift > self.rebalance_threshold:
+            signals.append({
+                'trigger': RebalanceTrigger.THRESHOLD,
+                'urgency': min(1.0, max_drift / (self.rebalance_threshold * 2)),
+                'detail': f'Max drift {max_drift:.2%} exceeds threshold {self.rebalance_threshold:.2%}'
+            })
+        
+        # 2. Volatility-based trigger (rebalance more frequently in high vol)
+        if volatilities is not None:
+            vol_adjusted_threshold = self.rebalance_threshold / (1 + np.mean(volatilities) * 10)
+            if max_drift > vol_adjusted_threshold:
+                signals.append({
+                    'trigger': RebalanceTrigger.VOLATILITY,
+                    'urgency': 0.7,
+                    'detail': f'Vol-adjusted threshold triggered (threshold: {vol_adjusted_threshold:.2%})'
+                })
+        
+        # 3. Time-based trigger (periodic rebalancing)
+        if self._last_rebalance:
+            days_since = (datetime.now() - self._last_rebalance).days
+            periodic_interval = market_conditions.get('rebalance_interval_days', 30)
+            if days_since >= periodic_interval:
+                signals.append({
+                    'trigger': RebalanceTrigger.PERIODIC,
+                    'urgency': min(1.0, days_since / (periodic_interval * 2)),
+                    'detail': f'{days_since} days since last rebalance'
+                })
+        
+        # 4. Signal-based trigger (regime change, etc.)
+        regime_change = market_conditions.get('regime_change', False)
+        if regime_change:
+            signals.append({
+                'trigger': RebalanceTrigger.SIGNAL,
+                'urgency': 0.9,
+                'detail': 'Market regime change detected'
+            })
+        
+        if not signals:
+            return None
+        
+        # Combine signals
+        max_urgency = max(s['urgency'] for s in signals)
+        trigger_type = (
+            RebalanceTrigger.HYBRID if len(signals) > 1 
+            else signals[0]['trigger']
+        )
+        
+        return RebalanceSignal(
+            trigger_type=trigger_type,
+            urgency=max_urgency,
+            drift_magnitude=drift_magnitude,
+            details={
+                'signals': [s['detail'] for s in signals],
+                'max_drift': max_drift,
+                'drifts_by_asset': drift.tolist(),
+            }
+        )
+    
+    def generate_rebalance_orders(
+        self,
+        current_weights: np.ndarray,
+        target_weights: np.ndarray,
+        portfolio_value: float,
+        asset_names: List[str],
+        prices: np.ndarray = None,
+        tax_lots: Dict[str, List[Dict]] = None,
+    ) -> List[RebalanceOrder]:
+        """
+        Generate optimized rebalance orders.
+        
+        Args:
+            current_weights: Current portfolio weights
+            target_weights: Target portfolio weights
+            portfolio_value: Total portfolio value
+            asset_names: List of asset names/symbols
+            prices: Current asset prices (optional)
+            tax_lots: Tax lot information for tax-aware rebalancing
+            
+        Returns:
+            List of RebalanceOrder objects, sorted by execution priority
+        """
+        n = len(current_weights)
+        drift = target_weights - current_weights
+        
+        orders = []
+        
+        for i in range(n):
+            trade_weight = drift[i]
+            
+            # Skip small trades
+            if abs(trade_weight) < self.min_trade_size:
+                continue
+            
+            trade_value = trade_weight * portfolio_value
+            
+            # Tax-aware adjustment for sells
+            tax_adjustment = 0.0
+            if trade_weight < 0 and tax_lots and asset_names[i] in tax_lots:
+                tax_adjustment = self._estimate_tax_impact(
+                    tax_lots[asset_names[i]], 
+                    -trade_value,
+                    prices[i] if prices is not None else 1.0
+                )
+            
+            # Transaction cost
+            transaction_cost = abs(trade_value) * (self.transaction_cost_bps / 10000)
+            
+            # Calculate priority (sells first to raise cash, then buys)
+            # Also prioritize larger trades and tax-efficient trades
+            priority = 0
+            if trade_weight < 0:  # Sells
+                priority += 100  # Sells get higher priority
+            priority += int(abs(trade_weight) * 100)  # Larger trades higher priority
+            priority -= int(tax_adjustment * 10)  # Tax-heavy trades lower priority
+            
+            orders.append(RebalanceOrder(
+                symbol=asset_names[i],
+                current_weight=current_weights[i],
+                target_weight=target_weights[i],
+                trade_weight=trade_weight,
+                trade_value=trade_value,
+                priority=priority,
+            ))
+        
+        # Sort by priority (descending)
+        orders.sort(key=lambda x: x.priority, reverse=True)
+        
+        # Apply turnover constraint
+        orders = self._apply_turnover_constraint(orders, portfolio_value)
+        
+        return orders
+    
+    def _estimate_tax_impact(
+        self,
+        tax_lots: List[Dict],
+        sell_value: float,
+        current_price: float
+    ) -> float:
+        """Estimate tax impact of selling from tax lots."""
+        total_tax = 0.0
+        remaining_to_sell = sell_value
+        
+        # Sort lots by tax efficiency (LIFO for highest basis first)
+        sorted_lots = sorted(
+            tax_lots, 
+            key=lambda x: x.get('cost_basis', 0), 
+            reverse=True
+        )
+        
+        for lot in sorted_lots:
+            if remaining_to_sell <= 0:
+                break
+                
+            lot_value = lot.get('shares', 0) * current_price
+            sell_from_lot = min(remaining_to_sell, lot_value)
+            
+            cost_basis = lot.get('cost_basis', current_price) * (sell_from_lot / lot_value) * lot.get('shares', 0)
+            gain = sell_from_lot - cost_basis
+            
+            if gain > 0:
+                # Determine if short-term or long-term
+                purchase_date = datetime.fromisoformat(lot.get('purchase_date', '2020-01-01'))
+                holding_days = (datetime.now() - purchase_date).days
+                rate = self.tax_rate if holding_days < 365 else self.tax_rate * 0.5
+                total_tax += gain * rate
+                
+            remaining_to_sell -= sell_from_lot
+        
+        return total_tax
+    
+    def _apply_turnover_constraint(
+        self,
+        orders: List[RebalanceOrder],
+        portfolio_value: float
+    ) -> List[RebalanceOrder]:
+        """Apply maximum turnover constraint to orders."""
+        max_trade_value = portfolio_value * self.max_turnover
+        cumulative_turnover = 0.0
+        constrained_orders = []
+        
+        for order in orders:
+            trade_value = abs(order.trade_value)
+            
+            if cumulative_turnover + trade_value <= max_trade_value:
+                constrained_orders.append(order)
+                cumulative_turnover += trade_value
+            else:
+                # Partially execute order
+                remaining_capacity = max_trade_value - cumulative_turnover
+                if remaining_capacity > 0:
+                    scale = remaining_capacity / trade_value
+                    partial_order = RebalanceOrder(
+                        symbol=order.symbol,
+                        current_weight=order.current_weight,
+                        target_weight=order.current_weight + order.trade_weight * scale,
+                        trade_weight=order.trade_weight * scale,
+                        trade_value=order.trade_value * scale,
+                        priority=order.priority,
+                    )
+                    constrained_orders.append(partial_order)
+                break
+        
+        return constrained_orders
+    
+    def execute_gradual_rebalance(
+        self,
+        current_weights: np.ndarray,
+        target_weights: np.ndarray,
+        num_days: int = 5,
+        urgency: float = 0.5,
+    ) -> List[np.ndarray]:
+        """
+        Generate gradual rebalancing schedule.
+        
+        For large position changes, spread trades over multiple days
+        to minimize market impact.
+        
+        Args:
+            current_weights: Current portfolio weights
+            target_weights: Target portfolio weights
+            num_days: Number of days to spread trades
+            urgency: How urgent is the rebalance (0-1)
+            
+        Returns:
+            List of intermediate target weights for each day
+        """
+        # Adjust num_days based on urgency
+        effective_days = max(1, int(num_days * (1 - urgency * 0.5)))
+        
+        drift = target_weights - current_weights
+        daily_change = drift / effective_days
+        
+        schedule = []
+        for day in range(1, effective_days + 1):
+            intermediate_weights = current_weights + daily_change * day
+            schedule.append(intermediate_weights)
+        
+        return schedule
+    
+    def optimize_and_rebalance(
+        self,
+        returns: np.ndarray,
+        current_weights: np.ndarray,
+        method: str = 'hrp',
+        portfolio_value: float = 1000000,
+        asset_names: List[str] = None,
+        **kwargs
+    ) -> Tuple[PortfolioResult, List[RebalanceOrder], Optional[RebalanceSignal]]:
+        """
+        Full rebalancing pipeline: optimize and generate orders.
+        
+        Args:
+            returns: Historical returns matrix
+            current_weights: Current portfolio weights
+            method: Optimization method
+            portfolio_value: Portfolio value
+            asset_names: Asset names
+            **kwargs: Additional arguments for optimizer
+            
+        Returns:
+            Tuple of (optimization_result, orders, rebalance_signal)
+        """
+        # Optimize
+        cov_matrix = np.cov(returns.T)
+        expected_returns = np.mean(returns, axis=0)
+        
+        result = self.optimizer.optimize(
+            method=method,
+            returns=returns,
+            cov_matrix=cov_matrix,
+            expected_returns=expected_returns,
+            **kwargs
+        )
+        
+        target_weights = result.weights
+        
+        # Check if rebalance needed
+        volatilities = np.sqrt(np.diag(cov_matrix)) * np.sqrt(252)
+        signal = self.check_rebalance_needed(
+            current_weights, 
+            target_weights, 
+            volatilities
+        )
+        
+        # Generate orders if needed
+        orders = []
+        if signal:
+            if asset_names is None:
+                asset_names = [f'Asset_{i}' for i in range(len(current_weights))]
+            
+            orders = self.generate_rebalance_orders(
+                current_weights=current_weights,
+                target_weights=target_weights,
+                portfolio_value=portfolio_value,
+                asset_names=asset_names,
+            )
+            
+            # Update state
+            self._last_rebalance = datetime.now()
+            self._target_weights = target_weights.copy()
+            self._rebalance_history.append({
+                'timestamp': datetime.now().isoformat(),
+                'signal': signal.details,
+                'orders': [
+                    {
+                        'symbol': o.symbol,
+                        'trade_weight': o.trade_weight,
+                        'trade_value': o.trade_value,
+                    }
+                    for o in orders
+                ],
+            })
+        
+        return result, orders, signal
+    
+    def get_rebalance_history(self) -> List[Dict[str, Any]]:
+        """Get rebalancing history."""
+        return self._rebalance_history.copy()
+    
+    def estimate_rebalance_costs(
+        self,
+        orders: List[RebalanceOrder],
+        spread_bps: float = 5.0,
+    ) -> Dict[str, float]:
+        """
+        Estimate total costs of rebalancing.
+        
+        Args:
+            orders: List of rebalance orders
+            spread_bps: Estimated bid-ask spread in bps
+            
+        Returns:
+            Cost breakdown dictionary
+        """
+        total_turnover = sum(abs(o.trade_value) for o in orders)
+        
+        # Commission/transaction costs
+        commission = total_turnover * (self.transaction_cost_bps / 10000)
+        
+        # Spread cost (half-spread for market orders)
+        spread_cost = total_turnover * (spread_bps / 10000 / 2)
+        
+        # Market impact estimate (simplified)
+        impact_cost = total_turnover * 0.0005 * np.sqrt(total_turnover / 1000000)
+        
+        total_cost = commission + spread_cost + impact_cost
+        
+        return {
+            'total_turnover': total_turnover,
+            'commission': commission,
+            'spread_cost': spread_cost,
+            'market_impact': impact_cost,
+            'total_cost': total_cost,
+            'cost_bps': (total_cost / total_turnover * 10000) if total_turnover > 0 else 0,
+        }
+
+
+# Import datetime and Enum for rebalancer
+from datetime import datetime
+from enum import Enum
+
+
+# =============================================================================
 # EXPORTS
 # =============================================================================
 
@@ -663,4 +1123,8 @@ __all__ = [
     'KellyCriterionOptimizer',
     'MaxDiversificationOptimizer',
     'PortfolioOptimizer',
+    'RebalanceTrigger',
+    'RebalanceSignal',
+    'RebalanceOrder',
+    'DynamicRebalancer',
 ]
