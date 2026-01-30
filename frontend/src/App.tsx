@@ -28,6 +28,8 @@ import { SlideDoctrine } from './views/SlideDoctrine'
 import { Backtesting } from './views/Backtesting'
 import { MonteCarlo } from './views/MonteCarlo'
 import { Correlation } from './views/Correlation'
+import { RiskDecomposition } from './views/RiskDecomposition'
+import { ScenarioAnalysis } from './views/ScenarioAnalysis'
 
 // Neural AI views
 import { NeuralAnalysis } from './views/NeuralAnalysis'
@@ -97,6 +99,8 @@ function AppContent() {
           <Route path="/backtesting" element={<Backtesting />} />
           <Route path="/monte-carlo" element={<MonteCarlo />} />
           <Route path="/correlation" element={<Correlation />} />
+          <Route path="/risk-decomposition" element={<RiskDecomposition />} />
+          <Route path="/scenario-analysis" element={<ScenarioAnalysis />} />
 
           {/* Neural AI */}
           <Route path="/neural-analysis" element={<NeuralAnalysis />} />
