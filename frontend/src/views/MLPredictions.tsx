@@ -1,6 +1,7 @@
 import { TrendingUp, RefreshCw } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/utils/cn'
+import { api } from '@/api/client'
 
 const models = [
   { id: 'linear', name: 'Linear Regression' },
@@ -27,20 +28,20 @@ export function MLPredictions() {
     setError(null)
 
     try {
-      const response = await fetch(`/api/ml/predict/${ticker}?model=${model}&horizon=${horizon}`)
-      const result = await response.json()
+      // Using the base API client for ML predictions endpoint
+      const { data: result, error: apiError, ok } = await api.get<any>(`/api/ml/predict/${ticker}?model=${model}&horizon=${horizon}`)
 
-      if (!response.ok) {
-        throw new Error(result.detail || 'Failed to get prediction')
+      if (!ok || apiError) {
+        throw new Error(apiError?.message || 'Failed to get prediction')
       }
 
-      if (result.status === 'unavailable') {
-        setError(result.message || 'ML predictions not available. Configure ML service to enable.')
+      if ((result as any)?.status === 'unavailable') {
+        setError((result as any)?.message || 'ML predictions not available. Configure ML service to enable.')
         setPrediction(null)
         return
       }
 
-      const data = result.data || result
+      const data = (result as any)?.data || result
       const currentPrice = data.current_price || data.currentPrice || 0
       const predictedPrice = data.predicted_price || data.predictedPrice || currentPrice
       const change = currentPrice > 0 ? ((predictedPrice - currentPrice) / currentPrice) * 100 : 0

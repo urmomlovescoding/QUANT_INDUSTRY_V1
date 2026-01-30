@@ -1,11 +1,15 @@
 /**
  * Connection Status Component
  * Shows backend API and WebSocket connection status
+ * 
+ * Migrated to use apiV2 client for type-safe API calls.
  */
 
 import { useEffect, useState } from 'react'
 import { Wifi, WifiOff, Server, ServerOff, AlertCircle, CheckCircle } from 'lucide-react'
-import { healthApi } from '@/api'
+// V2 API Client
+import { apiV2 } from '@/api/v2'
+// OLD: import { healthApi } from '@/api'
 
 interface ConnectionState {
   api: 'connected' | 'disconnected' | 'checking'
@@ -34,12 +38,13 @@ export function ConnectionStatus({ wsConnected, compact = false, className = '' 
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const response = await healthApi.check()
+        // V2: apiV2.health.check() instead of healthApi.check()
+        const response = await apiV2.health.check()
         if (response.ok && response.data) {
           setState(prev => ({
             ...prev,
             api: 'connected',
-            dataMode: response.data?.market?.session || null,
+            dataMode: (response.data as any)?.market?.session || null,
             lastCheck: new Date(),
             error: null,
           }))

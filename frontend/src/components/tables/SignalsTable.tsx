@@ -1,11 +1,16 @@
 /**
  * Enhanced Signals Table - Connected to API
+ * 
+ * Migrated to use apiV2 client for type-safe API calls.
  */
 
 import { useState, useEffect, useCallback } from 'react'
 import { ArrowUpRight, ArrowDownRight, Play, X, RefreshCw, AlertCircle } from 'lucide-react'
 import { cn } from '@/utils/cn'
-import { signalsApi, Signal } from '@/api'
+import { Signal } from '@/api'
+// V2 API Client - Domain-based structure
+import { apiV2 } from '@/api/v2'
+// OLD: import { signalsApi, Signal } from '@/api'
 import { Spinner, SkeletonTable } from '@/components/ui/Loading'
 import { formatCurrency, formatPercent, formatRelativeTime } from '@/utils/format'
 
@@ -41,7 +46,8 @@ export function SignalsTable({
     setIsLoading(true)
     setError(null)
     try {
-      const response = await signalsApi.getActive()
+      // V2: apiV2.signals.getActive() instead of signalsApi.getActive()
+      const response = await apiV2.signals.getActive()
       if (response.ok && response.data) {
         setSignals(response.data)
       } else {
@@ -70,7 +76,8 @@ export function SignalsTable({
 
     setExecutingIds((prev) => new Set(prev).add(signal.id))
     try {
-      const response = await signalsApi.execute(signal.id)
+      // V2: apiV2.signals.execute() instead of signalsApi.execute()
+      const response = await apiV2.signals.execute(signal.id)
       if (response.ok) {
         // Remove from list or update status
         setSignals((prev) =>
@@ -96,7 +103,8 @@ export function SignalsTable({
     }
 
     try {
-      const response = await signalsApi.dismiss(signalId)
+      // V2: apiV2.signals.dismiss() instead of signalsApi.dismiss()
+      const response = await apiV2.signals.dismiss(signalId)
       if (response.ok) {
         setSignals((prev) => prev.filter((s) => s.id !== signalId))
       }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Shield, AlertTriangle, CheckCircle, RefreshCw, AlertCircle, Info } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { GaugeChart } from '@/components/charts/GaugeChart'
+import { apiV2 } from '@/api/v2'
 
 interface RiskLimit {
   name: string
@@ -15,7 +16,7 @@ interface RiskAlert {
   message: string
 }
 
-interface RiskMetrics {
+interface RiskMetricsDisplay {
   riskScore: number
   limits: RiskLimit[]
   alerts: RiskAlert[]
@@ -23,7 +24,7 @@ interface RiskMetrics {
 }
 
 export function RiskEngine() {
-  const [metrics, setMetrics] = useState<RiskMetrics | null>(null)
+  const [metrics, setMetrics] = useState<RiskMetricsDisplay | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,23 +33,26 @@ export function RiskEngine() {
     setError(null)
 
     try {
-      const response = await fetch('/api/risk/metrics')
-      const data = await response.json()
+      const { data, error: apiError, ok } = await apiV2.risk.getMetrics()
 
-      if (data.status === 'unavailable') {
+      if (!ok || apiError) {
+        throw new Error(apiError?.message || 'Failed to fetch risk metrics')
+      }
+
+      if (!data || (data as any).status === 'unavailable') {
         setMetrics(null)
       } else {
         // Transform API response
-        const riskScore = data.overall_risk || data.riskScore || 0
+        const riskScore = (data as any).overall_risk || (data as any).riskScore || data.risk_score || 0
         const limits: RiskLimit[] = [
-          { name: 'Max Position Size', current: data.position_concentration || 0, limit: 15, unit: '%' },
-          { name: 'Sector Concentration', current: data.sector_concentration || 0, limit: 40, unit: '%' },
-          { name: 'Max Drawdown', current: Math.abs(data.max_drawdown || 0), limit: 15, unit: '%' },
-          { name: 'Daily Loss', current: Math.abs(data.daily_loss || 0), limit: 3, unit: '%' },
+          { name: 'Max Position Size', current: (data as any).position_concentration || data.max_position_exposure || 0, limit: 15, unit: '%' },
+          { name: 'Sector Concentration', current: (data as any).sector_concentration || data.sector_concentration || 0, limit: 40, unit: '%' },
+          { name: 'Max Drawdown', current: Math.abs((data as any).max_drawdown || data.current_drawdown || 0), limit: 15, unit: '%' },
+          { name: 'Daily Loss', current: Math.abs((data as any).daily_loss || data.daily_pnl || 0), limit: 3, unit: '%' },
           { name: 'VaR 95%', current: Math.abs(data.var_95 || 0), limit: 5, unit: '%' },
         ]
 
-        const alerts: RiskAlert[] = data.alerts || []
+        const alerts: RiskAlert[] = (data as any).alerts || []
 
         setMetrics({ riskScore, limits, alerts })
       }

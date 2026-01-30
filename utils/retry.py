@@ -221,3 +221,148 @@ async def async_retry(
                 await asyncio.sleep(delay)
 
     raise last_exception
+
+
+# =============================================================================
+# Circuit Breaker Pattern
+# =============================================================================
+
+class CircuitBreakerOpen(Exception):
+    """Raised when circuit breaker is open."""
+    pass
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern implementation.
+    
+    Prevents cascading failures by temporarily blocking calls to failing services.
+    
+    States:
+        - CLOSED: Normal operation, calls pass through
+        - OPEN: Service is failing, calls blocked
+        - HALF_OPEN: Testing if service recovered
+    
+    Usage:
+        breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30)
+        
+        try:
+            with breaker:
+                result = risky_operation()
+        except CircuitBreakerOpen:
+            # Use fallback
+            result = fallback_value
+    """
+    
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+    
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_timeout: float = 30.0,
+        half_open_max_calls: int = 1,
+        name: str = "circuit_breaker"
+    ):
+        """
+        Initialize circuit breaker.
+        
+        Args:
+            failure_threshold: Number of failures before opening
+            recovery_timeout: Seconds before attempting recovery
+            half_open_max_calls: Max calls in half-open state
+            name: Name for logging
+        """
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.half_open_max_calls = half_open_max_calls
+        self.name = name
+        
+        self._state = self.CLOSED
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time: Optional[float] = None
+        self._half_open_calls = 0
+        self._lock = __import__('threading').Lock()
+    
+    @property
+    def state(self) -> str:
+        """Get current state, checking for recovery timeout."""
+        with self._lock:
+            if self._state == self.OPEN and self._last_failure_time:
+                if time.time() - self._last_failure_time >= self.recovery_timeout:
+                    self._state = self.HALF_OPEN
+                    self._half_open_calls = 0
+                    logger.info(f"CircuitBreaker '{self.name}' entering HALF_OPEN state")
+            return self._state
+    
+    def __enter__(self):
+        """Enter context - check if call should be allowed."""
+        state = self.state
+        
+        if state == self.OPEN:
+            raise CircuitBreakerOpen(f"Circuit breaker '{self.name}' is OPEN")
+        
+        if state == self.HALF_OPEN:
+            with self._lock:
+                if self._half_open_calls >= self.half_open_max_calls:
+                    raise CircuitBreakerOpen(f"Circuit breaker '{self.name}' is HALF_OPEN (max calls reached)")
+                self._half_open_calls += 1
+        
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context - record success or failure."""
+        if exc_type is not None:
+            self.record_failure()
+        else:
+            self.record_success()
+        return False  # Don't suppress exceptions
+    
+    def record_success(self):
+        """Record a successful call."""
+        with self._lock:
+            if self._state == self.HALF_OPEN:
+                self._success_count += 1
+                if self._success_count >= self.half_open_max_calls:
+                    self._state = self.CLOSED
+                    self._failure_count = 0
+                    self._success_count = 0
+                    logger.info(f"CircuitBreaker '{self.name}' recovered to CLOSED state")
+            else:
+                self._failure_count = max(0, self._failure_count - 1)
+    
+    def record_failure(self):
+        """Record a failed call."""
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.time()
+            
+            if self._state == self.HALF_OPEN:
+                self._state = self.OPEN
+                logger.warning(f"CircuitBreaker '{self.name}' back to OPEN after HALF_OPEN failure")
+            elif self._failure_count >= self.failure_threshold:
+                self._state = self.OPEN
+                logger.warning(f"CircuitBreaker '{self.name}' opened after {self._failure_count} failures")
+    
+    def reset(self):
+        """Manually reset the circuit breaker."""
+        with self._lock:
+            self._state = self.CLOSED
+            self._failure_count = 0
+            self._success_count = 0
+            self._last_failure_time = None
+            self._half_open_calls = 0
+            logger.info(f"CircuitBreaker '{self.name}' manually reset")
+    
+    def get_stats(self) -> dict:
+        """Get circuit breaker statistics."""
+        return {
+            "name": self.name,
+            "state": self.state,
+            "failure_count": self._failure_count,
+            "failure_threshold": self.failure_threshold,
+            "recovery_timeout": self.recovery_timeout,
+            "last_failure": self._last_failure_time
+        }

@@ -1,9 +1,12 @@
 /**
  * News & Events Data Hooks
  * QUANT_INDUSTRY_V1
+ * Uses the v2 API client for type-safe requests.
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { apiV2 } from '@/api/v2';
+import type { ApiResponse } from '@/api/v2';
 import {
   NewsArticle,
   NewsFeed,
@@ -15,13 +18,17 @@ import {
   HeadlineAnalysis,
 } from '@/types/news-events';
 
-import { API_ENDPOINTS } from '@/config/api';
-const API_BASE = API_ENDPOINTS.NEWS_EVENTS;
-
 interface UseNewsEventsOptions {
   symbol?: string;
   autoRefresh?: boolean;
   refreshInterval?: number;
+}
+
+/**
+ * Helper to extract error message from ApiResponse
+ */
+function getErrorMessage(response: ApiResponse<unknown>): string {
+  return response.error?.message || 'Unknown error';
 }
 
 export function useNewsFeed(options: UseNewsEventsOptions = {}) {
@@ -33,12 +40,13 @@ export function useNewsFeed(options: UseNewsEventsOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await fetch(`${API_BASE}/news${params}`);
-      if (!response.ok) throw new Error('Failed to fetch news');
-      const result = await response.json();
-      setFeed(result);
-      setError(null);
+      const response = await apiV2.newsEvents.getNews(symbol);
+      if (response.ok && response.data) {
+        setFeed(response.data as NewsFeed);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -66,14 +74,13 @@ export function useSentiment(symbol?: string, options: Omit<UseNewsEventsOptions
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const endpoint = symbol 
-        ? `${API_BASE}/sentiment/${symbol}`
-        : `${API_BASE}/sentiment/market`;
-      const response = await fetch(endpoint);
-      if (!response.ok) throw new Error('Failed to fetch sentiment');
-      const result = await response.json();
-      setMetrics(result);
-      setError(null);
+      const response = await apiV2.newsEvents.getSentiment(symbol);
+      if (response.ok && response.data) {
+        setMetrics(response.data as SentimentMetrics);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -101,12 +108,14 @@ export function useEarningsCalendar(options: UseNewsEventsOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await fetch(`${API_BASE}/earnings${params}`);
-      if (!response.ok) throw new Error('Failed to fetch earnings');
-      const result = await response.json();
-      setEarnings(result.data || result);
-      setError(null);
+      const response = await apiV2.newsEvents.getEarnings(symbol);
+      if (response.ok && response.data) {
+        const result = response.data as EarningsEvent[] | { data: EarningsEvent[] };
+        setEarnings(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -134,16 +143,13 @@ export function useEconomicCalendar(startDate?: string, endDate?: string, option
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (startDate) params.set('start', startDate);
-      if (endDate) params.set('end', endDate);
-      const queryString = params.toString() ? `?${params.toString()}` : '';
-      
-      const response = await fetch(`${API_BASE}/economic${queryString}`);
-      if (!response.ok) throw new Error('Failed to fetch economic calendar');
-      const result = await response.json();
-      setCalendar(result);
-      setError(null);
+      const response = await apiV2.newsEvents.getEconomicCalendar(startDate, endDate);
+      if (response.ok && response.data) {
+        setCalendar(response.data as EconomicCalendar);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -171,12 +177,14 @@ export function useEventSignals(options: UseNewsEventsOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await fetch(`${API_BASE}/signals${params}`);
-      if (!response.ok) throw new Error('Failed to fetch event signals');
-      const result = await response.json();
-      setSignals(result.data || result);
-      setError(null);
+      const response = await apiV2.newsEvents.getSignals(symbol);
+      if (response.ok && response.data) {
+        const result = response.data as EventSignal[] | { data: EventSignal[] };
+        setSignals(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -203,13 +211,11 @@ export function useHeadlineAnalysis() {
   const analyzeHeadline = useCallback(async (headline: string) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/analyze-headline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ headline }),
-      });
-      if (!response.ok) throw new Error('Failed to analyze headline');
-      const result = await response.json();
+      const response = await apiV2.newsEvents.analyzeHeadline(headline);
+      if (!response.ok) {
+        throw new Error(getErrorMessage(response));
+      }
+      const result = response.data as HeadlineAnalysis;
       setAnalysis(result);
       setError(null);
       return result;

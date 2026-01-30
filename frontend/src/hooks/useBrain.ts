@@ -2,10 +2,12 @@
  * useBrain Hook
  * =============
  * React hook for interacting with the ML Brain API.
+ * Uses the v2 API client for type-safe requests.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { API_BASE_URL } from '../config/api';
+import { apiV2 } from '@/api/v2';
+import type { ApiResponse } from '@/api/v2';
 
 // Types
 interface BrainStatus {
@@ -68,6 +70,13 @@ interface UseBrainReturn {
   stopPipeline: () => Promise<void>;
 }
 
+/**
+ * Helper to extract error message from ApiResponse
+ */
+function getErrorMessage(response: ApiResponse<unknown>): string {
+  return response.error?.message || 'Unknown error';
+}
+
 export const useBrain = (): UseBrainReturn => {
   const [brainStatus, setBrainStatus] = useState<BrainStatus | null>(null);
   const [signals, setSignals] = useState<Record<string, Signal> | null>(null);
@@ -80,10 +89,9 @@ export const useBrain = (): UseBrainReturn => {
   // Fetch brain status
   const fetchBrainStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/brain/status`);
-      if (response.ok) {
-        const data = await response.json();
-        setBrainStatus(data);
+      const response = await apiV2.brainLegacy.getStatus();
+      if (response.ok && response.data) {
+        setBrainStatus(response.data as BrainStatus);
       }
     } catch (err) {
       console.error('Failed to fetch brain status:', err);
@@ -93,10 +101,9 @@ export const useBrain = (): UseBrainReturn => {
   // Fetch bots
   const fetchBots = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/brain/bots`);
-      if (response.ok) {
-        const data = await response.json();
-        setBots(data);
+      const response = await apiV2.brainLegacy.getBots();
+      if (response.ok && response.data) {
+        setBots(response.data as BotStatus[]);
       }
     } catch (err) {
       console.error('Failed to fetch bots:', err);
@@ -106,10 +113,9 @@ export const useBrain = (): UseBrainReturn => {
   // Fetch features
   const fetchFeatures = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/brain/features/importance`);
-      if (response.ok) {
-        const data = await response.json();
-        setFeatures(data);
+      const response = await apiV2.brainLegacy.getFeatures();
+      if (response.ok && response.data) {
+        setFeatures(response.data as FeatureImportance[]);
       }
     } catch (err) {
       console.error('Failed to fetch features:', err);
@@ -119,10 +125,9 @@ export const useBrain = (): UseBrainReturn => {
   // Fetch signal history
   const fetchSignalHistory = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/brain/signals/history?limit=50`);
-      if (response.ok) {
-        const data = await response.json();
-        setSignalHistory(data);
+      const response = await apiV2.brainLegacy.getSignalHistory(50);
+      if (response.ok && response.data) {
+        setSignalHistory(response.data as Signal[]);
       }
     } catch (err) {
       console.error('Failed to fetch signal history:', err);
@@ -135,13 +140,10 @@ export const useBrain = (): UseBrainReturn => {
     setError(null);
     
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/brain/initialize?multi_timeframe=${multiTimeframe}`,
-        { method: 'POST' }
-      );
+      const response = await apiV2.brainLegacy.initialize(multiTimeframe);
       
       if (!response.ok) {
-        throw new Error('Failed to initialize brain');
+        throw new Error(getErrorMessage(response));
       }
       
       await fetchBrainStatus();
@@ -164,22 +166,18 @@ export const useBrain = (): UseBrainReturn => {
     setError(null);
     
     try {
-      const endpoint = brainStatus.multi_timeframe 
-        ? `${API_BASE_URL}/brain/signal/multi-timeframe?symbol=${encodeURIComponent(symbol)}`
-        : `${API_BASE_URL}/brain/signal/generate?symbol=${encodeURIComponent(symbol)}`;
-      
-      const response = await fetch(endpoint, { method: 'POST' });
+      const response = brainStatus.multi_timeframe 
+        ? await apiV2.brainLegacy.generateMultiTimeframeSignal(symbol)
+        : await apiV2.brainLegacy.generateSignal(symbol);
       
       if (!response.ok) {
-        throw new Error('Failed to generate signals');
+        throw new Error(getErrorMessage(response));
       }
       
-      const data = await response.json();
-      
-      if (brainStatus.multi_timeframe) {
-        setSignals(data.signals);
-      } else {
-        setSignals({ single: data });
+      if (brainStatus.multi_timeframe && response.data) {
+        setSignals((response.data as { signals: Record<string, Signal> }).signals);
+      } else if (response.data) {
+        setSignals({ single: response.data as Signal });
       }
       
       // Refresh related data
@@ -213,10 +211,10 @@ export const useBrain = (): UseBrainReturn => {
     setError(null);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/brain/pipeline/start`, { method: 'POST' });
+      const response = await apiV2.brainLegacy.startPipeline();
       
       if (!response.ok) {
-        throw new Error('Failed to start pipeline');
+        throw new Error(getErrorMessage(response));
       }
       
       await refreshAll();
@@ -233,10 +231,10 @@ export const useBrain = (): UseBrainReturn => {
     setError(null);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/brain/pipeline/stop`, { method: 'POST' });
+      const response = await apiV2.brainLegacy.stopPipeline();
       
       if (!response.ok) {
-        throw new Error('Failed to stop pipeline');
+        throw new Error(getErrorMessage(response));
       }
       
       await refreshAll();

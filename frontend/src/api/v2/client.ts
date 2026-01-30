@@ -558,6 +558,273 @@ export const settingsApi = {
 };
 
 // =====================================================================
+// MICROSTRUCTURE API
+// =====================================================================
+
+/**
+ * Microstructure data endpoints
+ */
+export const microstructureApi = {
+  /**
+   * Get order book for a symbol
+   */
+  getOrderBook: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/microstructure/orderbook/${encodeURIComponent(symbol)}`),
+
+  /**
+   * Get order book imbalance metrics
+   */
+  getImbalance: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/microstructure/imbalance/${encodeURIComponent(symbol)}`),
+
+  /**
+   * Get tape (time & sales) data
+   */
+  getTape: (symbol: string, limit?: number): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/microstructure/tape/${encodeURIComponent(symbol)}${buildQueryString({ limit })}`),
+
+  /**
+   * Get tape analysis
+   */
+  getTapeAnalysis: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/microstructure/tape/${encodeURIComponent(symbol)}/analysis`),
+
+  /**
+   * Get flow model metrics
+   */
+  getModelMetrics: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/api/v1/microstructure/models/metrics'),
+
+  /**
+   * Get backtest results
+   */
+  getBacktestResults: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/api/v1/microstructure/backtest/results'),
+
+  /**
+   * Run a backtest
+   */
+  runBacktest: (config: Record<string, unknown>): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>('/api/v1/microstructure/backtest/run', config),
+};
+
+// =====================================================================
+// ARBITRAGE API
+// =====================================================================
+
+/**
+ * Cross-exchange arbitrage endpoints
+ */
+export const arbitrageApi = {
+  /**
+   * Get price matrix across exchanges
+   */
+  getPrices: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/arbitrage/prices${buildQueryString({ symbol })}`),
+
+  /**
+   * Get arbitrage opportunities
+   */
+  getOpportunities: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/api/v1/arbitrage/opportunities'),
+
+  /**
+   * Execute an arbitrage opportunity
+   */
+  executeOpportunity: (id: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>(`/api/v1/arbitrage/opportunities/${encodeURIComponent(id)}/execute`),
+
+  /**
+   * Get triangular arbitrage paths
+   */
+  getTriangularPaths: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/api/v1/arbitrage/triangular'),
+
+  /**
+   * Get CEX-DEX spread
+   */
+  getCexDexSpread: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/arbitrage/cex-dex/${encodeURIComponent(symbol)}`),
+
+  /**
+   * Get CEX-DEX spread history
+   */
+  getCexDexHistory: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/arbitrage/cex-dex/${encodeURIComponent(symbol)}/history`),
+
+  /**
+   * Get exchange latency metrics
+   */
+  getLatency: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/api/v1/arbitrage/latency'),
+
+  /**
+   * Get execution history
+   */
+  getExecutions: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/api/v1/arbitrage/executions'),
+};
+
+// =====================================================================
+// NEWS & EVENTS API
+// =====================================================================
+
+/**
+ * News and events endpoints
+ */
+export const newsEventsApi = {
+  /**
+   * Get news feed
+   */
+  getNews: (symbol?: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/news-events/news${buildQueryString({ symbol })}`),
+
+  /**
+   * Get market or symbol sentiment
+   */
+  getSentiment: (symbol?: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(symbol ? `/api/v1/news-events/sentiment/${encodeURIComponent(symbol)}` : '/api/v1/news-events/sentiment/market'),
+
+  /**
+   * Get earnings calendar
+   */
+  getEarnings: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/news-events/earnings${buildQueryString({ symbol })}`),
+
+  /**
+   * Get economic calendar
+   */
+  getEconomicCalendar: (start?: string, end?: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/news-events/economic${buildQueryString({ start, end })}`),
+
+  /**
+   * Get event signals
+   */
+  getSignals: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/news-events/signals${buildQueryString({ symbol })}`),
+
+  /**
+   * Analyze a headline
+   */
+  analyzeHeadline: (headline: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>('/api/v1/news-events/analyze-headline', { headline }),
+};
+
+// =====================================================================
+// OPTIONS FLOW API (Extended)
+// =====================================================================
+
+/**
+ * Options flow endpoints (extended beyond basic options API)
+ */
+export const optionsFlowApi = {
+  /**
+   * Get unusual options activity
+   */
+  getUnusualActivity: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/options-flow/unusual${buildQueryString({ symbol })}`),
+
+  /**
+   * Get gamma exposure profile
+   */
+  getGammaExposure: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>(`/api/v1/options-flow/gamma-exposure/${encodeURIComponent(symbol)}`),
+
+  /**
+   * Get dark pool prints
+   */
+  getDarkPoolPrints: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/options-flow/dark-pool/prints${buildQueryString({ symbol })}`),
+
+  /**
+   * Get dark pool accumulation
+   */
+  getDarkPoolAccumulation: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/options-flow/dark-pool/accumulation${buildQueryString({ symbol })}`),
+
+  /**
+   * Get smart money flow
+   */
+  getSmartMoneyFlow: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/options-flow/smart-money/flow${buildQueryString({ symbol })}`),
+
+  /**
+   * Get smart money metrics
+   */
+  getSmartMoneyMetrics: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/options-flow/smart-money/metrics${buildQueryString({ symbol })}`),
+
+  /**
+   * Get flow signals
+   */
+  getFlowSignals: (symbol?: string): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/api/v1/options-flow/signals${buildQueryString({ symbol })}`),
+};
+
+// =====================================================================
+// BRAIN API (Extended for legacy endpoints)
+// =====================================================================
+
+/**
+ * Extended brain API for legacy /brain endpoints
+ */
+export const brainLegacyApi = {
+  /**
+   * Get brain status (legacy endpoint)
+   */
+  getStatus: (): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.get<Record<string, unknown>>('/brain/status'),
+
+  /**
+   * Get bots status
+   */
+  getBots: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/brain/bots'),
+
+  /**
+   * Get feature importance
+   */
+  getFeatures: (): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>('/brain/features/importance'),
+
+  /**
+   * Get signal history
+   */
+  getSignalHistory: (limit?: number): Promise<ApiResponse<Record<string, unknown>[]>> =>
+    api.get<Record<string, unknown>[]>(`/brain/signals/history${buildQueryString({ limit })}`),
+
+  /**
+   * Initialize brain
+   */
+  initialize: (multiTimeframe?: boolean): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>(`/brain/initialize${buildQueryString({ multi_timeframe: multiTimeframe })}`),
+
+  /**
+   * Generate signal (single timeframe)
+   */
+  generateSignal: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>(`/brain/signal/generate${buildQueryString({ symbol })}`),
+
+  /**
+   * Generate multi-timeframe signal
+   */
+  generateMultiTimeframeSignal: (symbol: string): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>(`/brain/signal/multi-timeframe${buildQueryString({ symbol })}`),
+
+  /**
+   * Start pipeline
+   */
+  startPipeline: (): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>('/brain/pipeline/start'),
+
+  /**
+   * Stop pipeline
+   */
+  stopPipeline: (): Promise<ApiResponse<Record<string, unknown>>> =>
+    api.post<Record<string, unknown>>('/brain/pipeline/stop'),
+};
+
+// =====================================================================
 // UNIFIED EXPORT
 // =====================================================================
 
@@ -573,10 +840,15 @@ export const apiV2 = {
   portfolio: portfolioApi,
   risk: riskApi,
   brain: brainApi,
+  brainLegacy: brainLegacyApi,
   options: optionsApi,
+  optionsFlow: optionsFlowApi,
   backtest: backtestApi,
   research: researchApi,
   settings: settingsApi,
+  microstructure: microstructureApi,
+  arbitrage: arbitrageApi,
+  newsEvents: newsEventsApi,
 } as const;
 
 export default apiV2;

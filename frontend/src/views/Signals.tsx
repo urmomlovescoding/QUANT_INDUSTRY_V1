@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Signal as SignalIcon, Filter, RefreshCw, Play, AlertCircle } from 'lucide-react'
 import { SignalsTable } from '@/components/tables/SignalsTable'
 import { Signal } from '@/api/client'
+import { apiV2 } from '@/api/v2'
 import { cn } from '@/utils/cn'
 
 export function Signals() {
@@ -15,13 +16,16 @@ export function Signals() {
     setError(null)
 
     try {
-      const response = await fetch('/api/signals/active')
-      const data = await response.json()
+      const { data, error: apiError, ok } = await apiV2.signals.getActive()
+
+      if (!ok || apiError) {
+        throw new Error(apiError?.message || 'Failed to fetch signals')
+      }
 
       if (Array.isArray(data)) {
-        setSignals(data)
-      } else if (data.signals) {
-        setSignals(data.signals)
+        setSignals(data as Signal[])
+      } else if ((data as any)?.signals) {
+        setSignals((data as any).signals)
       } else {
         setSignals([])
       }

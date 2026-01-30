@@ -2,6 +2,7 @@ import { Briefcase, Plus, Trash2, Save, Upload, RefreshCw } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { cn } from '@/utils/cn'
 import { DonutChart } from '@/components/charts/DonutChart'
+import { apiV2 } from '@/api/v2'
 
 interface Holding {
   symbol: string
@@ -28,15 +29,14 @@ export function Portfolio() {
     setError(null)
 
     try {
-      // Fetch current price from API
-      const response = await fetch(`/api/market/quote/${newTicker.toUpperCase()}`)
-      const data = await response.json()
+      // Fetch current price from API using v2 client
+      const { data, error: apiError, ok } = await apiV2.market.getQuote(newTicker.toUpperCase())
 
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to fetch price')
+      if (!ok || apiError) {
+        throw new Error(apiError?.message || 'Failed to fetch price')
       }
 
-      const currentPrice = data.price || parseFloat(newCost)
+      const currentPrice = data?.price || parseFloat(newCost)
 
       setHoldings([...holdings, {
         symbol: newTicker.toUpperCase(),
@@ -65,9 +65,8 @@ export function Portfolio() {
       const updatedHoldings = await Promise.all(
         holdings.map(async (h) => {
           try {
-            const response = await fetch(`/api/market/quote/${h.symbol}`)
-            const data = await response.json()
-            return { ...h, currentPrice: data.price || h.currentPrice }
+            const { data, ok } = await apiV2.market.getQuote(h.symbol)
+            return { ...h, currentPrice: ok && data?.price ? data.price : h.currentPrice }
           } catch {
             return h
           }

@@ -28,6 +28,7 @@ import {
   Gauge,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { apiV2 } from '@/api/v2'
 import {
   AreaChart,
   Area,
@@ -202,9 +203,8 @@ export function UnifiedBrain() {
   // Fetch Brain V6 status
   const fetchBrainStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/brain-v6/status')
-      if (res.ok) {
-        const data = await res.json()
+      const { data, ok } = await apiV2.brain.getStatus()
+      if (ok && data) {
         setBrainV6Status(data)
       }
     } catch (error) {
@@ -215,9 +215,8 @@ export function UnifiedBrain() {
   // Generate live signal
   const generateLiveSignal = useCallback(async () => {
     try {
-      const res = await fetch(`/api/brain-v6/signal/${signalSymbol}`)
-      if (res.ok) {
-        const data = await res.json()
+      const { data, ok } = await apiV2.brain.generateSignal({ symbol: signalSymbol })
+      if (ok && data) {
         setLiveSignal(data)
       }
     } catch (error) {

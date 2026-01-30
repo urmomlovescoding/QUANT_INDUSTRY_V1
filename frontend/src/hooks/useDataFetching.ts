@@ -4,6 +4,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
+import { apiV2 } from '@/api/v2'
 
 interface UseAutoRefreshOptions {
   enabled?: boolean
@@ -268,14 +269,14 @@ export function useQuote(symbol: string) {
     if (!symbol) return
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/quote/${symbol}`)
-      if (response.ok) {
-        const data = await response.json()
+      // Using v2 API client for quote fetch
+      const { data, ok, error: apiError } = await apiV2.market.getQuote(symbol)
+      if (ok && data) {
         setQuote(data)
         setQuoteInStore(symbol, data)
         setError(null)
       } else {
-        setError('Failed to fetch quote')
+        setError(apiError?.message || 'Failed to fetch quote')
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')

@@ -1,5 +1,7 @@
 /**
  * Global State Management with Zustand
+ * 
+ * Migrated to use apiV2 client for type-safe API calls.
  */
 
 import { create } from 'zustand'
@@ -16,14 +18,19 @@ import type {
   Quote,
   SafetyStatus,
 } from '@/api'
-import {
-  brainApi,
-  feedbackApi,
-  signalsApi,
-  portfolioApi,
-  riskApi,
-  marketApi,
-} from '@/api'
+
+// V2 API Client - Domain-based structure
+import { apiV2 } from '@/api/v2'
+
+// OLD API imports (kept as fallback reference)
+// import {
+//   brainApi,
+//   feedbackApi,
+//   signalsApi,
+//   portfolioApi,
+//   riskApi,
+//   marketApi,
+// } from '@/api'
 
 // ==================== TYPES ====================
 
@@ -255,11 +262,14 @@ export const useAppStore = create<AppStore>()(
         clearErrors: () => set({ errors: {} }),
 
         // Fetch Actions
+        // ==================== FETCH ACTIONS (using apiV2) ====================
+        
         fetchMarketStatus: async () => {
           const { setLoading, setError, setMarketStatus } = get()
           setLoading('marketStatus', true)
           try {
-            const response = await marketApi.getMarketStatus()
+            // V2: apiV2.market.getStatus() instead of marketApi.getMarketStatus()
+            const response = await apiV2.market.getStatus()
             if (response.ok && response.data) {
               setMarketStatus(response.data)
               setError('marketStatus', null)
@@ -276,9 +286,10 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setTickers } = get()
           setLoading('tickers', true)
           try {
-            const response = await marketApi.getTickers()
+            // V2: apiV2.market.getTickers() instead of marketApi.getTickers()
+            const response = await apiV2.market.getTickers()
             if (response.ok && response.data) {
-              setTickers(response.data)
+              setTickers(response.data as MarketTicker[])
               setError('tickers', null)
             } else {
               setError('tickers', response.error?.message || 'Failed to fetch')
@@ -293,7 +304,8 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setSignals } = get()
           setLoading('signals', true)
           try {
-            const response = await signalsApi.getActive()
+            // V2: apiV2.signals.getActive() instead of signalsApi.getActive()
+            const response = await apiV2.signals.getActive()
             if (response.ok && response.data) {
               setSignals(response.data)
               setError('signals', null)
@@ -310,7 +322,8 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setPositions } = get()
           setLoading('positions', true)
           try {
-            const response = await portfolioApi.getPositions()
+            // V2: apiV2.positions.getAll() instead of portfolioApi.getPositions()
+            const response = await apiV2.positions.getAll()
             if (response.ok && response.data) {
               setPositions(response.data)
               setError('positions', null)
@@ -327,7 +340,8 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setPortfolio } = get()
           setLoading('portfolio', true)
           try {
-            const response = await portfolioApi.getPortfolio()
+            // V2: apiV2.portfolio.get() instead of portfolioApi.getPortfolio()
+            const response = await apiV2.portfolio.get()
             if (response.ok && response.data) {
               setPortfolio(response.data)
               setError('portfolio', null)
@@ -344,7 +358,8 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setBrainStatus } = get()
           setLoading('brainStatus', true)
           try {
-            const response = await brainApi.getStatus()
+            // V2: apiV2.brain.getStatus() instead of brainApi.getStatus()
+            const response = await apiV2.brain.getStatus()
             if (response.ok && response.data) {
               setBrainStatus(response.data)
               setError('brainStatus', null)
@@ -361,7 +376,8 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setFeedbackStatus } = get()
           setLoading('feedbackStatus', true)
           try {
-            const response = await feedbackApi.getStatus()
+            // V2: apiV2.brain.getFeedbackStatus() instead of feedbackApi.getStatus()
+            const response = await apiV2.brain.getFeedbackStatus()
             if (response.ok && response.data) {
               setFeedbackStatus(response.data)
               setError('feedbackStatus', null)
@@ -378,7 +394,8 @@ export const useAppStore = create<AppStore>()(
           const { setLoading, setError, setRiskMetrics } = get()
           setLoading('riskMetrics', true)
           try {
-            const response = await riskApi.getMetrics()
+            // V2: apiV2.risk.getMetrics() instead of riskApi.getMetrics()
+            const response = await apiV2.risk.getMetrics()
             if (response.ok && response.data) {
               setRiskMetrics(response.data)
               setError('riskMetrics', null)

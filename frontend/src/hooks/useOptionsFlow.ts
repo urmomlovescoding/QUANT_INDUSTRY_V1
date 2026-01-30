@@ -1,9 +1,12 @@
 /**
  * Options Flow Data Hooks
  * QUANT_INDUSTRY_V1
+ * Uses the v2 API client for type-safe requests.
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { apiV2 } from '@/api/v2';
+import type { ApiResponse } from '@/api/v2';
 import {
   UnusualActivity,
   GammaExposureProfile,
@@ -14,13 +17,17 @@ import {
   FlowSignal,
 } from '@/types/options-flow';
 
-import { API_ENDPOINTS } from '@/config/api';
-const API_BASE = API_ENDPOINTS.OPTIONS_FLOW;
-
 interface UseOptionsFlowOptions {
   symbol?: string;
   autoRefresh?: boolean;
   refreshInterval?: number;
+}
+
+/**
+ * Helper to extract error message from ApiResponse
+ */
+function getErrorMessage(response: ApiResponse<unknown>): string {
+  return response.error?.message || 'Unknown error';
 }
 
 export function useUnusualActivity(options: UseOptionsFlowOptions = {}) {
@@ -32,12 +39,14 @@ export function useUnusualActivity(options: UseOptionsFlowOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await window.fetch(`${API_BASE}/unusual${params}`);
-      if (!response.ok) throw new Error('Failed to fetch unusual activity');
-      const result = await response.json();
-      setData(result.data || result);
-      setError(null);
+      const response = await apiV2.optionsFlow.getUnusualActivity(symbol);
+      if (response.ok && response.data) {
+        const result = response.data as UnusualActivity[] | { data: UnusualActivity[] };
+        setData(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -65,11 +74,13 @@ export function useGammaExposure(symbol: string) {
     if (!symbol) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/gamma-exposure/${symbol}`);
-      if (!response.ok) throw new Error('Failed to fetch gamma exposure');
-      const result = await response.json();
-      setData(result);
-      setError(null);
+      const response = await apiV2.optionsFlow.getGammaExposure(symbol);
+      if (response.ok && response.data) {
+        setData(response.data as GammaExposureProfile);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -96,19 +107,18 @@ export function useDarkPool(options: UseOptionsFlowOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
       const [printsRes, accumRes] = await Promise.all([
-        fetch(`${API_BASE}/dark-pool/prints${params}`),
-        fetch(`${API_BASE}/dark-pool/accumulation${params}`),
+        apiV2.optionsFlow.getDarkPoolPrints(symbol),
+        apiV2.optionsFlow.getDarkPoolAccumulation(symbol),
       ]);
       
-      if (printsRes.ok) {
-        const printsData = await printsRes.json();
-        setPrints(printsData.data || printsData);
+      if (printsRes.ok && printsRes.data) {
+        const result = printsRes.data as DarkPoolPrint[] | { data: DarkPoolPrint[] };
+        setPrints(Array.isArray(result) ? result : result.data || []);
       }
-      if (accumRes.ok) {
-        const accumData = await accumRes.json();
-        setAccumulation(accumData.data || accumData);
+      if (accumRes.ok && accumRes.data) {
+        const result = accumRes.data as DarkPoolAccumulation[] | { data: DarkPoolAccumulation[] };
+        setAccumulation(Array.isArray(result) ? result : result.data || []);
       }
       setError(null);
     } catch (e) {
@@ -139,19 +149,18 @@ export function useSmartMoney(options: UseOptionsFlowOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
       const [flowRes, metricsRes] = await Promise.all([
-        fetch(`${API_BASE}/smart-money/flow${params}`),
-        fetch(`${API_BASE}/smart-money/metrics${params}`),
+        apiV2.optionsFlow.getSmartMoneyFlow(symbol),
+        apiV2.optionsFlow.getSmartMoneyMetrics(symbol),
       ]);
       
-      if (flowRes.ok) {
-        const flowData = await flowRes.json();
-        setFlow(flowData.data || flowData);
+      if (flowRes.ok && flowRes.data) {
+        const result = flowRes.data as InstitutionalFlow[] | { data: InstitutionalFlow[] };
+        setFlow(Array.isArray(result) ? result : result.data || []);
       }
-      if (metricsRes.ok) {
-        const metricsData = await metricsRes.json();
-        setMetrics(metricsData.data || metricsData);
+      if (metricsRes.ok && metricsRes.data) {
+        const result = metricsRes.data as SmartMoneyMetrics[] | { data: SmartMoneyMetrics[] };
+        setMetrics(Array.isArray(result) ? result : result.data || []);
       }
       setError(null);
     } catch (e) {
@@ -181,12 +190,14 @@ export function useFlowSignals(options: UseOptionsFlowOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await fetch(`${API_BASE}/signals${params}`);
-      if (!response.ok) throw new Error('Failed to fetch flow signals');
-      const result = await response.json();
-      setSignals(result.data || result);
-      setError(null);
+      const response = await apiV2.optionsFlow.getFlowSignals(symbol);
+      if (response.ok && response.data) {
+        const result = response.data as FlowSignal[] | { data: FlowSignal[] };
+        setSignals(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {

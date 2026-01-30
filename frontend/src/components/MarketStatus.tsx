@@ -1,5 +1,13 @@
+/**
+ * Market Status Component
+ * 
+ * Migrated to use apiV2 client for type-safe API calls.
+ */
+
 import { useState, useEffect, useCallback } from 'react'
 import { Clock, Sun, Moon, Coffee, AlertTriangle } from 'lucide-react'
+// V2 API Client
+import { apiV2 } from '@/api/v2'
 
 interface MarketStatusData {
   session: string
@@ -22,24 +30,20 @@ export function MarketStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      // Try dedicated endpoint first, fall back to health endpoint
-      let res = await fetch('/api/market/status')
-      if (res.ok) {
-        const data = await res.json()
-        setStatus(data)
+      // V2: apiV2.market.getStatus() instead of raw fetch
+      const response = await apiV2.market.getStatus()
+      if (response.ok && response.data) {
+        setStatus(response.data as unknown as MarketStatusData)
         setError(null)
         return
       }
 
       // Fallback to health endpoint which includes market info
-      res = await fetch('/api/health')
-      if (res.ok) {
-        const health = await res.json()
-        if (health.market) {
-          setStatus(health.market)
-          setError(null)
-          return
-        }
+      const healthResponse = await apiV2.health.check()
+      if (healthResponse.ok && healthResponse.data?.market) {
+        setStatus(healthResponse.data.market as unknown as MarketStatusData)
+        setError(null)
+        return
       }
 
       setError('Failed to fetch market status')

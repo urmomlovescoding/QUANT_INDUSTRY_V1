@@ -1,6 +1,7 @@
 import { Settings as SettingsIcon, Bell, Shield, Database, Zap, Key, CheckCircle, XCircle, AlertCircle, RefreshCw, Eye, EyeOff, Palette } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/utils/cn'
+import { apiV2 } from '@/api/v2'
 
 // API Configuration Types
 interface APIProvider {
@@ -409,14 +410,13 @@ function DataSettings() {
 
   const loadApiKeys = async () => {
     try {
-      const response = await fetch('/api/settings/api-keys')
-      if (response.ok) {
-        const data = await response.json()
-        setApiValues(data.keys || {})
-        // Update provider statuses
+      const { data, ok } = await apiV2.settings.getApiKeys()
+      if (ok && data) {
+        // The API returns which keys are configured (boolean flags)
+        // Map to provider statuses
         setProviders(prev => prev.map(p => ({
           ...p,
-          status: data.keys?.[p.id] ? 'connected' : 'disconnected'
+          status: (data as any)[p.id] ? 'connected' : 'disconnected'
         })))
       }
     } catch (error) {

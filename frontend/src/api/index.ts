@@ -1,7 +1,19 @@
 /**
  * API Module Exports
+ * 
+ * Note: New code should use `apiV2` from '@/api/v2' for type-safe API calls.
+ * The old API exports below are maintained for backward compatibility.
  */
 
+// =====================================================================
+// V2 API CLIENT (RECOMMENDED)
+// =====================================================================
+// Re-export v2 client for easy access
+export { apiV2, default as apiV2Default } from './v2'
+
+// =====================================================================
+// LEGACY API EXPORTS (use apiV2 instead for new code)
+// =====================================================================
 export {
   api,
   healthApi,

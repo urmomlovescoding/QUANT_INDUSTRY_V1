@@ -18,6 +18,12 @@
  *   order_type: 'limit',
  *   limit_price: 150.00
  * });
+ * 
+ * // Fetch microstructure data
+ * const orderBook = await apiV2.microstructure.getOrderBook('AAPL');
+ * 
+ * // Get arbitrage opportunities
+ * const arb = await apiV2.arbitrage.getOpportunities();
  * ```
  * 
  * @module api/v2
@@ -36,10 +42,15 @@ export {
   portfolioApi,
   riskApi,
   brainApi,
+  brainLegacyApi,
   optionsApi,
+  optionsFlowApi,
   backtestApi,
   researchApi,
   settingsApi,
+  microstructureApi,
+  arbitrageApi,
+  newsEventsApi,
 } from './client';
 
 // Re-export all types

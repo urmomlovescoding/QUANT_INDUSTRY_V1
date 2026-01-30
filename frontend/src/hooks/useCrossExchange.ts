@@ -1,9 +1,12 @@
 /**
  * Cross-Exchange Arbitrage Data Hooks
  * QUANT_INDUSTRY_V1
+ * Uses the v2 API client for type-safe requests.
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { apiV2 } from '@/api/v2';
+import type { ApiResponse } from '@/api/v2';
 import {
   PriceMatrix,
   ArbOpportunity,
@@ -14,13 +17,17 @@ import {
   ArbExecution,
 } from '@/types/cross-exchange';
 
-import { API_ENDPOINTS } from '@/config/api';
-const API_BASE = API_ENDPOINTS.ARBITRAGE;
-
 interface UseCrossExchangeOptions {
   symbol?: string;
   autoRefresh?: boolean;
   refreshInterval?: number;
+}
+
+/**
+ * Helper to extract error message from ApiResponse
+ */
+function getErrorMessage(response: ApiResponse<unknown>): string {
+  return response.error?.message || 'Unknown error';
 }
 
 export function usePriceMatrix(options: UseCrossExchangeOptions = {}) {
@@ -32,12 +39,14 @@ export function usePriceMatrix(options: UseCrossExchangeOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = symbol ? `?symbol=${symbol}` : '';
-      const response = await fetch(`${API_BASE}/prices${params}`);
-      if (!response.ok) throw new Error('Failed to fetch price matrix');
-      const result = await response.json();
-      setData(result.data || result);
-      setError(null);
+      const response = await apiV2.arbitrage.getPrices(symbol);
+      if (response.ok && response.data) {
+        const result = response.data as PriceMatrix[] | { data: PriceMatrix[] };
+        setData(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -65,11 +74,14 @@ export function useArbOpportunities(options: UseCrossExchangeOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/opportunities`);
-      if (!response.ok) throw new Error('Failed to fetch opportunities');
-      const result = await response.json();
-      setOpportunities(result.data || result);
-      setError(null);
+      const response = await apiV2.arbitrage.getOpportunities();
+      if (response.ok && response.data) {
+        const result = response.data as ArbOpportunity[] | { data: ArbOpportunity[] };
+        setOpportunities(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -79,13 +91,12 @@ export function useArbOpportunities(options: UseCrossExchangeOptions = {}) {
 
   const executeOpportunity = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`${API_BASE}/opportunities/${id}/execute`, {
-        method: 'POST',
-      });
-      if (!response.ok) throw new Error('Failed to execute opportunity');
-      const result = await response.json();
+      const response = await apiV2.arbitrage.executeOpportunity(id);
+      if (!response.ok) {
+        throw new Error(getErrorMessage(response));
+      }
       await fetchData();
-      return result;
+      return response.data;
     } catch (e) {
       throw e;
     }
@@ -111,11 +122,14 @@ export function useTriangularArb(options: UseCrossExchangeOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/triangular`);
-      if (!response.ok) throw new Error('Failed to fetch triangular arb');
-      const result = await response.json();
-      setPaths(result.data || result);
-      setError(null);
+      const response = await apiV2.arbitrage.getTriangularPaths();
+      if (response.ok && response.data) {
+        const result = response.data as TriangularArbPath[] | { data: TriangularArbPath[] };
+        setPaths(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -146,17 +160,15 @@ export function useCexDexSpread(symbol: string, options: Omit<UseCrossExchangeOp
     setIsLoading(true);
     try {
       const [spreadRes, historyRes] = await Promise.all([
-        fetch(`${API_BASE}/cex-dex/${symbol}`),
-        fetch(`${API_BASE}/cex-dex/${symbol}/history`),
+        apiV2.arbitrage.getCexDexSpread(symbol),
+        apiV2.arbitrage.getCexDexHistory(symbol),
       ]);
       
-      if (spreadRes.ok) {
-        const spreadData = await spreadRes.json();
-        setSpread(spreadData);
+      if (spreadRes.ok && spreadRes.data) {
+        setSpread(spreadRes.data as CexDexSpread);
       }
-      if (historyRes.ok) {
-        const historyData = await historyRes.json();
-        setHistory(historyData);
+      if (historyRes.ok && historyRes.data) {
+        setHistory(historyRes.data as CexDexSpreadHistory);
       }
       setError(null);
     } catch (e) {
@@ -186,11 +198,14 @@ export function useExchangeLatency(options: UseCrossExchangeOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/latency`);
-      if (!response.ok) throw new Error('Failed to fetch latency');
-      const result = await response.json();
-      setLatencies(result.data || result);
-      setError(null);
+      const response = await apiV2.arbitrage.getLatency();
+      if (response.ok && response.data) {
+        const result = response.data as ExchangeLatency[] | { data: ExchangeLatency[] };
+        setLatencies(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -218,11 +233,14 @@ export function useArbExecutions(options: UseCrossExchangeOptions = {}) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/executions`);
-      if (!response.ok) throw new Error('Failed to fetch executions');
-      const result = await response.json();
-      setExecutions(result.data || result);
-      setError(null);
+      const response = await apiV2.arbitrage.getExecutions();
+      if (response.ok && response.data) {
+        const result = response.data as ArbExecution[] | { data: ArbExecution[] };
+        setExecutions(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {

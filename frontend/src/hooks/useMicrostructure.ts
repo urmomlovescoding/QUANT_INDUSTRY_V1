@@ -1,9 +1,12 @@
 /**
  * Microstructure Data Hooks
  * QUANT_INDUSTRY_V1
+ * Uses the v2 API client for type-safe requests.
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { apiV2 } from '@/api/v2';
+import type { ApiResponse } from '@/api/v2';
 import {
   OrderBook,
   OrderBookHeatmapData,
@@ -14,13 +17,17 @@ import {
   OrderFlowBacktestResult,
 } from '@/types/microstructure';
 
-import { API_ENDPOINTS } from '@/config/api';
-const API_BASE = API_ENDPOINTS.MICROSTRUCTURE;
-
 interface UseMicrostructureOptions {
   symbol?: string;
   autoRefresh?: boolean;
   refreshInterval?: number;
+}
+
+/**
+ * Helper to extract error message from ApiResponse
+ */
+function getErrorMessage(response: ApiResponse<unknown>): string {
+  return response.error?.message || 'Unknown error';
 }
 
 export function useOrderBook(symbol: string, options: Omit<UseMicrostructureOptions, 'symbol'> = {}) {
@@ -34,23 +41,26 @@ export function useOrderBook(symbol: string, options: Omit<UseMicrostructureOpti
     if (!symbol) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/orderbook/${symbol}`);
-      if (!response.ok) throw new Error('Failed to fetch order book');
-      const result = await response.json();
-      setData(result);
-      
-      // Append to history for heatmap
-      if (result.bids && result.asks) {
-        const heatmapEntry: OrderBookHeatmapData = {
-          timestamp: result.timestamp,
-          priceLevel: result.midPrice,
-          bidSize: result.bids.reduce((sum: number, b: any) => sum + b.size, 0),
-          askSize: result.asks.reduce((sum: number, a: any) => sum + a.size, 0),
-          intensity: Math.abs(result.imbalance),
-        };
-        setHistory(prev => [...prev.slice(-100), heatmapEntry]);
+      const response = await apiV2.microstructure.getOrderBook(symbol);
+      if (response.ok && response.data) {
+        const result = response.data as OrderBook;
+        setData(result);
+        
+        // Append to history for heatmap
+        if (result.bids && result.asks) {
+          const heatmapEntry: OrderBookHeatmapData = {
+            timestamp: result.timestamp,
+            priceLevel: result.midPrice,
+            bidSize: result.bids.reduce((sum: number, b: { size: number }) => sum + b.size, 0),
+            askSize: result.asks.reduce((sum: number, a: { size: number }) => sum + a.size, 0),
+            intensity: Math.abs(result.imbalance),
+          };
+          setHistory(prev => [...prev.slice(-100), heatmapEntry]);
+        }
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
       }
-      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -79,11 +89,13 @@ export function useImbalance(symbol: string, options: Omit<UseMicrostructureOpti
     if (!symbol) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/imbalance/${symbol}`);
-      if (!response.ok) throw new Error('Failed to fetch imbalance');
-      const result = await response.json();
-      setData(result);
-      setError(null);
+      const response = await apiV2.microstructure.getImbalance(symbol);
+      if (response.ok && response.data) {
+        setData(response.data as ImbalanceMetrics);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -114,17 +126,16 @@ export function useTape(symbol: string, options: Omit<UseMicrostructureOptions, 
     setIsLoading(true);
     try {
       const [entriesRes, analysisRes] = await Promise.all([
-        fetch(`${API_BASE}/tape/${symbol}?limit=100`),
-        fetch(`${API_BASE}/tape/${symbol}/analysis`),
+        apiV2.microstructure.getTape(symbol, 100),
+        apiV2.microstructure.getTapeAnalysis(symbol),
       ]);
       
-      if (entriesRes.ok) {
-        const entriesData = await entriesRes.json();
-        setEntries(entriesData.data || entriesData);
+      if (entriesRes.ok && entriesRes.data) {
+        const result = entriesRes.data as TapeEntry[] | { data: TapeEntry[] };
+        setEntries(Array.isArray(result) ? result : result.data || []);
       }
-      if (analysisRes.ok) {
-        const analysisData = await analysisRes.json();
-        setAnalysis(analysisData);
+      if (analysisRes.ok && analysisRes.data) {
+        setAnalysis(analysisRes.data as TapeAnalysis);
       }
       setError(null);
     } catch (e) {
@@ -153,11 +164,14 @@ export function useFlowModels() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/models/metrics`);
-      if (!response.ok) throw new Error('Failed to fetch model metrics');
-      const result = await response.json();
-      setMetrics(result.data || result);
-      setError(null);
+      const response = await apiV2.microstructure.getModelMetrics();
+      if (response.ok && response.data) {
+        const result = response.data as FlowModelMetrics[] | { data: FlowModelMetrics[] };
+        setMetrics(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -182,11 +196,14 @@ export function useFlowBacktest() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/backtest/results`);
-      if (!response.ok) throw new Error('Failed to fetch backtest results');
-      const result = await response.json();
-      setResults(result.data || result);
-      setError(null);
+      const response = await apiV2.microstructure.getBacktestResults();
+      if (response.ok && response.data) {
+        const result = response.data as OrderFlowBacktestResult[] | { data: OrderFlowBacktestResult[] };
+        setResults(Array.isArray(result) ? result : result.data || []);
+        setError(null);
+      } else {
+        throw new Error(getErrorMessage(response));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
@@ -194,16 +211,14 @@ export function useFlowBacktest() {
     }
   }, []);
 
-  const runBacktest = useCallback(async (config: any) => {
+  const runBacktest = useCallback(async (config: Record<string, unknown>) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/backtest/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-      if (!response.ok) throw new Error('Failed to run backtest');
-      const result = await response.json();
+      const response = await apiV2.microstructure.runBacktest(config);
+      if (!response.ok) {
+        throw new Error(getErrorMessage(response));
+      }
+      const result = response.data as OrderFlowBacktestResult;
       setResults(prev => [result, ...prev]);
       setError(null);
       return result;

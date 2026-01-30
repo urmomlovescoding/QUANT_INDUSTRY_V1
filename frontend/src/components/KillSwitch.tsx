@@ -1,12 +1,16 @@
 /**
  * Kill Switch Component
  * Emergency trading halt with confirmation dialog
+ * 
+ * Migrated to use apiV2 client for type-safe API calls.
  */
 
 import { useState, useCallback } from 'react';
 import { AlertTriangle, ShieldOff, ShieldCheck, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
-import { decisionIntelApi } from '@/api';
+// V2 API Client
+import { apiV2 } from '@/api/v2';
+// OLD: import { decisionIntelApi } from '@/api';
 import { useToastSafe } from '@/components/ui/Toast';
 import { Spinner } from '@/components/ui/LoadingStates';
 
@@ -24,9 +28,10 @@ export function KillSwitch({ compact = true, className }: KillSwitchProps) {
 
   const checkStatus = useCallback(async () => {
     try {
-      const response = await decisionIntelApi.getControlPlaneStatus();
+      // V2: apiV2.risk.getKillSwitchStatus() instead of decisionIntelApi.getControlPlaneStatus()
+      const response = await apiV2.risk.getKillSwitchStatus();
       if (response.ok && response.data) {
-        setIsEngaged(response.data.kill_switch_engaged);
+        setIsEngaged(response.data.engaged);
       }
     } catch (e) {
       console.error('Failed to check kill switch status:', e);
@@ -41,7 +46,8 @@ export function KillSwitch({ compact = true, className }: KillSwitchProps) {
 
     setIsLoading(true);
     try {
-      const response = await decisionIntelApi.engageKillSwitch(reason);
+      // V2: apiV2.risk.activateKillSwitch() instead of decisionIntelApi.engageKillSwitch()
+      const response = await apiV2.risk.activateKillSwitch({ reason });
       if (response.ok) {
         setIsEngaged(true);
         setShowConfirm(false);
@@ -64,7 +70,8 @@ export function KillSwitch({ compact = true, className }: KillSwitchProps) {
 
     setIsLoading(true);
     try {
-      const response = await decisionIntelApi.releaseKillSwitch(reason);
+      // V2: apiV2.risk.deactivateKillSwitch() instead of decisionIntelApi.releaseKillSwitch()
+      const response = await apiV2.risk.deactivateKillSwitch();
       if (response.ok) {
         setIsEngaged(false);
         setShowConfirm(false);

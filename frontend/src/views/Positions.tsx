@@ -13,6 +13,8 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { apiV2 } from '@/api/v2'
+import { api } from '@/api/client'
 
 interface Position {
   id: string
@@ -77,18 +79,16 @@ export function Positions() {
       setError(null)
 
       try {
-        // Fetch open positions
-        const posResponse = await fetch('/api/positions')
-        if (posResponse.ok) {
-          const posData = await posResponse.json()
-          const posList = Array.isArray(posData) ? posData : (posData.positions || [])
+        // Fetch open positions using v2 client
+        const { data: posData, ok: posOk } = await apiV2.positions.getAll()
+        if (posOk && posData) {
+          const posList = Array.isArray(posData) ? posData : ((posData as any).positions || [])
           setPositions(posList.map(transformPosition))
         }
 
-        // Fetch closed trades
-        const tradesResponse = await fetch('/api/algobot/trades')
-        if (tradesResponse.ok) {
-          const tradesData = await tradesResponse.json()
+        // Fetch closed trades using base API client
+        const { data: tradesData, ok: tradesOk } = await api.get<any>('/api/algobot/trades')
+        if (tradesOk && tradesData) {
           const tradesList = Array.isArray(tradesData) ? tradesData : (tradesData.trades || [])
           if (tradesList.length > 0) {
             setClosedTrades(tradesList.map((t: any) => ({
