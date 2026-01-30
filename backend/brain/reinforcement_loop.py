@@ -50,7 +50,6 @@ try:
 except ImportError:
     SB3_AVAILABLE = False
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

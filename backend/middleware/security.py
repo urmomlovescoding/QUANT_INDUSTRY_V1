@@ -3,11 +3,13 @@ Security Middleware for QUANT INDUSTRY API
 Rate limiting, input validation, security headers
 """
 import logging
+import os
 import re
 import time
+import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -18,54 +20,99 @@ logger = logging.getLogger(__name__)
 
 class RateLimiter:
     """
-    Token bucket rate limiter with per-endpoint and per-IP tracking
+    Token bucket rate limiter with per-endpoint and per-IP tracking.
+
+    Features:
+    - Per-second, per-minute, and burst rate limiting
+    - Automatic cleanup of expired entries to prevent memory leaks
+    - Thread-safe operations
+    - Bounded memory usage with max tracked clients limit
     """
+
+    # Maximum number of unique client keys to track (prevents memory exhaustion)
+    MAX_TRACKED_CLIENTS = 10000
 
     def __init__(
         self,
         requests_per_minute: int = 60,
         requests_per_second: int = 10,
-        burst_size: int = 20
+        burst_size: int = 20,
     ):
         self.rpm = requests_per_minute
         self.rps = requests_per_second
         self.burst = burst_size
         self._requests: Dict[str, list] = defaultdict(list)
         self._last_cleanup = time.time()
+        self._lock = threading.Lock()
 
-    def _cleanup_old_requests(self, key: str):
-        """Remove requests older than 1 minute"""
+    def _cleanup(self):
+        """Remove expired entries and evict oldest clients if over limit."""
         now = time.time()
-        if now - self._last_cleanup > 60:
-            # Full cleanup every minute
-            for k in list(self._requests.keys()):
-                self._requests[k] = [t for t in self._requests[k] if now - t < 60]
-            self._last_cleanup = now
-        else:
-            # Just cleanup this key
-            self._requests[key] = [t for t in self._requests[key] if now - t < 60]
 
-    def is_allowed(self, client_id: str, endpoint: str = "") -> tuple[bool, dict]:
+        # Only run full cleanup periodically (every 30 seconds)
+        if now - self._last_cleanup < 30:
+            return
+
+        with self._lock:
+            # Remove expired timestamps from all keys
+            keys_to_delete = []
+            for key in list(self._requests.keys()):
+                self._requests[key] = [t for t in self._requests[key] if now - t < 60]
+                if not self._requests[key]:
+                    keys_to_delete.append(key)
+
+            # Remove empty keys
+            for key in keys_to_delete:
+                del self._requests[key]
+
+            # Evict oldest entries if over limit
+            if len(self._requests) > self.MAX_TRACKED_CLIENTS:
+                # Find keys with oldest last request and remove them
+                sorted_keys = sorted(
+                    self._requests.keys(),
+                    key=lambda k: max(self._requests[k]) if self._requests[k] else 0,
+                )
+                excess = len(self._requests) - self.MAX_TRACKED_CLIENTS
+                for key in sorted_keys[:excess]:
+                    del self._requests[key]
+
+            self._last_cleanup = now
+
+    def _cleanup_key(self, key: str):
+        """Remove expired entries for a specific key."""
+        now = time.time()
+        self._requests[key] = [t for t in self._requests[key] if now - t < 60]
+
+    def is_allowed(self, client_id: str, endpoint: str = "") -> Tuple[bool, dict]:
         """
-        Check if request is allowed under rate limits
+        Check if request is allowed under rate limits.
+
+        Args:
+            client_id: Client identifier (usually IP address)
+            endpoint: Optional endpoint path for per-endpoint limiting
 
         Returns:
-            (allowed: bool, info: dict with remaining/retry_after)
+            Tuple of (allowed, info_dict) where info_dict contains
+            remaining requests, retry_after, limit, and window.
         """
         key = f"{client_id}:{endpoint}" if endpoint else client_id
         now = time.time()
 
-        self._cleanup_old_requests(key)
+        # Run periodic cleanup
+        self._cleanup()
+
+        # Clean up this specific key
+        self._cleanup_key(key)
         requests = self._requests[key]
 
         # Check requests per second (last 1 second)
-        recent_second = len([t for t in requests if now - t < 1])
+        recent_second = sum(1 for t in requests if now - t < 1)
         if recent_second >= self.rps:
             return False, {
                 "remaining": 0,
                 "retry_after": 1,
                 "limit": self.rps,
-                "window": "second"
+                "window": "second",
             }
 
         # Check requests per minute
@@ -76,17 +123,17 @@ class RateLimiter:
                 "remaining": 0,
                 "retry_after": retry_after,
                 "limit": self.rpm,
-                "window": "minute"
+                "window": "minute",
             }
 
-        # Check burst
-        recent_burst = len([t for t in requests if now - t < 5])
+        # Check burst (5-second window)
+        recent_burst = sum(1 for t in requests if now - t < 5)
         if recent_burst >= self.burst:
             return False, {
                 "remaining": 0,
                 "retry_after": 5,
                 "limit": self.burst,
-                "window": "burst"
+                "window": "burst",
             }
 
         # Allowed - record this request
@@ -95,64 +142,92 @@ class RateLimiter:
         return True, {
             "remaining": self.rpm - len(requests) - 1,
             "limit": self.rpm,
-            "window": "minute"
+            "window": "minute",
         }
+
+    @property
+    def tracked_clients(self) -> int:
+        """Number of currently tracked client keys."""
+        return len(self._requests)
 
 
 # Global rate limiter instance - generous limits for development/testing
 _rate_limiter = RateLimiter(
     requests_per_minute=600,  # 10 requests per second average
-    requests_per_second=50,   # Allow bursts
-    burst_size=100            # Large burst allowance
+    requests_per_second=50,  # Allow bursts
+    burst_size=100,  # Large burst allowance
 )
+
+# Persistent strict limiters (one per strict path, not per request)
+_strict_limiters: Dict[str, RateLimiter] = {}
+
+
+def _get_strict_limiter(path: str, limit: int) -> RateLimiter:
+    """Get or create a persistent rate limiter for a strict path."""
+    if path not in _strict_limiters:
+        _strict_limiters[path] = RateLimiter(
+            requests_per_minute=limit,
+            requests_per_second=1,
+            burst_size=2,
+        )
+    return _strict_limiters[path]
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Middleware to enforce rate limits on API requests
+    Middleware to enforce rate limits on API requests.
+
+    Features:
+    - Exempts health check and documentation endpoints
+    - Stricter limits for resource-intensive endpoints (training, backtesting)
+    - Skips rate limiting for local development clients
+    - Adds standard rate limit headers to responses
     """
 
     # Endpoints exempt from rate limiting
-    EXEMPT_PATHS = {
+    EXEMPT_PATHS = frozenset({
         "/docs",
         "/redoc",
         "/openapi.json",
         "/api/health",
         "/api/system/health",
-        "/favicon.ico"
-    }
+        "/favicon.ico",
+    })
 
-    # Stricter limits for certain endpoints
+    # Stricter limits for resource-intensive endpoints (requests per minute)
     STRICT_PATHS = {
-        "/api/backtest/run": 5,  # 5 per minute
-        "/api/brain-v6/train": 2,  # 2 per minute
+        "/api/backtest/run": 5,
+        "/api/brain-v6/train": 2,
         "/api/rl/train": 2,
         "/api/dl/train": 2,
+        "/api/monte-carlo/run": 5,
+        "/api/evolution/evolve": 3,
     }
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Skip rate limiting for exempt paths
+        # Skip rate limiting for exempt paths and WebSocket connections
         if path in self.EXEMPT_PATHS or path.startswith("/ws"):
             return await call_next(request)
 
         # Get client identifier
         client_ip = request.client.host if request.client else "unknown"
 
-        # Skip rate limiting for test clients (development/testing)
-        if client_ip == "testclient" or client_ip.startswith("127.") or client_ip == "localhost":
+        # Skip rate limiting for local development clients
+        if client_ip in ("testclient", "localhost") or client_ip.startswith("127."):
             return await call_next(request)
 
-        # Check for forwarded IP
+        # Check for forwarded IP (behind a reverse proxy)
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
+            # Take only the first IP (client IP), ignore proxy chain
             client_ip = forwarded.split(",")[0].strip()
 
-        # Check for strict path limits
+        # Check strict path limits using persistent limiters
         for strict_path, limit in self.STRICT_PATHS.items():
             if path.startswith(strict_path):
-                strict_limiter = RateLimiter(requests_per_minute=limit, requests_per_second=1, burst_size=2)
+                strict_limiter = _get_strict_limiter(strict_path, limit)
                 allowed, info = strict_limiter.is_allowed(client_ip, strict_path)
                 if not allowed:
                     return JSONResponse(
@@ -160,13 +235,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         content={
                             "error": "Rate limit exceeded for resource-intensive endpoint",
                             "retry_after": info["retry_after"],
-                            "limit": info["limit"]
+                            "limit": info["limit"],
                         },
                         headers={
                             "Retry-After": str(info["retry_after"]),
                             "X-RateLimit-Limit": str(info["limit"]),
-                            "X-RateLimit-Remaining": "0"
-                        }
+                            "X-RateLimit-Remaining": "0",
+                        },
                     )
 
         # Standard rate limiting
@@ -179,14 +254,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 content={
                     "error": "Rate limit exceeded",
                     "message": f"Too many requests. Please retry after {info['retry_after']} seconds.",
-                    "retry_after": info["retry_after"]
+                    "retry_after": info["retry_after"],
                 },
                 headers={
                     "Retry-After": str(info["retry_after"]),
                     "X-RateLimit-Limit": str(info["limit"]),
                     "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(int(time.time()) + info["retry_after"])
-                }
+                    "X-RateLimit-Reset": str(int(time.time()) + info["retry_after"]),
+                },
             )
 
         # Process request and add rate limit headers to response
@@ -199,7 +274,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
-    Middleware to add security headers to all responses
+    Middleware to add security headers to all responses.
+
+    Adds standard security headers including:
+    - X-Content-Type-Options: Prevents MIME type sniffing
+    - X-Frame-Options: Prevents clickjacking
+    - Referrer-Policy: Controls referrer information
+    - Permissions-Policy: Restricts browser features
+    - Content-Security-Policy: Basic CSP for API responses
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -208,7 +290,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["X-XSS-Protection"] = "0"  # Disabled per modern best practice
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
 
@@ -222,14 +304,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 class InputSanitizer:
     """
-    Input validation and sanitization utilities
+    Input validation and sanitization utilities.
+
+    Provides methods for validating common input types used in
+    trading platform operations: symbols, dates, numeric ranges.
     """
 
-    # Pattern for valid stock symbols
-    SYMBOL_PATTERN = re.compile(r'^[A-Za-z]{1,5}$')
+    # Pattern for valid stock symbols (1-5 uppercase letters)
+    SYMBOL_PATTERN = re.compile(r"^[A-Za-z]{1,5}$")
+
+    # Extended pattern for futures/options symbols (includes digits, dots, dashes, carets)
+    EXTENDED_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9.\-/^]{1,10}$")
 
     # Pattern for valid dates
-    DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+    DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
     # Max lengths for various inputs
     MAX_SYMBOL_LENGTH = 10
@@ -237,59 +325,142 @@ class InputSanitizer:
     MAX_BODY_SIZE = 1024 * 1024  # 1MB
 
     @classmethod
-    def validate_symbol(cls, symbol: str) -> tuple[bool, str]:
-        """Validate stock symbol"""
+    def validate_symbol(cls, symbol: str) -> Tuple[bool, str]:
+        """
+        Validate a stock/futures/options symbol.
+
+        Args:
+            symbol: The symbol string to validate
+
+        Returns:
+            Tuple of (is_valid, result_or_error_message)
+        """
         if not symbol:
             return False, "Symbol is required"
+
+        symbol = symbol.strip()
+
         if len(symbol) > cls.MAX_SYMBOL_LENGTH:
             return False, f"Symbol too long (max {cls.MAX_SYMBOL_LENGTH})"
-        # Allow alphanumeric and some special chars for futures/options
-        if not re.match(r'^[A-Za-z0-9.\-/]{1,10}$', symbol):
+
+        # Allow alphanumeric and special chars for futures/options (^VIX, ES/H24, etc.)
+        if not cls.EXTENDED_SYMBOL_PATTERN.match(symbol):
             return False, "Invalid symbol format"
+
         return True, symbol.upper()
 
     @classmethod
-    def validate_date(cls, date_str: str) -> tuple[bool, str]:
-        """Validate date string"""
+    def validate_date(cls, date_str: str) -> Tuple[bool, str]:
+        """
+        Validate a date string in YYYY-MM-DD format.
+
+        Args:
+            date_str: Date string to validate
+
+        Returns:
+            Tuple of (is_valid, result_or_error_message)
+        """
+        if not date_str:
+            return False, "Date is required"
+
         if not cls.DATE_PATTERN.match(date_str):
             return False, "Invalid date format (use YYYY-MM-DD)"
+
         try:
-            datetime.strptime(date_str, "%Y-%m-%d")
+            parsed = datetime.strptime(date_str, "%Y-%m-%d")
+            # Reject dates too far in the past or future
+            now = datetime.now()
+            if parsed.year < 1990:
+                return False, "Date too far in the past (minimum 1990)"
+            if parsed > now.replace(year=now.year + 2):
+                return False, "Date too far in the future"
             return True, date_str
         except ValueError:
             return False, "Invalid date"
 
     @classmethod
+    def validate_numeric(
+        cls,
+        value: float,
+        min_val: Optional[float] = None,
+        max_val: Optional[float] = None,
+        name: str = "value",
+    ) -> Tuple[bool, str]:
+        """
+        Validate a numeric value within optional bounds.
+
+        Args:
+            value: The numeric value to validate
+            min_val: Optional minimum value (inclusive)
+            max_val: Optional maximum value (inclusive)
+            name: Name of the field for error messages
+
+        Returns:
+            Tuple of (is_valid, error_message_if_invalid)
+        """
+        if not isinstance(value, (int, float)):
+            return False, f"{name} must be a number"
+
+        if min_val is not None and value < min_val:
+            return False, f"{name} must be >= {min_val}"
+
+        if max_val is not None and value > max_val:
+            return False, f"{name} must be <= {max_val}"
+
+        return True, ""
+
+    @classmethod
     def sanitize_string(cls, value: str, max_length: int = 500) -> str:
-        """Sanitize string input"""
+        """
+        Sanitize string input by removing potentially dangerous characters.
+
+        Args:
+            value: The string to sanitize
+            max_length: Maximum allowed length
+
+        Returns:
+            Sanitized string
+        """
         if not value:
             return ""
-        # Remove potential XSS
-        value = re.sub(r'<[^>]*>', '', value)
-        # Remove potential SQL injection characters
-        value = re.sub(r'[;\'"\\]', '', value)
-        # Truncate
+
+        # Remove potential XSS - strip HTML tags
+        value = re.sub(r"<[^>]*>", "", value)
+
+        # Remove null bytes
+        value = value.replace("\x00", "")
+
+        # Truncate to max length
         return value[:max_length]
 
 
-def get_cors_origins(environment: str = "development") -> list:
+def get_cors_origins(environment: Optional[str] = None) -> list:
     """
-    Get CORS origins based on environment
+    Get CORS origins based on environment.
+
+    If environment is not specified, reads from the ENVIRONMENT
+    environment variable (defaults to 'development').
 
     Args:
         environment: 'development', 'staging', or 'production'
+
+    Returns:
+        List of allowed CORS origin URLs
     """
+    if environment is None:
+        environment = os.getenv("ENVIRONMENT", "development").lower()
+
     if environment == "production":
         return [
             "https://quantindustry.com",
             "https://www.quantindustry.com",
-            "https://app.quantindustry.com"
+            "https://app.quantindustry.com",
         ]
     elif environment == "staging":
         return [
             "https://staging.quantindustry.com",
             "http://localhost:3000",
-            "http://localhost:5173"
+            "http://localhost:5173",
         ]
     else:  # development
         return [

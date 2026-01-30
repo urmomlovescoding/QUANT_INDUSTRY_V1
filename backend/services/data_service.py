@@ -7,6 +7,7 @@ Includes proper market hours detection and stable closed-market pricing
 import hashlib
 import logging
 import os
+import random
 import sqlite3
 import threading
 import time
@@ -54,7 +55,11 @@ try:
 except ImportError:
     HAS_PANDAS = False
 
-logging.basicConfig(level=logging.INFO)
+try:
+    from utils.retry import CircuitBreaker
+except ImportError:
+    CircuitBreaker = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -797,8 +802,6 @@ class FallbackDataSource(DataSourceBase):
             session = market_session.value
             market_open = status.get("is_open", False) or status.get("is_pre_market", False) or status.get("is_after_hours", False)
 
-        import random
-
         # If market is closed, return stable prices without fluctuation
         if not market_open:
             # Use cached price if available, otherwise use base price
@@ -870,8 +873,6 @@ class FallbackDataSource(DataSourceBase):
         )
 
     def get_historical(self, symbol: str, period: str = "1y", interval: str = "1d") -> List[OHLCV]:
-        import random
-
         symbol = symbol.upper()
         base_price = FALLBACK_PRICES.get(symbol, 100)
 
@@ -940,8 +941,7 @@ class DataService:
         self.executor = ThreadPoolExecutor(max_workers=10)
 
         # Circuit breakers for each source (protect against hammering failing sources)
-        from utils.retry import CircuitBreaker
-        self.circuit_breakers: Dict[str, CircuitBreaker] = {
+        self.circuit_breakers: Dict[str, Any] = {
             source.name: CircuitBreaker(
                 failure_threshold=3,      # Open after 3 failures
                 recovery_timeout=30.0,    # Try again after 30 seconds
@@ -998,21 +998,26 @@ class DataService:
 
     def _init_db(self):
         """Initialize SQLite cache database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cache (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                timestamp REAL,
-                ttl REAL
-            )
-        """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON cache(timestamp)
-        """)
-        conn.commit()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS cache (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        timestamp REAL,
+                        ttl REAL
+                    )
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON cache(timestamp)
+                """)
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to initialize cache database: {e}")
 
     def _get_cache_key(self, prefix: str, *args) -> str:
         """Generate cache key"""
@@ -1243,14 +1248,19 @@ class DataService:
                 del self.cache[k]
 
         # Also clean SQLite cache
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM cache WHERE timestamp < ?",
-            (now - max_age,)
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM cache WHERE timestamp < ?",
+                    (now - max_age,)
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            logger.warning(f"Failed to clean SQLite cache: {e}")
 
 
 # Singleton instance

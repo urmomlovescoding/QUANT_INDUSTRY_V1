@@ -1,20 +1,26 @@
 /**
  * API Client - Centralized HTTP client for backend communication
- * Features: timeout handling, retry logic, error normalization
+ *
+ * Features:
+ * - Type-safe request/response handling
+ * - Configurable request timeouts
+ * - AbortController support for request cancellation
+ * - Structured error responses
+ * - Abort detection (aborted requests return a distinct error)
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
-const DEFAULT_TIMEOUT = 10000 // 10 seconds
-const MAX_RETRIES = 2
-const RETRY_DELAY = 1000 // 1 second
+
+/** Default request timeout in milliseconds */
+const DEFAULT_TIMEOUT_MS = 30_000
 
 export interface ApiError {
   status: number
   message: string
   code?: string
   details?: Record<string, unknown>
-  isTimeout?: boolean
-  isNetworkError?: boolean
+  /** True if the request was aborted (by timeout or manual cancellation) */
+  aborted?: boolean
 }
 
 export interface ApiResponse<T> {
@@ -23,150 +29,107 @@ export interface ApiResponse<T> {
   ok: boolean
 }
 
-interface RequestOptions extends RequestInit {
+export interface RequestOptions extends Omit<RequestInit, 'signal'> {
+  /** Request timeout in milliseconds (default: 30000) */
   timeout?: number
-  retries?: number
-  retryOn?: number[] // HTTP status codes to retry on
+  /** External AbortSignal for manual cancellation */
+  signal?: AbortSignal
 }
 
 class ApiClient {
   private baseUrl: string
   private defaultHeaders: Record<string, string>
+  private defaultTimeout: number
 
-  constructor(baseUrl: string = API_BASE_URL) {
+  constructor(baseUrl: string = API_BASE_URL, defaultTimeout = DEFAULT_TIMEOUT_MS) {
     this.baseUrl = baseUrl
+    this.defaultTimeout = defaultTimeout
     this.defaultHeaders = {
       'Content-Type': 'application/json',
     }
   }
 
-  private async fetchWithTimeout(
-    url: string,
-    options: RequestInit,
-    timeout: number
-  ): Promise<Response> {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeout)
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      })
-      return response
-    } finally {
-      clearTimeout(timeoutId)
-    }
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
+  /**
+   * Make an HTTP request with timeout and abort support.
+   */
   private async request<T>(
     endpoint: string,
     options: RequestOptions = {}
   ): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`
-    const {
-      timeout = DEFAULT_TIMEOUT,
-      retries = MAX_RETRIES,
-      retryOn = [502, 503, 504],
-      ...fetchOptions
-    } = options
+    const { timeout = this.defaultTimeout, signal: externalSignal, ...fetchOptions } = options
 
-    let lastError: ApiError | null = null
-    
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const response = await this.fetchWithTimeout(
-          url,
-          {
-            ...fetchOptions,
-            headers: {
-              ...this.defaultHeaders,
-              ...fetchOptions.headers,
-            },
-          },
-          timeout
-        )
+    // Create timeout abort controller
+    const timeoutController = new AbortController()
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeout)
 
-        if (!response.ok) {
-          let errorMessage = `HTTP ${response.status}`
-          let errorDetails: Record<string, unknown> | undefined
-          
-          try {
-            const errorData = await response.json()
-            errorMessage = errorData.detail || errorData.message || errorMessage
-            errorDetails = errorData
-          } catch {
-            // Use default error message
-          }
+    // Combine external signal with timeout signal
+    const signal = externalSignal
+      ? mergeAbortSignals(externalSignal, timeoutController.signal)
+      : timeoutController.signal
 
-          // Check if we should retry this status code
-          if (retryOn.includes(response.status) && attempt < retries) {
-            lastError = {
-              status: response.status,
-              message: errorMessage,
-              details: errorDetails,
-            }
-            await this.delay(RETRY_DELAY * (attempt + 1))
-            continue
-          }
+    try {
+      const response = await fetch(url, {
+        ...fetchOptions,
+        signal,
+        headers: {
+          ...this.defaultHeaders,
+          ...fetchOptions.headers,
+        },
+      })
 
-          return {
-            data: null,
-            error: {
-              status: response.status,
-              message: errorMessage,
-              details: errorDetails,
-            },
-            ok: false,
-          }
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`
+        let errorCode: string | undefined
+        let errorDetails: Record<string, unknown> | undefined
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.message || errorMessage
+          errorCode = errorData.code || errorData.error?.code
+          errorDetails = errorData.details || errorData.error?.details
+        } catch {
+          // Response body is not JSON - use default error message
         }
-
-        const data = await response.json()
-        return { data, error: null, ok: true }
-      } catch (error) {
-        const isAbortError = error instanceof Error && error.name === 'AbortError'
-        
-        if (isAbortError) {
-          return {
-            data: null,
-            error: {
-              status: 0,
-              message: 'Request timed out',
-              isTimeout: true,
-            },
-            ok: false,
-          }
-        }
-
-        // Network errors - retry if we have attempts left
-        if (attempt < retries) {
-          lastError = {
-            status: 0,
-            message: error instanceof Error ? error.message : 'Network error',
-            isNetworkError: true,
-          }
-          await this.delay(RETRY_DELAY * (attempt + 1))
-          continue
-        }
-
-        const message = error instanceof Error ? error.message : 'Network error'
         return {
           data: null,
-          error: { status: 0, message, isNetworkError: true },
+          error: {
+            status: response.status,
+            message: errorMessage,
+            code: errorCode,
+            details: errorDetails,
+          },
           ok: false,
         }
       }
-    }
 
-    // Should never reach here, but return last error just in case
-    return {
-      data: null,
-      error: lastError || { status: 0, message: 'Unknown error' },
-      ok: false,
+      const data = await response.json()
+      return { data, error: null, ok: true }
+    } catch (error) {
+      clearTimeout(timeoutId)
+
+      // Check if request was aborted
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        const isTimeout = timeoutController.signal.aborted
+        return {
+          data: null,
+          error: {
+            status: 0,
+            message: isTimeout ? `Request timed out after ${timeout}ms` : 'Request cancelled',
+            code: isTimeout ? 'TIMEOUT' : 'ABORTED',
+            aborted: true,
+          },
+          ok: false,
+        }
+      }
+
+      const message = error instanceof Error ? error.message : 'Network error'
+      return {
+        data: null,
+        error: { status: 0, message, code: 'NETWORK_ERROR' },
+        ok: false,
+      }
     }
   }
 
@@ -193,6 +156,25 @@ class ApiClient {
   async delete<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' })
   }
+}
+
+/**
+ * Merge two AbortSignals into one that aborts when either fires.
+ */
+function mergeAbortSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
+  const controller = new AbortController()
+
+  const onAbort = () => controller.abort()
+
+  if (signal1.aborted || signal2.aborted) {
+    controller.abort()
+    return controller.signal
+  }
+
+  signal1.addEventListener('abort', onAbort, { once: true })
+  signal2.addEventListener('abort', onAbort, { once: true })
+
+  return controller.signal
 }
 
 export const api = new ApiClient()
@@ -771,163 +753,4 @@ export interface MoverStock {
   price: number
   change_pct: number
   volume: number
-}
-
-// ==================== DECISION INTELLIGENCE TYPES ====================
-
-export interface ControlPlaneStatus {
-  mode: 'shadow' | 'paper' | 'live' | 'disabled'
-  is_active: boolean
-  kill_switch_engaged: boolean
-  decisions_today: number
-  trades_today: number
-  shadow_decisions_today: number
-  components_registered: string[]
-  safety_checks_count: number
-  contexts_cached: number
-}
-
-export interface DecisionContext {
-  context_id: string
-  timestamp: string
-  symbol: string
-  regime: string
-  regime_confidence: number
-  signal_direction: 'LONG' | 'SHORT' | null
-  signal_confidence: number
-  signal_source: string
-  risk_approved: boolean
-  risk_adjusted_size: number
-  risk_warnings: string[]
-  execution_allowed: boolean
-  execution_mode: string
-  decisions: Array<{
-    timestamp: string
-    component: string
-    decision: string
-    reason: string
-    data: Record<string, unknown>
-  }>
-}
-
-export interface DecisionTraceStats {
-  total_nodes: number
-  total_edges: number
-  outcomes: Record<string, number>
-  components: Record<string, number>
-  graph_available: boolean
-}
-
-export interface ExitRecommendation {
-  action: 'hold' | 'exit'
-  reason: string
-  confidence: number
-  expected_value_hold: number
-  expected_value_exit: number
-  state: {
-    regime: string
-    time_bucket: number
-    pnl_bucket: number
-    volatility_bucket: number
-  }
-  is_shadow: boolean
-}
-
-export interface ShadowComponent {
-  component_id: string
-  component_name: string
-  version: string
-  status: 'shadow' | 'parallel' | 'candidate' | 'promoted' | 'rejected'
-  created_at: string
-  decisions_count: number
-  correct_decisions: number
-  accuracy: number
-  total_shadow_pnl: number
-  live_comparison_count: number
-  agreement_rate: number
-  outperformance_rate: number
-  promotion_score: number
-}
-
-export interface SelfImprovementStatus {
-  current_phase: string
-  active_cycle: null | {
-    cycle_id: string
-    trigger: string
-    started_at: string
-    phase: string
-    component_name: string
-    old_version: string
-    new_version: string | null
-  }
-  consecutive_failures: number
-  total_cycles: number
-  successful_cycles: number
-  config: {
-    drift_threshold: number
-    validation_days: number
-    improvement_threshold: number
-  }
-}
-
-// ==================== DECISION INTELLIGENCE API ====================
-
-export const decisionIntelApi = {
-  // Control Plane
-  getControlPlaneStatus: () => api.get<ControlPlaneStatus>('/api/decision-intelligence/control-plane/status'),
-  getControlPlaneHealth: () => api.get<Record<string, unknown>>('/api/decision-intelligence/control-plane/health'),
-  engageKillSwitch: (reason: string) => 
-    api.post<void>('/api/decision-intelligence/control-plane/kill-switch', { reason }),
-  releaseKillSwitch: (reason: string) => 
-    api.post<void>('/api/decision-intelligence/control-plane/kill-switch/release', { reason }),
-
-  // Decision Trace
-  getDecisionTraceStats: () => api.get<DecisionTraceStats>('/api/decision-intelligence/trace/stats'),
-  getDecisionPath: (contextId: string) => 
-    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/trace/path/${contextId}`),
-  getFailurePatterns: (days?: number) => 
-    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/trace/failure-patterns${days ? `?days=${days}` : ''}`),
-  getSuccessPatterns: (days?: number) => 
-    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/trace/success-patterns${days ? `?days=${days}` : ''}`),
-
-  // Exit Value Learning
-  getExitRecommendation: (positionId: string, currentState: Record<string, unknown>) =>
-    api.post<ExitRecommendation>(`/api/decision-intelligence/exit-learning/recommend/${positionId}`, currentState),
-  getExitLearnerStats: () => api.get<Record<string, unknown>>('/api/decision-intelligence/exit-learning/stats'),
-  getValueSurface: (regime: string, direction?: string) =>
-    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/exit-learning/value-surface/${regime}${direction ? `?direction=${direction}` : ''}`),
-
-  // Shadow Mode
-  getShadowComponents: () => api.get<ShadowComponent[]>('/api/decision-intelligence/shadow/components'),
-  getShadowReport: (componentId: string) => 
-    api.get<Record<string, unknown>>(`/api/decision-intelligence/shadow/report/${componentId}`),
-  getShadowComparison: () => api.get<Record<string, unknown>>('/api/decision-intelligence/shadow/comparison'),
-
-  // Self Improvement
-  getSelfImprovementStatus: () => api.get<SelfImprovementStatus>('/api/decision-intelligence/self-improvement/status'),
-  getImprovementHistory: (limit?: number) =>
-    api.get<Array<Record<string, unknown>>>(`/api/decision-intelligence/self-improvement/history${limit ? `?limit=${limit}` : ''}`),
-  triggerImprovement: (componentName: string) =>
-    api.post<Record<string, unknown>>('/api/decision-intelligence/self-improvement/trigger', { component_name: componentName }),
-}
-
-// ==================== DATA INTEGRITY API ====================
-
-export interface DataMode {
-  mode: 'live' | 'paper' | 'backtest' | 'simulation'
-  available: boolean
-  modes: Record<string, string>
-  current_description: string
-  quality_stats: Record<string, unknown>
-  timestamp: string
-}
-
-export const dataIntegrityApi = {
-  getDataMode: () => api.get<DataMode>('/api/data-mode'),
-  setDataMode: (mode: string, reason?: string) => 
-    api.post<DataMode>('/api/data-mode', { mode, reason }),
-  getIntegrityStatus: () => api.get<Record<string, unknown>>('/api/data-integrity/status'),
-  getPriceWithProvenance: (symbol: string) => 
-    api.get<Record<string, unknown>>(`/api/data-integrity/price/${symbol}`),
-  getStalenessStatus: () => api.get<Record<string, unknown>>('/api/data/staleness'),
 }

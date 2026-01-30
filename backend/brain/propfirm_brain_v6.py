@@ -13,9 +13,11 @@ Author: QUANT INDUSTRY AI Team
 Version: 6.0.0
 """
 
+import hashlib
 import json
 import logging
 import math
+import platform
 import sqlite3
 import threading
 import time
@@ -315,7 +317,6 @@ class DeviceManager:
             )
 
         else:  # CPU
-            import platform
             return DeviceInfo(
                 name=platform.processor() or "CPU",
                 type="cpu",
@@ -789,8 +790,6 @@ class SnapshotValidator:
         Returns:
             SnapshotValidationResult with validation status
         """
-        import hashlib
-
         errors: List[str] = []
         warnings: List[str] = []
 
@@ -926,8 +925,6 @@ class SnapshotValidator:
 
         Returns a dict suitable for storing alongside the weights.
         """
-        import hashlib
-
         weights_hash = hashlib.sha256(weights).hexdigest()
         schema_hash = compute_schema_hash(feature_names)
 
@@ -953,7 +950,6 @@ class SnapshotValidator:
         Returns:
             Tuple of (is_valid, error_messages)
         """
-        import hashlib
         errors: List[str] = []
 
         # Check weights hash
@@ -993,7 +989,6 @@ def compute_schema_hash(feature_names: List[str]) -> str:
     Compute SHA256 hash of feature schema for version compatibility.
     Matches quant-platform pattern for model version tracking.
     """
-    import hashlib
     sorted_names = sorted(feature_names)
     schema_str = ",".join(sorted_names)
     return hashlib.sha256(schema_str.encode()).hexdigest()[:12]
@@ -2057,7 +2052,6 @@ class PropFirmBrainV6:
         Compute SHA256 hash of model weights for version tracking.
         Matches quant-platform pattern.
         """
-        import hashlib
         if not TORCH_AVAILABLE or self.model is None:
             return "no_model"
 

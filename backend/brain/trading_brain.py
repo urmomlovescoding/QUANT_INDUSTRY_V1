@@ -1,58 +1,19 @@
 """
 QUANT INDUSTRY - Trading Brain
 Multi-cycle intelligence system for coordinated trading decisions
-
-Now integrated with mathematical foundations:
-- HMM-based regime detection
-- Kelly criterion position sizing
-- Risk-adjusted parameters
 """
 
 import logging
 import os
 import sqlite3
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
-import sys
+from typing import Dict, List, Optional
 
 import numpy as np
-
-# Add brain module to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-
-try:
-    from brain.math.integration import (
-        # Phase 1: Regime + Position Sizing
-        IntegratedRegimeDetector,
-        IntegratedPositionSizer,
-        RiskManager,
-        RegimeState,
-        MarketRegime,
-        create_regime_detector,
-        create_position_sizer,
-        create_risk_manager,
-        # Phase 2: Alpha + Execution
-        IntegratedAlphaGenerator,
-        IntegratedExecutionOptimizer,
-        AlphaSignal,
-        ExecutionPlan,
-        create_alpha_generator,
-        create_execution_optimizer,
-        # Phase 3: Risk Layer
-        IntegratedRiskMonitor,
-        RegimeShiftDetector,
-        RiskAlert,
-        TailRiskMetrics,
-        create_risk_monitor,
-        create_regime_shift_detector,
-    )
-    MATH_AVAILABLE = True
-except ImportError as e:
-    MATH_AVAILABLE = False
-    logging.warning(f"Math integration not available: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -169,14 +130,9 @@ class TradingBrain:
     """
     Multi-cycle trading intelligence system
     Coordinates signals from neural engine, regime detector, and algo bot
-    
-    Now with integrated math:
-    - HMM regime detection for market state awareness
-    - Kelly criterion for optimal position sizing
-    - Risk manager for drawdown protection
     """
 
-    def __init__(self, db_path: str = None, account_equity: float = 100000.0):
+    def __init__(self, db_path: str = None):
         self.db_path = db_path or os.path.join(
             os.path.dirname(__file__), "..", "data", "brain.db"
         )
@@ -186,9 +142,6 @@ class TradingBrain:
         self.decisions: Dict[str, List[BrainDecision]] = {}  # symbol -> decisions
         self.state: Optional[BrainState] = None
         self.lock = threading.Lock()
-        
-        # Account tracking
-        self.account_equity = account_equity
 
         # Cycle weights for final decision
         self.cycle_weights = {
@@ -198,69 +151,11 @@ class TradingBrain:
             BrainCycle.LONG: 0.2,
             BrainCycle.MACRO: 0.1,
         }
-        
-        # === MATH INTEGRATION ===
-        if MATH_AVAILABLE:
-            # HMM-based regime detector
-            self.regime_detector = create_regime_detector(n_regimes=4)
-            
-            # Kelly-based position sizer
-            self.position_sizer = create_position_sizer(
-                max_position=0.10,      # Max 10% per position
-                kelly_fraction=0.25     # Use quarter Kelly (safer)
-            )
-            
-            # Risk manager with drawdown protection
-            self.risk_manager = create_risk_manager(
-                drawdown_threshold=0.10,   # Start reducing at 10% DD
-                critical_drawdown=0.20     # Stop at 20% DD
-            )
-            self.risk_manager.update_equity(account_equity)
-            
-            # Track if regime detector is fitted
-            self.regime_fitted = False
-            
-            # === PHASE 2: Alpha + Execution ===
-            # Alpha signal generator (momentum + mean reversion + trend)
-            self.alpha_generator = create_alpha_generator(
-                momentum_lookback=20,
-                trend_lookback=50
-            )
-            
-            # Execution optimizer (Almgren-Chriss + Kyle impact)
-            self.execution_optimizer = create_execution_optimizer(
-                volatility=0.20  # Default, updated per-asset
-            )
-            
-            # === PHASE 3: Risk Layer ===
-            # Real-time risk monitoring with circuit breakers
-            self.risk_monitor = create_risk_monitor(
-                drawdown_critical=0.10,
-                drawdown_halt=0.20,
-                var_limit=0.02
-            )
-            self.risk_monitor.peak_equity = account_equity
-            self.risk_monitor.current_equity = account_equity
-            
-            # Regime shift detector (change point detection)
-            self.shift_detector = create_regime_shift_detector(
-                sensitivity=1.0
-            )
-            
-            logger.info("TradingBrain initialized WITH math integration (Phase 1-3)")
-        else:
-            self.regime_detector = None
-            self.position_sizer = None
-            self.alpha_generator = None
-            self.execution_optimizer = None
-            self.risk_monitor = None
-            self.shift_detector = None
-            self.risk_manager = None
-            self.regime_fitted = False
-            logger.info("TradingBrain initialized WITHOUT math integration")
 
         # Initialize state
         self._init_state()
+
+        logger.info("TradingBrain initialized")
 
     def _init_db(self):
         """Initialize database"""
@@ -320,27 +215,14 @@ class TradingBrain:
                 - quote: Current quote
                 - news: Recent news (optional)
                 - options_flow: Options flow data (optional)
-                - avg_volume: Average daily volume (for execution)
         """
 
         # Gather intelligence from all sources
         neural_score = self._get_neural_intelligence(symbol, market_data)
-        
-        # Get regime alignment AND regime state for position sizing
-        regime_alignment, regime_state = self._get_regime_alignment(market_data)
-        
-        # === PHASE 2: Alpha signal generation ===
-        alpha_signal = self._get_alpha_signal(market_data)
-        
+        regime_alignment = self._get_regime_alignment(market_data)
         technical_score = self._get_technical_score(symbol, market_data)
         sentiment_score = self._get_sentiment_score(symbol, market_data)
         flow_score = self._get_flow_score(symbol, market_data)
-        
-        # Blend alpha signal into technical score
-        if alpha_signal is not None:
-            # Alpha signal contributes to technical analysis
-            alpha_contribution = alpha_signal.composite_alpha * 50  # Scale to -50 to 50
-            technical_score = technical_score * 0.6 + alpha_contribution * 0.4
 
         # Analyze each cycle
         cycle_decisions = {}
@@ -352,13 +234,12 @@ class TradingBrain:
             )
             cycle_decisions[cycle] = cycle_decision
 
-        # Synthesize final decision (now with regime_state for Kelly sizing)
+        # Synthesize final decision
         final_decision = self._synthesize_decision(
             symbol, cycle_decisions,
             neural_score, regime_alignment, technical_score,
             sentiment_score, flow_score,
-            market_data,
-            regime_state=regime_state  # Pass for position sizing
+            market_data
         )
 
         # Store decision
@@ -392,65 +273,13 @@ class TradingBrain:
 
         return 0.0
 
-    def _get_regime_alignment(self, market_data: Dict) -> Tuple[float, Optional['RegimeState']]:
-        """
-        Get regime alignment score using HMM-based detection.
-        
-        Returns:
-            Tuple of (alignment_score, regime_state)
-            - alignment_score: -1 to 1 indicating bearish to bullish
-            - regime_state: Full RegimeState object for position sizing
-        """
-        regime_state = None
-        
-        # === USE HMM REGIME DETECTOR IF AVAILABLE ===
-        if MATH_AVAILABLE and self.regime_detector is not None:
-            try:
-                # Extract prices from market data
-                prices = self._extract_prices_for_regime(market_data)
-                
-                if prices is not None and len(prices) > 50:
-                    # Fit regime detector if not yet fitted
-                    if not self.regime_fitted:
-                        self.regime_detector.fit(prices)
-                        self.regime_fitted = True
-                        logger.info("Regime detector fitted with HMM")
-                    
-                    # Detect current regime
-                    regime_state = self.regime_detector.detect(prices)
-                    
-                    # Convert regime to alignment score
-                    regime_scores = {
-                        MarketRegime.CRISIS: -1.0,
-                        MarketRegime.BEAR_STRONG: -0.8,
-                        MarketRegime.BEAR_WEAK: -0.4,
-                        MarketRegime.NEUTRAL: 0.0,
-                        MarketRegime.BULL_WEAK: 0.4,
-                        MarketRegime.BULL_STRONG: 0.8,
-                        MarketRegime.EUPHORIA: 0.3,  # Cautious in euphoria
-                    }
-                    
-                    alignment = regime_scores.get(regime_state.regime, 0.0)
-                    
-                    # Weight by confidence
-                    alignment *= regime_state.confidence
-                    
-                    logger.debug(
-                        f"HMM Regime: {regime_state.regime.value}, "
-                        f"confidence={regime_state.confidence:.2f}, "
-                        f"alignment={alignment:.2f}"
-                    )
-                    
-                    return alignment, regime_state
-                    
-            except Exception as e:
-                logger.error(f"HMM regime detection error: {e}")
-        
-        # === FALLBACK TO LEGACY DETECTOR ===
+    def _get_regime_alignment(self, market_data: Dict) -> float:
+        """Get regime alignment score"""
         try:
             from .regime_detector import get_regime_detector
-            legacy_detector = get_regime_detector()
+            regime_detector = get_regime_detector()
 
+            # Prepare market data for regime detection
             regime_data = {}
             if "spy_ohlcv" in market_data:
                 regime_data["SPY"] = market_data["spy_ohlcv"]
@@ -458,106 +287,25 @@ class TradingBrain:
                 regime_data["QQQ"] = market_data["qqq_ohlcv"]
 
             if regime_data:
-                analysis = legacy_detector.detect_regime(regime_data)
+                analysis = regime_detector.detect_regime(regime_data)
                 regime = analysis.current_state.regime.value
 
+                # Score based on regime favorability
                 if regime in ["BULL_STRONG"]:
-                    return 1.0, None
+                    return 1.0
                 elif regime in ["BULL_WEAK", "RECOVERY"]:
-                    return 0.5, None
+                    return 0.5
                 elif regime in ["RANGING_LOW_VOL"]:
-                    return 0.0, None
+                    return 0.0
                 elif regime in ["RANGING_HIGH_VOL", "BEAR_WEAK"]:
-                    return -0.5, None
+                    return -0.5
                 elif regime in ["BEAR_STRONG", "CRISIS"]:
-                    return -1.0, None
+                    return -1.0
 
         except Exception as e:
-            logger.error(f"Legacy regime detection error: {e}")
+            logger.error(f"Error getting regime alignment: {e}")
 
-        return 0.0, None
-    
-    def _extract_prices_for_regime(self, market_data: Dict) -> Optional[np.ndarray]:
-        """Extract price series for regime detection."""
-        # Try SPY first (best for market regime)
-        for key in ["spy_ohlcv", "qqq_ohlcv", "ohlcv"]:
-            if key in market_data:
-                ohlcv = market_data[key]
-                if ohlcv and len(ohlcv) > 0:
-                    try:
-                        prices = np.array([
-                            d.get("close", d.get("Close", 0)) for d in ohlcv
-                        ])
-                        if len(prices) > 50:
-                            return prices
-                    except Exception:
-                        continue
-        return None
-    
-    def _estimate_volatility(self, market_data: Dict, window: int = 20) -> float:
-        """
-        Estimate annualized volatility from OHLCV data.
-        
-        Returns annualized volatility (e.g., 0.20 = 20%).
-        """
-        ohlcv = market_data.get("ohlcv", [])
-        if not ohlcv or len(ohlcv) < window:
-            return 0.20  # Default 20% if not enough data
-        
-        try:
-            closes = np.array([d.get("close", d.get("Close", 0)) for d in ohlcv])
-            
-            # Calculate log returns
-            returns = np.diff(np.log(closes))
-            
-            # Recent volatility (annualized)
-            recent_returns = returns[-window:]
-            daily_vol = np.std(recent_returns)
-            annualized_vol = daily_vol * np.sqrt(252)
-            
-            return max(annualized_vol, 0.05)  # Floor at 5%
-            
-        except Exception as e:
-            logger.error(f"Volatility estimation error: {e}")
-            return 0.20
-    
-    def _get_alpha_signal(self, market_data: Dict) -> Optional['AlphaSignal']:
-        """
-        Generate alpha signal using momentum, mean reversion, and trend factors.
-        
-        Returns AlphaSignal with composite score and factor breakdown.
-        """
-        if not MATH_AVAILABLE or self.alpha_generator is None:
-            return None
-        
-        try:
-            # Extract asset prices
-            prices = self._extract_prices_for_regime(market_data)
-            if prices is None or len(prices) < 50:
-                return None
-            
-            # Extract market prices for CAPM (SPY)
-            market_prices = None
-            if "spy_ohlcv" in market_data:
-                spy_ohlcv = market_data["spy_ohlcv"]
-                if spy_ohlcv and len(spy_ohlcv) > 0:
-                    market_prices = np.array([
-                        d.get("close", d.get("Close", 0)) for d in spy_ohlcv
-                    ])
-            
-            # Generate alpha signal
-            alpha = self.alpha_generator.generate(prices, market_prices)
-            
-            logger.debug(
-                f"Alpha signal: {alpha.composite_alpha:.2f} "
-                f"({alpha.signal_strength}, driver={alpha.primary_driver})"
-            )
-            
-            return alpha
-            
-        except Exception as e:
-            logger.error(f"Alpha signal generation error: {e}")
-            return None
+        return 0.0
 
     def _get_technical_score(self, symbol: str, market_data: Dict) -> float:
         """Calculate technical analysis score"""
@@ -754,19 +502,9 @@ class TradingBrain:
         technical_score: float,
         sentiment_score: float,
         flow_score: float,
-        market_data: Dict,
-        regime_state: Optional['RegimeState'] = None
+        market_data: Dict
     ) -> BrainDecision:
-        """
-        Synthesize final decision from all cycles.
-        
-        Now with:
-        - Kelly criterion position sizing
-        - Regime-adjusted risk parameters
-        - Drawdown protection
-        """
-        import uuid
-
+        """Synthesize final decision from all cycles"""
         # Weight cycle decisions
         total_score = 0
         for cycle, weight in self.cycle_weights.items():
@@ -807,33 +545,17 @@ class TradingBrain:
         else:
             decision_type = DecisionType.SCALE_IN
 
-        # Calculate trade parameters with regime-adjusted stops/targets
+        # Calculate trade parameters
         current_price = market_data.get("quote", {}).get("price", 0)
-        
-        # Get regime-based multipliers
-        stop_mult = 1.0
-        profit_mult = 1.0
-        if regime_state is not None:
-            stop_mult = regime_state.stop_multiplier
-            profit_mult = regime_state.profit_multiplier
-        
         if current_price > 0:
-            # Base stop/target percentages
-            base_stop_pct = 0.03  # 3% base stop
-            base_target_pct = 0.05  # 5% base target
-            
-            # Adjust for regime
-            adjusted_stop_pct = base_stop_pct * stop_mult
-            adjusted_target_pct = base_target_pct * profit_mult
-            
             if direction == "LONG":
                 suggested_entry = current_price
-                suggested_stop = current_price * (1 - adjusted_stop_pct)
-                suggested_target = current_price * (1 + adjusted_target_pct)
+                suggested_stop = current_price * 0.97
+                suggested_target = current_price * 1.05
             elif direction == "SHORT":
                 suggested_entry = current_price
-                suggested_stop = current_price * (1 + adjusted_stop_pct)
-                suggested_target = current_price * (1 - adjusted_target_pct)
+                suggested_stop = current_price * 1.03
+                suggested_target = current_price * 0.95
             else:
                 suggested_entry = None
                 suggested_stop = None
@@ -843,39 +565,8 @@ class TradingBrain:
             suggested_stop = None
             suggested_target = None
 
-        # === KELLY CRITERION POSITION SIZING ===
-        if MATH_AVAILABLE and self.position_sizer is not None and regime_state is not None:
-            try:
-                # Estimate current volatility from OHLCV
-                current_vol = self._estimate_volatility(market_data)
-                
-                # Calculate Kelly-based position size
-                size_result = self.position_sizer.calculate(
-                    signal_confidence=confidence,
-                    regime_state=regime_state,
-                    current_volatility=current_vol,
-                    account_equity=self.account_equity
-                )
-                
-                # Apply risk manager check
-                if self.risk_manager is not None:
-                    risk_mult = self.risk_manager.get_risk_multiplier(regime_state)
-                    position_size_pct = size_result.final_size * risk_mult * 100
-                else:
-                    position_size_pct = size_result.final_size * 100
-                
-                logger.debug(
-                    f"Kelly sizing: base={size_result.base_kelly:.3f}, "
-                    f"adjusted={size_result.adjusted_kelly:.3f}, "
-                    f"final={position_size_pct:.2f}%"
-                )
-                
-            except Exception as e:
-                logger.error(f"Kelly position sizing error: {e}")
-                position_size_pct = min(confidence * 10, 5.0)
-        else:
-            # Fallback: simple confidence-based sizing
-            position_size_pct = min(confidence * 10, 5.0)
+        # Position sizing based on confidence
+        position_size_pct = min(confidence * 10, 5.0)  # Max 5% of portfolio
 
         # Compile factors
         factors = []
@@ -888,10 +579,6 @@ class TradingBrain:
             factors.append("Favorable market regime")
         elif regime_alignment < -0.5:
             factors.append("Unfavorable market regime")
-        
-        # Add regime info to factors
-        if regime_state is not None:
-            factors.append(f"HMM Regime: {regime_state.regime.value} ({regime_state.confidence:.0%})")
 
         if technical_score > 30:
             factors.append(f"Bullish technicals ({technical_score:.0f})")
@@ -904,15 +591,6 @@ class TradingBrain:
             warnings.append("Going long against bearish regime")
         if confidence < 0.4:
             warnings.append("Low confidence signal")
-        
-        # Regime-specific warnings
-        if regime_state is not None:
-            if regime_state.regime == MarketRegime.CRISIS:
-                warnings.append("⚠️ CRISIS regime - reduced positions")
-            elif regime_state.regime == MarketRegime.EUPHORIA:
-                warnings.append("⚠️ EUPHORIA regime - caution advised")
-            if regime_state.volatility_regime == "extreme":
-                warnings.append("⚠️ Extreme volatility - widened stops")
 
         return BrainDecision(
             decision_id=str(uuid.uuid4())[:8],
@@ -1010,321 +688,6 @@ class TradingBrain:
             conn.close()
         except Exception as e:
             logger.error(f"Error saving decision: {e}")
-    
-    # === TRADE FEEDBACK METHODS ===
-    
-    def record_trade_result(self, pnl: float, is_win: bool):
-        """
-        Record trade result for Kelly criterion learning.
-        
-        Call this when a trade closes to improve position sizing over time.
-        
-        Args:
-            pnl: Profit/loss as a decimal (e.g., 0.02 = 2% gain)
-            is_win: True if trade was profitable
-        """
-        if MATH_AVAILABLE and self.position_sizer is not None:
-            self.position_sizer.add_trade(pnl, is_win)
-            logger.info(f"Recorded trade: pnl={pnl:.2%}, win={is_win}")
-    
-    def update_equity(self, equity: float):
-        """
-        Update account equity for drawdown tracking.
-        
-        Args:
-            equity: Current account value
-        """
-        self.account_equity = equity
-        if MATH_AVAILABLE and self.risk_manager is not None:
-            self.risk_manager.update_equity(equity)
-            
-            # Log if in drawdown
-            dd = self.risk_manager.current_drawdown
-            if dd > 0.05:
-                logger.warning(f"Account in {dd:.1%} drawdown")
-    
-    def get_risk_status(self) -> Dict:
-        """Get current risk status."""
-        if not MATH_AVAILABLE or self.risk_manager is None:
-            return {"status": "unavailable"}
-        
-        return {
-            "current_drawdown": self.risk_manager.current_drawdown,
-            "peak_equity": self.risk_manager.peak_equity,
-            "current_equity": self.risk_manager.current_equity,
-            "trading_allowed": self.risk_manager.current_drawdown < self.risk_manager.critical_drawdown,
-            "risk_level": (
-                "critical" if self.risk_manager.current_drawdown >= self.risk_manager.critical_drawdown
-                else "elevated" if self.risk_manager.current_drawdown >= self.risk_manager.drawdown_threshold
-                else "normal"
-            )
-        }
-    
-    def get_regime_status(self) -> Dict:
-        """Get current regime detection status."""
-        if not MATH_AVAILABLE or self.regime_detector is None:
-            return {"status": "unavailable", "fitted": False}
-        
-        return {
-            "status": "available",
-            "fitted": self.regime_fitted,
-            "n_regimes": self.regime_detector.n_regimes
-        }
-    
-    # === PHASE 2: EXECUTION METHODS ===
-    
-    def get_execution_plan(
-        self,
-        symbol: str,
-        shares: float,
-        market_data: Dict,
-        urgency: str = "medium"
-    ) -> Optional['ExecutionPlan']:
-        """
-        Get optimal execution plan for an order.
-        
-        Args:
-            symbol: Stock symbol
-            shares: Number of shares to trade
-            market_data: Market data dict with ohlcv, quote, avg_volume
-            urgency: "low", "medium", "high"
-        
-        Returns:
-            ExecutionPlan with strategy, trajectory, and cost estimates
-        """
-        if not MATH_AVAILABLE or self.execution_optimizer is None:
-            return None
-        
-        try:
-            price = market_data.get("quote", {}).get("price", 0)
-            if price <= 0:
-                return None
-            
-            # Get average daily volume
-            avg_volume = market_data.get("avg_volume", 1000000)
-            
-            # Estimate volatility
-            volatility = self._estimate_volatility(market_data)
-            
-            # Create execution plan
-            plan = self.execution_optimizer.plan_execution(
-                shares=shares,
-                price=price,
-                avg_daily_volume=avg_volume,
-                volatility=volatility,
-                urgency=urgency
-            )
-            
-            logger.info(
-                f"Execution plan for {shares:.0f} shares of {symbol}: "
-                f"strategy={plan.strategy}, impact={plan.estimated_impact_pct:.2%}"
-            )
-            
-            return plan
-            
-        except Exception as e:
-            logger.error(f"Execution planning error: {e}")
-            return None
-    
-    def adjust_order_for_impact(
-        self,
-        shares: float,
-        market_data: Dict,
-        max_impact_pct: float = 0.005
-    ) -> float:
-        """
-        Reduce order size to limit market impact.
-        
-        Args:
-            shares: Desired share count
-            market_data: Market data dict
-            max_impact_pct: Maximum acceptable impact (0.005 = 50 bps)
-        
-        Returns:
-            Adjusted share count
-        """
-        if not MATH_AVAILABLE or self.execution_optimizer is None:
-            return shares
-        
-        try:
-            price = market_data.get("quote", {}).get("price", 0)
-            avg_volume = market_data.get("avg_volume", 1000000)
-            volatility = self._estimate_volatility(market_data)
-            
-            adjusted = self.execution_optimizer.adjust_size_for_impact(
-                desired_shares=shares,
-                price=price,
-                avg_daily_volume=avg_volume,
-                volatility=volatility,
-                max_impact_pct=max_impact_pct
-            )
-            
-            return adjusted
-            
-        except Exception as e:
-            logger.error(f"Impact adjustment error: {e}")
-            return shares
-    
-    def get_alpha_analysis(self, market_data: Dict) -> Optional[Dict]:
-        """
-        Get detailed alpha signal analysis.
-        
-        Returns breakdown of alpha factors.
-        """
-        alpha = self._get_alpha_signal(market_data)
-        if alpha is None:
-            return None
-        
-        return {
-            "composite_alpha": alpha.composite_alpha,
-            "confidence": alpha.confidence,
-            "signal_strength": alpha.signal_strength,
-            "primary_driver": alpha.primary_driver,
-            "factors": {
-                "momentum": alpha.momentum_alpha,
-                "mean_reversion": alpha.mean_reversion_alpha,
-                "trend": alpha.trend_alpha
-            },
-            "capm": {
-                "beta": alpha.beta,
-                "alpha": alpha.capm_alpha
-            } if alpha.beta is not None else None
-        }
-    
-    # === PHASE 3: RISK MONITORING METHODS ===
-    
-    def update_risk_state(
-        self,
-        equity: float,
-        daily_return: Optional[float] = None
-    ) -> List[Dict]:
-        """
-        Update risk monitoring state and get any alerts.
-        
-        Args:
-            equity: Current portfolio equity
-            daily_return: Today's return (optional, for VaR)
-        
-        Returns:
-            List of alert dictionaries
-        """
-        # Update basic equity tracking
-        self.account_equity = equity
-        if MATH_AVAILABLE and self.risk_manager is not None:
-            self.risk_manager.update_equity(equity)
-        
-        # Update risk monitor
-        if not MATH_AVAILABLE or self.risk_monitor is None:
-            return []
-        
-        try:
-            alerts = self.risk_monitor.update(equity, daily_return)
-            return [a.to_dict() for a in alerts]
-        except Exception as e:
-            logger.error(f"Risk state update error: {e}")
-            return []
-    
-    def check_circuit_breaker(self) -> Dict:
-        """
-        Check if circuit breaker is active.
-        
-        Returns:
-            Dictionary with circuit breaker status and reason
-        """
-        if not MATH_AVAILABLE or self.risk_monitor is None:
-            return {"active": False, "reason": "risk_monitor_unavailable"}
-        
-        return {
-            "active": self.risk_monitor.circuit_breaker_active,
-            "drawdown": self.risk_monitor.current_drawdown,
-            "alerts": [a.to_dict() for a in self.risk_monitor.active_alerts],
-            "position_limit": self.risk_monitor.get_position_limit()
-        }
-    
-    def get_tail_risk_metrics(self) -> Optional[Dict]:
-        """
-        Get CVaR and other tail risk metrics.
-        
-        Returns comprehensive tail risk analysis.
-        """
-        if not MATH_AVAILABLE or self.risk_monitor is None:
-            return None
-        
-        try:
-            metrics = self.risk_monitor.compute_tail_risk()
-            return {
-                "var_95": metrics.var_95,
-                "var_99": metrics.var_99,
-                "cvar_95": metrics.cvar_95,
-                "cvar_99": metrics.cvar_99,
-                "expected_shortfall": metrics.expected_shortfall,
-                "max_loss": metrics.max_loss,
-                "tail_ratio": metrics.tail_ratio
-            }
-        except Exception as e:
-            logger.error(f"Tail risk computation error: {e}")
-            return None
-    
-    def detect_regime_shift(self, market_data: Dict) -> Optional[Dict]:
-        """
-        Detect regime shifts using change point detection.
-        
-        Returns:
-            Dictionary with shift detection results
-        """
-        if not MATH_AVAILABLE or self.shift_detector is None:
-            return None
-        
-        try:
-            prices = self._extract_prices_for_regime(market_data)
-            if prices is None:
-                return None
-            
-            result = self.shift_detector.detect(prices)
-            
-            # Get alert if shift detected
-            alert = self.shift_detector.get_regime_alert(result)
-            
-            return {
-                "has_shift": result["has_shift"],
-                "current_regime": result["current_regime"],
-                "change_points": result["change_points"],
-                "cusum_score": result["cusum_max"],
-                "alert": alert.to_dict() if alert else None
-            }
-        except Exception as e:
-            logger.error(f"Regime shift detection error: {e}")
-            return None
-    
-    def get_full_risk_report(self, market_data: Optional[Dict] = None) -> Dict:
-        """
-        Get comprehensive risk report combining all monitors.
-        
-        Returns full risk state for dashboard/reporting.
-        """
-        report = {
-            "timestamp": datetime.now().isoformat(),
-            "circuit_breaker": self.check_circuit_breaker(),
-            "drawdown": {
-                "current": self.risk_monitor.current_drawdown if self.risk_monitor else 0,
-                "peak_equity": self.risk_monitor.peak_equity if self.risk_monitor else 0,
-                "current_equity": self.account_equity
-            },
-            "tail_risk": self.get_tail_risk_metrics(),
-            "regime": self.get_regime_status(),
-            "position_limit_pct": 100 * (
-                self.risk_monitor.get_position_limit() if self.risk_monitor else 1.0
-            ),
-            "trading_allowed": not (
-                self.risk_monitor.circuit_breaker_active if self.risk_monitor else False
-            )
-        }
-        
-        # Add regime shift detection if market data provided
-        if market_data:
-            report["regime_shift"] = self.detect_regime_shift(market_data)
-        
-        return report
 
 
 # Singleton instance

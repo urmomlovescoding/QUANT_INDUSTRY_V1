@@ -24,29 +24,23 @@ export {
   LoadingState,
 } from './Loading';
 
-// Error Boundary (primary)
+// Error Boundary
 export { ErrorBoundary, withErrorBoundary } from './ErrorBoundary';
 
-// Error Display components (excluding ErrorBoundary to avoid duplicate)
+// Error Display
 export {
   ErrorCard,
   InlineError,
+  EmptyState,
   ConnectionError,
   DataUnavailable,
   MarketClosedNotice
 } from './ErrorDisplay';
 
-// Enhanced Empty State with variants
-export { 
-  EmptyState, 
-  DataState 
-} from './EmptyState';
-
 // Toast Notifications
 export {
   ToastProvider,
-  useToast,
-  useToastSafe
+  useToast
 } from './Toast';
 
 // Button Components

@@ -6,6 +6,7 @@ import asyncio
 import functools
 import logging
 import random
+import time
 from datetime import datetime
 from typing import Callable, Optional, Tuple, Type, TypeVar
 
@@ -109,7 +110,6 @@ def retry(
                     if on_retry:
                         on_retry(attempt, e)
 
-                    import time
                     time.sleep(delay)
 
             raise last_exception
@@ -276,7 +276,6 @@ class CircuitBreaker:
         """Check if enough time has passed to try resetting"""
         if self._last_failure_time is None:
             return True
-        import time
         return (time.time() - self._last_failure_time) >= self.recovery_timeout
 
     def record_success(self):
@@ -292,7 +291,6 @@ class CircuitBreaker:
 
     def record_failure(self):
         """Record a failed call"""
-        import time
         self._failure_count += 1
         self._last_failure_time = time.time()
 
@@ -403,7 +401,6 @@ class RateLimiter:
 
     def _refill_tokens(self):
         """Refill tokens based on time elapsed"""
-        import time
         now = time.time()
 
         if self._last_update is None:
@@ -430,8 +427,6 @@ class RateLimiter:
         Raises:
             RateLimitExceededError: If max wait time exceeded
         """
-        import time
-
         async with self._lock:
             # Check if we're in backoff period
             if self._backoff_until is not None:
@@ -475,8 +470,6 @@ class RateLimiter:
 
     def acquire_sync(self, tokens: int = 1) -> float:
         """Synchronous version of acquire"""
-        import time
-
         # Check backoff
         if self._backoff_until is not None:
             now = time.time()
@@ -521,8 +514,6 @@ class RateLimiter:
         Args:
             retry_after: Optional retry-after value from API response
         """
-        import time
-
         self._total_rate_limits += 1
         self._consecutive_limits += 1
 
@@ -588,7 +579,6 @@ class RateLimiter:
             self.record_rate_limit(info['retry_after'])
         elif 'remaining' in info and info['remaining'] == 0:
             # No remaining requests, calculate wait from reset time
-            import time
             if 'reset' in info:
                 retry_after = max(0, info['reset'] - time.time())
                 self.record_rate_limit(retry_after)

@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { ToastProvider } from './components/ui/Toast'
+import { Toaster } from './components/ui/Toaster'
 import { Layout } from './components/layout/Layout'
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { CommandPalette, useCommandPalette } from './components/CommandPalette'
 import { NotificationProvider } from './components/NotificationSystem'
 import { QuickTrade, useQuickTrade } from './components/QuickTrade'
@@ -27,8 +28,6 @@ import { SlideDoctrine } from './views/SlideDoctrine'
 import { Backtesting } from './views/Backtesting'
 import { MonteCarlo } from './views/MonteCarlo'
 import { Correlation } from './views/Correlation'
-import { BacktestViz } from './views/BacktestViz'
-import { PnLAttribution } from './components/PnLAttribution'
 
 // Neural AI views
 import { NeuralAnalysis } from './views/NeuralAnalysis'
@@ -54,7 +53,6 @@ import { News } from './views/News'
 import { Portfolio } from './views/Portfolio'
 import { PairsTrading } from './views/PairsTrading'
 import { Reports } from './views/Reports'
-import { TaxLots } from './views/TaxLots'
 
 // System views
 import { APIConnector } from './views/APIConnector'
@@ -65,12 +63,6 @@ import { Signals } from './views/Signals'
 import { Positions } from './views/Positions'
 import { Performance } from './views/Performance'
 import { Analytics } from './views/Analytics'
-
-// Advanced Trading views
-import { MicrostructureDashboard } from './components/microstructure'
-import { ArbDashboard } from './components/cross-exchange'
-import { OptionsFlowDashboard } from './components/options-flow'
-import { BrainDashboard } from './components/brain'
 
 function AppContent() {
   const commandPalette = useCommandPalette()
@@ -102,8 +94,6 @@ function AppContent() {
 
           {/* Analytics */}
           <Route path="/backtesting" element={<Backtesting />} />
-          <Route path="/backtest-viz" element={<BacktestViz />} />
-          <Route path="/pnl-attribution" element={<PnLAttribution />} />
           <Route path="/monte-carlo" element={<MonteCarlo />} />
           <Route path="/correlation" element={<Correlation />} />
 
@@ -131,13 +121,6 @@ function AppContent() {
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/pairs-trading" element={<PairsTrading />} />
           <Route path="/reports" element={<Reports />} />
-          <Route path="/tax-lots" element={<TaxLots />} />
-
-          {/* Advanced Trading */}
-          <Route path="/microstructure" element={<MicrostructureDashboard />} />
-          <Route path="/cross-exchange" element={<ArbDashboard />} />
-          <Route path="/options-flow" element={<OptionsFlowDashboard />} />
-          <Route path="/brain-dashboard" element={<BrainDashboard />} />
 
           {/* System */}
           <Route path="/api-connector" element={<APIConnector />} />
@@ -150,6 +133,7 @@ function AppContent() {
           <Route path="/analytics" element={<Analytics />} />
         </Routes>
       </Layout>
+      <Toaster />
       <CommandPalette isOpen={commandPalette.isOpen} onClose={commandPalette.close} />
       <QuickTrade
         isOpen={quickTrade.isOpen}
@@ -163,12 +147,16 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <ToastProvider>
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        console.error('Top-level error boundary caught:', error, errorInfo)
+      }}
+    >
+      <BrowserRouter>
         <NotificationProvider>
           <AppContent />
         </NotificationProvider>
-      </ToastProvider>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }
