@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from './components/ui/Toaster'
 import { Layout } from './components/layout/Layout'
@@ -5,11 +6,13 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { CommandPalette, useCommandPalette } from './components/CommandPalette'
 import { NotificationProvider } from './components/NotificationSystem'
 import { QuickTrade, useQuickTrade } from './components/QuickTrade'
+import { AlertProvider, AlertManager } from './components/AlertSystem'
 
 // Market views
 import { Dashboard } from './views/Dashboard'
 import { Screener } from './views/Screener'
 import { Charts } from './views/Charts'
+import { CommandCenter } from './views/CommandCenter'
 
 // Options views
 import { OptionsLab } from './views/OptionsLab'
@@ -70,6 +73,21 @@ import { Analytics } from './views/Analytics'
 function AppContent() {
   const commandPalette = useCommandPalette()
   const quickTrade = useQuickTrade()
+  const [alertManagerOpen, setAlertManagerOpen] = useState(false)
+
+  // Listen for alert manager open events (from command palette or keyboard shortcut)
+  useEffect(() => {
+    const handler = () => setAlertManagerOpen(true)
+    window.addEventListener('open-alert-manager', handler)
+    return () => window.removeEventListener('open-alert-manager', handler)
+  }, [])
+
+  // Listen for quick trade open events (from command palette)
+  useEffect(() => {
+    const handler = () => quickTrade.open()
+    window.addEventListener('open-quick-trade', handler)
+    return () => window.removeEventListener('open-quick-trade', handler)
+  }, [quickTrade])
 
   return (
     <>
@@ -79,6 +97,7 @@ function AppContent() {
 
           {/* Markets */}
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/command-center" element={<CommandCenter />} />
           <Route path="/screener" element={<Screener />} />
           <Route path="/charts" element={<Charts />} />
 
@@ -147,6 +166,7 @@ function AppContent() {
         defaultSymbol={quickTrade.defaultSymbol}
         defaultSide={quickTrade.defaultSide}
       />
+      <AlertManager isOpen={alertManagerOpen} onClose={() => setAlertManagerOpen(false)} />
     </>
   )
 }
@@ -160,7 +180,9 @@ export default function App() {
     >
       <BrowserRouter>
         <NotificationProvider>
-          <AppContent />
+          <AlertProvider>
+            <AppContent />
+          </AlertProvider>
         </NotificationProvider>
       </BrowserRouter>
     </ErrorBoundary>

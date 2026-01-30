@@ -1,5 +1,6 @@
 // Market views
 export { Dashboard } from './Dashboard'
+export { CommandCenter } from './CommandCenter'
 export { Screener } from './Screener'
 export { Charts } from './Charts'
 
