@@ -171,17 +171,9 @@ except Exception as e:
 try:
     from api.v2 import api_v2
     app.include_router(api_v2, prefix="/api/v2")
-    logger.info("Loaded API v2 routes")
+    logger.info("✅ Loaded API v2 routes")
 except Exception as e:
     logger.warning(f"Could not load API v2 routes: {e}")
-
-# V2 API Routes (consolidated)
-try:
-    from api.v2 import api_v2
-    app.include_router(api_v2, prefix="/api/v2")
-    logger.info("✅ Loaded V2 API routes")
-except Exception as e:
-    logger.warning(f"Could not load V2 routes: {e}")
 
 # Deprecation Middleware
 try:

@@ -2,15 +2,79 @@
 QUANT INDUSTRY V1 - Market Data API (v2)
 ========================================
 Consolidated market data endpoints: quotes, bars, indicators, sectors, movers.
+
+WIRED TO REAL IMPLEMENTATIONS:
+- MarketDataService (Alpaca provider)
+- Market Hours service
+- Technical indicators from indicators.technical
 """
 
-from fastapi import APIRouter, Query, Path
+from fastapi import APIRouter, Query, Path, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from enum import Enum
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# Service imports and singletons
+# ============================================================================
+
+_market_data_service = None
+_market_hours_available = False
+
+# Try to import services
+try:
+    from backend.services.market_data_service import MarketDataService, get_market_data_service
+    _service_available = True
+except ImportError:
+    try:
+        # Alternate import path
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        from backend.services.market_data_service import MarketDataService, get_market_data_service
+        _service_available = True
+    except ImportError:
+        _service_available = False
+        logger.warning("MarketDataService not available")
+
+try:
+    from backend.services.market_hours import get_market_status as _get_market_hours_status, MarketSession as HoursSession
+    _market_hours_available = True
+except ImportError:
+    try:
+        from services.market_hours import get_market_status as _get_market_hours_status, MarketSession as HoursSession
+        _market_hours_available = True
+    except ImportError:
+        _market_hours_available = False
+        logger.warning("Market hours service not available")
+
+# Technical indicators
+try:
+    from backend.indicators.technical import calculate_rsi, calculate_sma, calculate_ema, calculate_macd, calculate_bollinger_bands, calculate_atr
+    _indicators_available = True
+except ImportError:
+    try:
+        from indicators.technical import calculate_rsi, calculate_sma, calculate_ema, calculate_macd, calculate_bollinger_bands, calculate_atr
+        _indicators_available = True
+    except ImportError:
+        _indicators_available = False
+        logger.warning("Technical indicators not available")
+
+
+async def _get_service() -> Optional["MarketDataService"]:
+    """Get or create the market data service singleton."""
+    global _market_data_service
+    if _market_data_service is None and _service_available:
+        try:
+            _market_data_service = await get_market_data_service()
+        except Exception as e:
+            logger.error(f"Failed to get market data service: {e}")
+    return _market_data_service
 
 
 # ============================================================================
@@ -27,6 +91,18 @@ class Timeframe(str, Enum):
     H4 = "4h"
     D1 = "1d"
     W1 = "1w"
+
+# Map v2 timeframes to Alpaca timeframes
+TIMEFRAME_MAP = {
+    "1m": "1Min",
+    "5m": "5Min",
+    "15m": "15Min",
+    "30m": "30Min",
+    "1h": "1Hour",
+    "4h": "4Hour",
+    "1d": "1Day",
+    "1w": "1Week",
+}
 
 
 class MarketSession(str, Enum):
@@ -64,6 +140,7 @@ class Quote(BaseModel):
     open: float = Field(..., description="Today's open")
     prev_close: float = Field(..., description="Previous close")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    source: str = Field(default="unknown", description="Data source")
 
 
 class QuotesResponse(BaseModel):
@@ -89,6 +166,7 @@ class BarsResponse(BaseModel):
     timeframe: str
     bars: list[Bar] = Field(default_factory=list)
     count: int = Field(..., description="Number of bars returned")
+    source: str = Field(default="unknown")
 
 
 class TechnicalIndicators(BaseModel):
@@ -111,6 +189,7 @@ class TechnicalIndicators(BaseModel):
     adx_14: Optional[float] = None
     obv: Optional[float] = None
     vwap: Optional[float] = None
+    source: str = Field(default="unknown")
 
 
 class SectorPerformance(BaseModel):
@@ -127,6 +206,7 @@ class SectorsResponse(BaseModel):
     """Sector performance response."""
     sectors: list[SectorPerformance] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    source: str = Field(default="unknown")
 
 
 class Mover(BaseModel):
@@ -147,6 +227,7 @@ class MoversResponse(BaseModel):
     losers: list[Mover] = Field(default_factory=list)
     most_active: list[Mover] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    source: str = Field(default="unknown")
 
 
 class Snapshot(BaseModel):
@@ -176,10 +257,59 @@ async def get_market_status() -> MarketStatus:
     - Next open/close times
     - Early close indicators
     """
+    if _market_hours_available:
+        try:
+            status = _get_market_hours_status()
+            
+            # Map session types
+            session_map = {
+                "regular": MarketSession.REGULAR,
+                "pre_market": MarketSession.PRE,
+                "after_hours": MarketSession.POST,
+                "closed": MarketSession.CLOSED,
+            }
+            session = session_map.get(status.get("session", "closed"), MarketSession.CLOSED)
+            
+            return MarketStatus(
+                session=session,
+                is_open=status.get("is_open", False),
+                next_close=None,  # Would need parsing from status string
+                early_close=status.get("is_early_close", False)
+            )
+        except Exception as e:
+            logger.warning(f"Market hours failed: {e}")
+    
+    # Fallback
+    from datetime import datetime
+    import pytz
+    try:
+        et = pytz.timezone('US/Eastern')
+        now = datetime.now(et)
+    except:
+        now = datetime.now()
+    
+    hour = now.hour
+    weekday = now.weekday()
+    
+    if weekday >= 5:
+        session = MarketSession.CLOSED
+        is_open = False
+    elif 9 <= hour < 16:
+        session = MarketSession.REGULAR
+        is_open = True
+    elif 4 <= hour < 9:
+        session = MarketSession.PRE
+        is_open = False
+    elif 16 <= hour < 20:
+        session = MarketSession.POST
+        is_open = False
+    else:
+        session = MarketSession.CLOSED
+        is_open = False
+    
     return MarketStatus(
-        session=MarketSession.REGULAR,
-        is_open=True,
-        next_close=datetime(2025, 1, 13, 21, 0, 0),  # 4 PM EST
+        session=session,
+        is_open=is_open,
         early_close=False
     )
 
@@ -198,11 +328,40 @@ async def get_quotes(
     
     Supports up to 100 symbols per request.
     """
-    symbol_list = [s.strip().upper() for s in symbols.split(",")]
+    symbol_list = [s.strip().upper() for s in symbols.split(",")][:100]
     
-    # Mock data
+    service = await _get_service()
+    if service:
+        try:
+            quote_data = await service.get_quotes(symbol_list)
+            quotes = []
+            for symbol in symbol_list:
+                q = quote_data.get(symbol)
+                if q:
+                    # Calculate change from prev close if available
+                    price = q.last or q.mid
+                    # We don't have prev_close directly, estimate from snapshot or use 0
+                    quotes.append(Quote(
+                        symbol=symbol,
+                        bid=q.bid or 0,
+                        ask=q.ask or 0,
+                        last=price,
+                        volume=q.volume or 0,
+                        change=0,  # Would need daily bar for accurate change
+                        change_percent=0,
+                        high=price,  # Would need daily bar
+                        low=price,
+                        open=price,
+                        prev_close=price,
+                        source=q.source
+                    ))
+            return QuotesResponse(quotes=quotes)
+        except Exception as e:
+            logger.warning(f"Quote fetch failed: {e}")
+    
+    # Fallback mock
     quotes = []
-    for symbol in symbol_list[:100]:
+    for symbol in symbol_list:
         quotes.append(Quote(
             symbol=symbol,
             bid=100.00,
@@ -214,7 +373,8 @@ async def get_quotes(
             high=101.00,
             low=98.50,
             open=99.00,
-            prev_close=98.52
+            prev_close=98.52,
+            source="fallback"
         ))
     
     return QuotesResponse(quotes=quotes)
@@ -234,8 +394,45 @@ async def get_quote(
     
     Returns bid, ask, last, volume, and change data.
     """
+    symbol = symbol.upper()
+    
+    service = await _get_service()
+    if service:
+        try:
+            # Get quote
+            q = await service.get_quote(symbol)
+            
+            # Get snapshot for daily data (prev close, change, etc.)
+            snapshot = await service.get_snapshot(symbol)
+            
+            daily_bar = snapshot.get("daily_bar", {})
+            prev_bar = snapshot.get("prev_daily_bar", {})
+            
+            price = q.last or q.mid
+            prev_close = prev_bar.get("c", price) if prev_bar else price
+            change = price - prev_close
+            change_pct = (change / prev_close * 100) if prev_close else 0
+            
+            return Quote(
+                symbol=symbol,
+                bid=q.bid or 0,
+                ask=q.ask or 0,
+                last=price,
+                volume=q.volume or daily_bar.get("v", 0),
+                change=round(change, 2),
+                change_percent=round(change_pct, 2),
+                high=daily_bar.get("h", price),
+                low=daily_bar.get("l", price),
+                open=daily_bar.get("o", price),
+                prev_close=prev_close,
+                source=q.source
+            )
+        except Exception as e:
+            logger.warning(f"Quote fetch failed for {symbol}: {e}")
+    
+    # Fallback
     return Quote(
-        symbol=symbol.upper(),
+        symbol=symbol,
         bid=150.00,
         ask=150.05,
         last=150.02,
@@ -245,7 +442,8 @@ async def get_quote(
         high=152.00,
         low=148.00,
         open=149.00,
-        prev_close=147.52
+        prev_close=147.52,
+        source="fallback"
     )
 
 
@@ -267,7 +465,53 @@ async def get_bars(
     
     Supports multiple timeframes from 1-minute to weekly.
     """
-    # Mock data
+    symbol = symbol.upper()
+    alpaca_tf = TIMEFRAME_MAP.get(timeframe.value, "1Day")
+    
+    # Calculate date range
+    end_dt = datetime.combine(end, datetime.max.time()) if end else datetime.now()
+    if start:
+        start_dt = datetime.combine(start, datetime.min.time())
+    else:
+        # Default based on timeframe
+        days = 30 if "Min" in alpaca_tf or "Hour" in alpaca_tf else 365
+        start_dt = end_dt - timedelta(days=days)
+    
+    service = await _get_service()
+    if service:
+        try:
+            bar_data = await service.get_bars(
+                symbol=symbol,
+                timeframe=alpaca_tf,
+                start=start_dt,
+                end=end_dt,
+                limit=limit
+            )
+            
+            bars = [
+                Bar(
+                    timestamp=b.timestamp,
+                    open=b.open,
+                    high=b.high,
+                    low=b.low,
+                    close=b.close,
+                    volume=int(b.volume),
+                    vwap=b.vwap
+                )
+                for b in bar_data[-limit:]
+            ]
+            
+            return BarsResponse(
+                symbol=symbol,
+                timeframe=timeframe.value,
+                bars=bars,
+                count=len(bars),
+                source="alpaca" if bars else "none"
+            )
+        except Exception as e:
+            logger.warning(f"Bars fetch failed for {symbol}: {e}")
+    
+    # Fallback mock
     bars = [
         Bar(
             timestamp=datetime(2025, 1, 10, 9, 30),
@@ -282,10 +526,11 @@ async def get_bars(
     ]
     
     return BarsResponse(
-        symbol=symbol.upper(),
+        symbol=symbol,
         timeframe=timeframe.value,
         bars=bars,
-        count=len(bars)
+        count=len(bars),
+        source="fallback"
     )
 
 
@@ -304,8 +549,71 @@ async def get_indicators(
     
     Includes moving averages, RSI, MACD, Bollinger Bands, and more.
     """
+    symbol = symbol.upper()
+    alpaca_tf = TIMEFRAME_MAP.get(timeframe.value, "1Day")
+    
+    service = await _get_service()
+    if service and _indicators_available:
+        try:
+            # Get enough bars for 200 SMA
+            bars = await service.get_bars(
+                symbol=symbol,
+                timeframe=alpaca_tf,
+                days=400,
+                limit=400
+            )
+            
+            if len(bars) >= 20:
+                closes = [b.close for b in bars]
+                highs = [b.high for b in bars]
+                lows = [b.low for b in bars]
+                
+                import numpy as np
+                
+                # Calculate indicators
+                sma_20 = calculate_sma(closes, 20)
+                sma_50 = calculate_sma(closes, 50) if len(closes) >= 50 else [np.nan] * len(closes)
+                sma_200 = calculate_sma(closes, 200) if len(closes) >= 200 else [np.nan] * len(closes)
+                ema_12 = calculate_ema(closes, 12)
+                ema_26 = calculate_ema(closes, 26) if len(closes) >= 26 else [np.nan] * len(closes)
+                rsi = calculate_rsi(closes, 14)
+                macd_line, signal, histogram = calculate_macd(closes)
+                upper, middle, lower = calculate_bollinger_bands(closes, 20, 2)
+                atr = calculate_atr(highs, lows, closes, 14)
+                
+                # Get latest values
+                def safe_get(arr, default=None):
+                    if arr is not None and len(arr) > 0 and not np.isnan(arr[-1]):
+                        return float(arr[-1])
+                    return default
+                
+                # VWAP from latest bar if available
+                vwap = bars[-1].vwap if bars else None
+                
+                return TechnicalIndicators(
+                    symbol=symbol,
+                    sma_20=safe_get(sma_20),
+                    sma_50=safe_get(sma_50),
+                    sma_200=safe_get(sma_200),
+                    ema_12=safe_get(ema_12),
+                    ema_26=safe_get(ema_26),
+                    rsi_14=safe_get(rsi),
+                    macd=safe_get(macd_line),
+                    macd_signal=safe_get(signal),
+                    macd_histogram=safe_get(histogram),
+                    bollinger_upper=safe_get(upper),
+                    bollinger_middle=safe_get(middle),
+                    bollinger_lower=safe_get(lower),
+                    atr_14=safe_get(atr),
+                    vwap=vwap,
+                    source="calculated"
+                )
+        except Exception as e:
+            logger.warning(f"Indicators calc failed for {symbol}: {e}")
+    
+    # Fallback
     return TechnicalIndicators(
-        symbol=symbol.upper(),
+        symbol=symbol,
         sma_20=150.50,
         sma_50=148.25,
         sma_200=142.00,
@@ -321,7 +629,8 @@ async def get_indicators(
         atr_14=2.50,
         adx_14=25.0,
         obv=50000000.0,
-        vwap=150.25
+        vwap=150.25,
+        source="fallback"
     )
 
 
@@ -337,34 +646,75 @@ async def get_sectors() -> SectorsResponse:
     
     Returns change percentages, volumes, and top movers by sector.
     """
+    # Sector ETFs to track
+    sector_etfs = {
+        "XLK": "Technology",
+        "XLV": "Healthcare", 
+        "XLF": "Financial",
+        "XLY": "Consumer Discretionary",
+        "XLC": "Communication Services",
+        "XLI": "Industrials",
+        "XLP": "Consumer Staples",
+        "XLE": "Energy",
+        "XLU": "Utilities",
+        "XLRE": "Real Estate",
+        "XLB": "Materials",
+    }
+    
+    service = await _get_service()
+    if service:
+        try:
+            quotes = await service.get_quotes(list(sector_etfs.keys()))
+            
+            sectors = []
+            for etf, sector_name in sector_etfs.items():
+                q = quotes.get(etf)
+                if q:
+                    # Get snapshot for change data
+                    try:
+                        snapshot = await service.get_snapshot(etf)
+                        daily = snapshot.get("daily_bar", {})
+                        prev = snapshot.get("prev_daily_bar", {})
+                        
+                        price = q.last or q.mid
+                        prev_close = prev.get("c", price) if prev else price
+                        change_pct = ((price - prev_close) / prev_close * 100) if prev_close else 0
+                        volume = daily.get("v", q.volume) or 0
+                    except:
+                        change_pct = 0
+                        volume = q.volume or 0
+                    
+                    sectors.append(SectorPerformance(
+                        sector=sector_name,
+                        change_percent=round(change_pct, 2),
+                        volume=int(volume),
+                        market_cap=0,  # Would need separate lookup
+                        top_gainer="",
+                        top_loser=""
+                    ))
+            
+            if sectors:
+                return SectorsResponse(sectors=sectors, source="alpaca")
+        except Exception as e:
+            logger.warning(f"Sector fetch failed: {e}")
+    
+    # Fallback
     sectors = [
         SectorPerformance(
-            sector="Technology",
-            change_percent=1.25,
-            volume=500000000,
-            market_cap=15000000000000,
-            top_gainer="NVDA",
-            top_loser="INTC"
+            sector="Technology", change_percent=1.25, volume=500000000,
+            market_cap=15000000000000, top_gainer="NVDA", top_loser="INTC"
         ),
         SectorPerformance(
-            sector="Healthcare",
-            change_percent=-0.50,
-            volume=200000000,
-            market_cap=5000000000000,
-            top_gainer="LLY",
-            top_loser="PFE"
+            sector="Healthcare", change_percent=-0.50, volume=200000000,
+            market_cap=5000000000000, top_gainer="LLY", top_loser="PFE"
         ),
         SectorPerformance(
-            sector="Financial",
-            change_percent=0.75,
-            volume=300000000,
-            market_cap=8000000000000,
-            top_gainer="JPM",
-            top_loser="WFC"
+            sector="Financial", change_percent=0.75, volume=300000000,
+            market_cap=8000000000000, top_gainer="JPM", top_loser="WFC"
         ),
     ]
     
-    return SectorsResponse(sectors=sectors)
+    return SectorsResponse(sectors=sectors, source="fallback")
 
 
 @router.get(
@@ -380,7 +730,79 @@ async def get_movers(
     Get market movers.
     
     Returns top gainers, losers, and most actively traded stocks.
+    
+    Note: Alpaca doesn't have a direct movers endpoint, so we scan a universe of stocks.
     """
+    # Universe of stocks to scan for movers
+    universe = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD",
+        "NFLX", "CRM", "ORCL", "ADBE", "INTC", "CSCO", "IBM", "QCOM",
+        "JPM", "BAC", "WFC", "GS", "MS", "C", "V", "MA",
+        "JNJ", "UNH", "PFE", "MRK", "ABBV", "LLY", "TMO", "ABT",
+        "XOM", "CVX", "COP", "SLB", "EOG", "PXD", "OXY", "VLO",
+        "HD", "LOW", "TGT", "WMT", "COST", "NKE", "SBUX", "MCD"
+    ]
+    
+    service = await _get_service()
+    if service:
+        try:
+            # Get quotes for universe
+            quotes = await service.get_quotes(universe)
+            
+            # Calculate changes and sort
+            stock_data = []
+            for symbol in universe:
+                q = quotes.get(symbol)
+                if q:
+                    try:
+                        snapshot = await service.get_snapshot(symbol)
+                        daily = snapshot.get("daily_bar", {})
+                        prev = snapshot.get("prev_daily_bar", {})
+                        
+                        price = q.last or q.mid
+                        prev_close = prev.get("c", price) if prev else price
+                        change = price - prev_close
+                        change_pct = (change / prev_close * 100) if prev_close else 0
+                        volume = daily.get("v", q.volume) or 0
+                        
+                        stock_data.append({
+                            "symbol": symbol,
+                            "name": symbol,  # Would need company name lookup
+                            "price": price,
+                            "change": change,
+                            "change_pct": change_pct,
+                            "volume": int(volume),
+                        })
+                    except:
+                        continue
+            
+            # Sort for gainers/losers/volume
+            gainers = sorted(stock_data, key=lambda x: x["change_pct"], reverse=True)[:limit]
+            losers = sorted(stock_data, key=lambda x: x["change_pct"])[:limit]
+            most_active = sorted(stock_data, key=lambda x: x["volume"], reverse=True)[:limit]
+            
+            def to_mover(d):
+                return Mover(
+                    symbol=d["symbol"],
+                    name=d["name"],
+                    price=round(d["price"], 2),
+                    change=round(d["change"], 2),
+                    change_percent=round(d["change_pct"], 2),
+                    volume=d["volume"],
+                    avg_volume=d["volume"],  # Would need historical avg
+                    volume_ratio=1.0
+                )
+            
+            return MoversResponse(
+                gainers=[to_mover(d) for d in gainers],
+                losers=[to_mover(d) for d in losers],
+                most_active=[to_mover(d) for d in most_active],
+                source="alpaca"
+            )
+        except Exception as e:
+            logger.warning(f"Movers fetch failed: {e}")
+    
+    # Fallback
     gainers = [
         Mover(
             symbol="NVDA", name="NVIDIA Corp", price=875.50,
@@ -408,7 +830,8 @@ async def get_movers(
     return MoversResponse(
         gainers=gainers[:limit],
         losers=losers[:limit],
-        most_active=most_active[:limit]
+        most_active=most_active[:limit],
+        source="fallback"
     )
 
 
