@@ -290,9 +290,17 @@ class AlpacaDataProvider(BaseDataProvider):
         self.api_key = api_key
         self.api_secret = api_secret
         self._client = None
+        self._credentials_missing = not (api_key and api_secret)
+        
+        if self._credentials_missing:
+            logger.info("Alpaca credentials not configured - will use fallback data sources")
+            self._available = False
 
     def _get_client(self):
         """Get or create Alpaca client."""
+        if self._credentials_missing:
+            return None
+            
         if self._client is None:
             try:
                 from alpaca.data import StockHistoricalDataClient
@@ -300,11 +308,17 @@ class AlpacaDataProvider(BaseDataProvider):
                     api_key=self.api_key,
                     secret_key=self.api_secret,
                 )
+                logger.info("Alpaca client initialized successfully")
             except ImportError:
-                logger.warning("alpaca-py not installed")
+                logger.warning("alpaca-py not installed - run: pip install alpaca-py")
                 self._available = False
             except Exception as e:
-                logger.error(f"Failed to create Alpaca client: {e}")
+                # Distinguish auth errors from other errors
+                err_str = str(e).lower()
+                if "authentication" in err_str or "unauthorized" in err_str or "api key" in err_str:
+                    logger.warning(f"Alpaca authentication failed: {e}")
+                else:
+                    logger.error(f"Alpaca client error: {e}")
                 self._available = False
         return self._client
 

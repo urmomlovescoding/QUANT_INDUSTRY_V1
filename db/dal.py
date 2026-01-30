@@ -105,6 +105,8 @@ class DatabaseManager:
             conn.execute(f"PRAGMA synchronous={self.synchronous}")
             conn.execute(f"PRAGMA cache_size={self.cache_size}")
             conn.execute("PRAGMA temp_store=MEMORY")
+            # Busy timeout: SQLite retries internally before raising "database is locked"
+            conn.execute("PRAGMA busy_timeout=30000")  # 30 seconds
 
             _local.connection = conn
             logger.debug(f"Created new connection for thread {threading.current_thread().name}")
@@ -125,14 +127,23 @@ class DatabaseManager:
             with db.transaction() as conn:
                 conn.execute("INSERT INTO ...")
                 conn.execute("UPDATE ...")
+        
+        Note: Safe against executescript() which auto-commits internally.
         """
         conn = self._get_connection()
         try:
             yield conn
-            conn.commit()
+            # Only commit if we're actually in a transaction
+            # (executescript auto-commits, leaving no active transaction)
+            if conn.in_transaction:
+                conn.commit()
         except Exception as e:
-            conn.rollback()
-            logger.error(f"Transaction rolled back: {e}")
+            # Only rollback if there's an active transaction to rollback
+            if conn.in_transaction:
+                conn.rollback()
+                logger.error(f"Transaction rolled back: {e}")
+            else:
+                logger.error(f"Transaction error (no active txn to rollback): {e}")
             raise
 
     def execute(
