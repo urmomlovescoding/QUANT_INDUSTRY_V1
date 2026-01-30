@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Maximize2 } from 'lucide-react'
+import { Maximize2, TrendingUp, TrendingDown } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { SystemMonitor } from './SystemMonitor'
 import { NotificationBell } from '../NotificationSystem'
@@ -26,7 +26,7 @@ export function Header() {
   const { data: healthResponse } = useQuery({
     queryKey: ['health-status'],
     queryFn: () => healthApi.check(),
-    refetchInterval: 10000, // Check every 10 seconds
+    refetchInterval: 10000,
     staleTime: 5000,
   })
 
@@ -34,7 +34,7 @@ export function Header() {
   const { data: tickersResponse, isSuccess } = useQuery({
     queryKey: ['market-tickers-header'],
     queryFn: () => marketApi.getTickers('SPY,QQQ,DIA,IWM'),
-    refetchInterval: 5000, // Refresh every 5 seconds for live feel
+    refetchInterval: 5000,
     staleTime: 3000,
   })
 
@@ -75,7 +75,6 @@ export function Header() {
 
     const unsubBot = electronAPI.onBotControl((action) => {
       console.log('Bot control action:', action)
-      // Emit custom event for bot control
       window.dispatchEvent(new CustomEvent('bot-control', { detail: action }))
     })
 
@@ -94,19 +93,23 @@ export function Header() {
   }
 
   return (
-    <header className="h-10 bg-background-secondary border-b border-border flex items-center justify-between px-4">
+    <header className={cn(
+      'h-12 flex items-center justify-between px-5',
+      'bg-background-secondary/80 backdrop-blur-glass',
+      'border-b border-border/50'
+    )}>
       {/* Left: Ticker tape */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-4">
         {marketData.map((ticker, i) => (
           <div key={ticker.symbol} className="flex items-center">
-            {i > 0 && <span className="text-border mx-2">|</span>}
+            {i > 0 && <div className="w-px h-4 bg-border mx-3" />}
             <MarketTicker {...ticker} />
           </div>
         ))}
       </div>
 
       {/* Right: Status, time, actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-5">
         {/* Market Hours Status */}
         <MarketStatusBadge />
 
@@ -122,35 +125,41 @@ export function Header() {
         {/* Connection status with data source */}
         <div className="flex items-center gap-2">
           <span className={cn(
-            'w-2 h-2 rounded-full',
-            isLiveData ? 'bg-bullish animate-pulse' : isConnected ? 'bg-warning animate-pulse' : 'bg-bearish'
+            'status-dot',
+            isLiveData ? 'online' : isConnected ? 'warning' : 'offline'
           )} />
           <span className={cn(
-            'text-xs font-medium',
+            'text-xs font-semibold',
             isLiveData ? 'text-bullish' : isConnected ? 'text-warning' : 'text-bearish'
           )}>
             {isLiveData ? 'LIVE' : isConnected ? 'STALE' : 'OFFLINE'}
           </span>
           {isConnected && (
-            <span className="text-[10px] text-foreground-muted uppercase">
+            <span className="text-[10px] text-foreground-muted uppercase tracking-wider">
               {dataSource}
             </span>
           )}
         </div>
 
         {/* Time */}
-        <div className="text-xs text-foreground-secondary font-mono">
-          <span className="text-foreground-primary font-bold">{formatTime(time)}</span>
-          <span className="ml-2 text-foreground-muted">{formatDate(time)}</span>
+        <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-background-tertiary/50">
+          <div className="text-sm font-mono">
+            <span className="text-foreground-primary font-bold tracking-wide">{formatTime(time)}</span>
+          </div>
+          <div className="w-px h-4 bg-border" />
+          <span className="text-xs text-foreground-muted font-medium">{formatDate(time)}</span>
         </div>
 
         {/* Fullscreen */}
         <button
           onClick={() => document.documentElement.requestFullscreen?.()}
-          className="p-1.5 rounded hover:bg-background-tertiary transition-colors"
+          className={cn(
+            'p-2 rounded-lg transition-all duration-200',
+            'hover:bg-background-hover/50 text-foreground-muted hover:text-foreground-primary'
+          )}
           title="Fullscreen (F11)"
         >
-          <Maximize2 className="w-4 h-4 text-foreground-muted" />
+          <Maximize2 className="w-4 h-4" />
         </button>
 
         {/* Kill switch */}
@@ -170,18 +179,27 @@ function MarketTicker({ symbol, price, change }: MarketTickerProps) {
   const isPositive = change >= 0
 
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-xs font-medium text-accent-primary">{symbol}</span>
-      <span className="text-xs font-mono text-foreground-primary">
+    <div className="flex items-center gap-2 group">
+      <span className="text-xs font-bold text-accent-primary tracking-wide group-hover:text-accent-secondary transition-colors">
+        {symbol}
+      </span>
+      <span className="text-sm font-mono text-foreground-primary font-semibold">
         ${price.toFixed(2)}
       </span>
       <span
         className={cn(
-          'text-xs font-mono',
-          isPositive ? 'text-bullish' : 'text-bearish'
+          'flex items-center gap-0.5 text-xs font-mono font-semibold px-1.5 py-0.5 rounded',
+          isPositive 
+            ? 'text-bullish bg-bullish/10' 
+            : 'text-bearish bg-bearish/10'
         )}
       >
-        {isPositive ? '\u2191' : '\u2193'}{Math.abs(change).toFixed(2)}%
+        {isPositive ? (
+          <TrendingUp className="w-3 h-3" />
+        ) : (
+          <TrendingDown className="w-3 h-3" />
+        )}
+        {Math.abs(change).toFixed(2)}%
       </span>
     </div>
   )

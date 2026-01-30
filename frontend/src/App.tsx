@@ -54,6 +54,7 @@ import { News } from './views/News'
 import { Portfolio } from './views/Portfolio'
 import { PairsTrading } from './views/PairsTrading'
 import { Reports } from './views/Reports'
+import { TaxLots } from './views/TaxLots'
 
 // System views
 import { APIConnector } from './views/APIConnector'
@@ -64,6 +65,12 @@ import { Signals } from './views/Signals'
 import { Positions } from './views/Positions'
 import { Performance } from './views/Performance'
 import { Analytics } from './views/Analytics'
+
+// Advanced Trading views
+import { MicrostructureDashboard } from './components/microstructure'
+import { ArbDashboard } from './components/cross-exchange'
+import { OptionsFlowDashboard } from './components/options-flow'
+import { BrainDashboard } from './components/brain'
 
 function AppContent() {
   const commandPalette = useCommandPalette()
@@ -124,6 +131,13 @@ function AppContent() {
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/pairs-trading" element={<PairsTrading />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/tax-lots" element={<TaxLots />} />
+
+          {/* Advanced Trading */}
+          <Route path="/microstructure" element={<MicrostructureDashboard />} />
+          <Route path="/cross-exchange" element={<ArbDashboard />} />
+          <Route path="/options-flow" element={<OptionsFlowDashboard />} />
+          <Route path="/brain-dashboard" element={<BrainDashboard />} />
 
           {/* System */}
           <Route path="/api-connector" element={<APIConnector />} />

@@ -1,0 +1,428 @@
+Route File,Prefix,Method,Path,Full Endpoint,Domain,Tags,Description
+# =====================================
+# CORE ROUTES (api/routes/core_routes.py)
+# =====================================
+core_routes.py,/api,GET,/health,/api/health,System,core,Health check
+core_routes.py,/api,GET,/system/status,/api/system/status,System,core,System status
+core_routes.py,/api,GET,/market/status,/api/market/status,Market Data,core,Market hours status
+core_routes.py,/api,GET,/market/tickers,/api/market/tickers,Market Data,core,Get ticker prices
+core_routes.py,/api,GET,/market/quote/{symbol},/api/market/quote/{symbol},Market Data,core,Get detailed quote
+core_routes.py,/api,GET,/market/bars/{symbol},/api/market/bars/{symbol},Market Data,core,Get OHLCV bars
+core_routes.py,/api,GET,/market/snapshot/{symbol},/api/market/snapshot/{symbol},Market Data,core,Market snapshot
+core_routes.py,/api,GET,/brain-v6/status,/api/brain-v6/status,Brain/ML,core,PropFirm Brain V6 status
+core_routes.py,/api,GET,/feedback/status,/api/feedback/status,Brain/ML,core,Feedback loop status
+core_routes.py,/api,GET,/signals,/api/signals,Trading,core,Get all signals
+core_routes.py,/api,GET,/signals/active,/api/signals/active,Trading,core,Get active signals
+core_routes.py,/api,GET,/positions,/api/positions,Trading,core,Get positions
+core_routes.py,/api,GET,/portfolio,/api/portfolio,Portfolio,core,Get portfolio
+core_routes.py,/api,GET,/portfolio/performance,/api/portfolio/performance,Portfolio,core,Portfolio performance
+core_routes.py,/api,GET,/risk/metrics,/api/risk/metrics,Risk,core,Risk metrics
+core_routes.py,/api,GET,/risk/safety,/api/risk/safety,Risk,core,Safety status
+core_routes.py,/api,GET,/ml/regime,/api/ml/regime,Brain/ML,core,ML regime detection
+core_routes.py,/api,GET,/news,/api/news,Research,core,Get news
+core_routes.py,/api,GET,/settings,/api/settings,System,core,Get settings
+core_routes.py,/api,GET,/settings/api-keys,/api/settings/api-keys,System,core,Get API keys
+core_routes.py,/api,GET,/strategies,/api/strategies,Trading,core,List strategies
+core_routes.py,/api,GET,/strategies/{strategy_id},/api/strategies/{strategy_id},Trading,core,Get strategy details
+core_routes.py,/api,GET,/portfolio/live,/api/portfolio/live,Portfolio,core,Live portfolio
+core_routes.py,/api,GET,/portfolio/positions,/api/portfolio/positions,Portfolio,core,Portfolio positions
+core_routes.py,/api,GET,/portfolio/position/{symbol},/api/portfolio/position/{symbol},Portfolio,core,Get position by symbol
+core_routes.py,/api,POST,/portfolio/trade,/api/portfolio/trade,Trading,core,Execute trade
+core_routes.py,/api,DELETE,/portfolio/position/{symbol},/api/portfolio/position/{symbol},Trading,core,Close position
+core_routes.py,/api,GET,/portfolio/risk,/api/portfolio/risk,Risk,core,Portfolio risk
+core_routes.py,/api,GET,/portfolio/trades,/api/portfolio/trades,Trading,core,Get trades history
+core_routes.py,/api,GET,/regime/detect,/api/regime/detect,Brain/ML,core,HMM regime detection
+core_routes.py,/api,GET,/risk/report,/api/risk/report,Risk,core,CVaR/VaR risk report
+core_routes.py,/api,POST,/brain/analyze,/api/brain/analyze,Brain/ML,core,Brain analysis
+core_routes.py,/api,GET,/brain/status,/api/brain/status,Brain/ML,core,Brain status
+core_routes.py,/api,POST,/backtest/run,/api/backtest/run,Backtest,core,Run backtest
+core_routes.py,/api,POST,/monte-carlo/simulate,/api/monte-carlo/simulate,Backtest,core,Monte Carlo simulation
+core_routes.py,/api,GET,/agents/status,/api/agents/status,Brain/ML,core,Multi-agent status
+core_routes.py,/api,POST,/agents/consensus,/api/agents/consensus,Brain/ML,core,Get consensus signal
+core_routes.py,/api,POST,/agents/portfolio,/api/agents/portfolio,Brain/ML,core,Portfolio allocation
+# =====================================
+# BRAIN ROUTES (api/routes/brain_routes.py)
+# =====================================
+brain_routes.py,/brain,GET,/status,/brain/status,Brain/ML,ML Brain,Brain status
+brain_routes.py,/brain,POST,/initialize,/brain/initialize,Brain/ML,ML Brain,Initialize brain
+brain_routes.py,/brain,POST,/signal/generate,/brain/signal/generate,Brain/ML,ML Brain,Generate signal
+brain_routes.py,/brain,POST,/signal/multi-timeframe,/brain/signal/multi-timeframe,Brain/ML,ML Brain,Multi-timeframe signal
+brain_routes.py,/brain,GET,/signals/history,/brain/signals/history,Brain/ML,ML Brain,Signal history
+brain_routes.py,/brain,GET,/features/importance,/brain/features/importance,Brain/ML,ML Brain,Feature importance
+brain_routes.py,/brain,GET,/bots,/brain/bots,Brain/ML,ML Brain,List bots
+brain_routes.py,/brain,GET,/bots/{bot_id},/brain/bots/{bot_id},Brain/ML,ML Brain,Get bot details
+brain_routes.py,/brain,GET,/bots/{bot_id}/trades,/brain/bots/{bot_id}/trades,Brain/ML,ML Brain,Bot trade history
+brain_routes.py,/brain,GET,/performance,/brain/performance,Brain/ML,ML Brain,Performance metrics
+brain_routes.py,/brain,POST,/pipeline/start,/brain/pipeline/start,Brain/ML,ML Brain,Start ML pipeline
+brain_routes.py,/brain,POST,/pipeline/stop,/brain/pipeline/stop,Brain/ML,ML Brain,Stop ML pipeline
+brain_routes.py,/brain,GET,/pipeline/status,/brain/pipeline/status,Brain/ML,ML Brain,Pipeline status
+# =====================================
+# TAX ROUTES (api/routes/tax_routes.py)
+# =====================================
+tax_routes.py,/tax,POST,/purchase,/tax/purchase,Accounting,tax,Record purchase
+tax_routes.py,/tax,POST,/sale,/tax/sale,Accounting,tax,Record sale
+tax_routes.py,/tax,GET,/positions,/tax/positions,Accounting,tax,Get tax positions
+tax_routes.py,/tax,GET,/positions/{symbol},/tax/positions/{symbol},Accounting,tax,Get position by symbol
+tax_routes.py,/tax,POST,/unrealized-gains,/tax/unrealized-gains,Accounting,tax,Unrealized gains
+tax_routes.py,/tax,GET,/realized-gains,/tax/realized-gains,Accounting,tax,Realized gains
+tax_routes.py,/tax,POST,/tax-loss-harvesting,/tax/tax-loss-harvesting,Accounting,tax,Tax loss harvesting
+tax_routes.py,/tax,GET,/form-8949/{year},/tax/form-8949/{year},Accounting,tax,Form 8949 data
+tax_routes.py,/tax,POST,/cost-basis-method,/tax/cost-basis-method,Accounting,tax,Set cost basis method
+tax_routes.py,/tax,GET,/cost-basis-method/{symbol},/tax/cost-basis-method/{symbol},Accounting,tax,Get cost basis method
+tax_routes.py,/tax,GET,/closed-lots,/tax/closed-lots,Accounting,tax,Closed lots
+tax_routes.py,/tax,POST,/save,/tax/save,Accounting,tax,Save tax data
+tax_routes.py,/tax,POST,/load,/tax/load,Accounting,tax,Load tax data
+tax_routes.py,/tax,GET,/summary,/tax/summary,Accounting,tax,Tax summary
+# =====================================
+# RECONCILIATION ROUTES (api/routes/reconciliation_routes.py)
+# =====================================
+reconciliation_routes.py,/reconciliation,POST,/run,/reconciliation/run,Accounting,reconciliation,Run reconciliation
+reconciliation_routes.py,/reconciliation,POST,/broker/register,/reconciliation/broker/register,Accounting,reconciliation,Register broker
+reconciliation_routes.py,/reconciliation,GET,/brokers,/reconciliation/brokers,Accounting,reconciliation,List brokers
+reconciliation_routes.py,/reconciliation,GET,/reports,/reconciliation/reports,Accounting,reconciliation,List reports
+reconciliation_routes.py,/reconciliation,GET,/reports/{report_id},/reconciliation/reports/{report_id},Accounting,reconciliation,Get report
+reconciliation_routes.py,/reconciliation,GET,/reports/{report_id}/audit,/reconciliation/reports/{report_id}/audit,Accounting,reconciliation,Report audit trail
+reconciliation_routes.py,/reconciliation,GET,/discrepancies,/reconciliation/discrepancies,Accounting,reconciliation,List discrepancies
+reconciliation_routes.py,/reconciliation,POST,/discrepancies/resolve,/reconciliation/discrepancies/resolve,Accounting,reconciliation,Resolve discrepancy
+reconciliation_routes.py,/reconciliation,GET,/discrepancies/summary,/reconciliation/discrepancies/summary,Accounting,reconciliation,Discrepancies summary
+reconciliation_routes.py,/reconciliation,POST,/schedule/run,/reconciliation/schedule/run,Accounting,reconciliation,Scheduled reconciliation
+reconciliation_routes.py,/reconciliation,GET,/config,/reconciliation/config,Accounting,reconciliation,Get config
+reconciliation_routes.py,/reconciliation,POST,/config,/reconciliation/config,Accounting,reconciliation,Update config
+reconciliation_routes.py,/reconciliation,GET,/health,/reconciliation/health,Accounting,reconciliation,Health check
+# =====================================
+# MOBILE API (api/routes/mobile_api.py)
+# =====================================
+mobile_api.py,/mobile/v1,GET,/summary,/mobile/v1/summary,Mobile,mobile,Portfolio summary
+mobile_api.py,/mobile/v1,GET,/positions,/mobile/v1/positions,Mobile,mobile,Positions list
+mobile_api.py,/mobile/v1,GET,/strategies,/mobile/v1/strategies,Mobile,mobile,Strategies list
+mobile_api.py,/mobile/v1,GET,/alerts,/mobile/v1/alerts,Mobile,mobile,Alerts list
+mobile_api.py,/mobile/v1,POST,/alerts/{alert_id}/acknowledge,/mobile/v1/alerts/{alert_id}/acknowledge,Mobile,mobile,Acknowledge alert
+mobile_api.py,/mobile/v1,POST,/quick-action,/mobile/v1/quick-action,Mobile,mobile,Quick action
+mobile_api.py,/mobile/v1,GET,/watchlist,/mobile/v1/watchlist,Mobile,mobile,Watchlist
+mobile_api.py,/mobile/v1,GET,/market-status,/mobile/v1/market-status,Mobile,mobile,Market status
+mobile_api.py,/mobile/v1,GET,/notifications/settings,/mobile/v1/notifications/settings,Mobile,mobile,Notification settings
+mobile_api.py,/mobile/v1,PUT,/notifications/settings,/mobile/v1/notifications/settings,Mobile,mobile,Update notifications
+mobile_api.py,/mobile/v1,POST,/notifications/test,/mobile/v1/notifications/test,Mobile,mobile,Test notification
+mobile_api.py,/mobile/v1,GET,/chart/{symbol},/mobile/v1/chart/{symbol},Mobile,mobile,Chart data
+mobile_api.py,/mobile/v1,GET,/health,/mobile/v1/health,Mobile,mobile,Health check
+# =====================================
+# OPTIONS FLOW (api/routes/options_flow_routes.py)
+# =====================================
+options_flow_routes.py,/api/v1/options-flow,GET,/unusual,/api/v1/options-flow/unusual,Options,Options Flow,Unusual activity
+options_flow_routes.py,/api/v1/options-flow,GET,/gamma-exposure/{symbol},/api/v1/options-flow/gamma-exposure/{symbol},Options,Options Flow,Gamma exposure
+options_flow_routes.py,/api/v1/options-flow,GET,/dark-pool,/api/v1/options-flow/dark-pool,Options,Options Flow,Dark pool activity
+options_flow_routes.py,/api/v1/options-flow,GET,/signals,/api/v1/options-flow/signals,Options,Options Flow,Flow signals
+options_flow_routes.py,/api/v1/options-flow,GET,/smart-money,/api/v1/options-flow/smart-money,Options,Options Flow,Smart money
+# =====================================
+# MICROSTRUCTURE (api/routes/microstructure_routes.py)
+# =====================================
+microstructure_routes.py,/api/v1/microstructure,GET,/orderbook/{symbol},/api/v1/microstructure/orderbook/{symbol},Microstructure,Microstructure,Order book
+microstructure_routes.py,/api/v1/microstructure,GET,/imbalance/{symbol},/api/v1/microstructure/imbalance/{symbol},Microstructure,Microstructure,Order imbalance
+microstructure_routes.py,/api/v1/microstructure,GET,/tape/{symbol},/api/v1/microstructure/tape/{symbol},Microstructure,Microstructure,Time & sales tape
+microstructure_routes.py,/api/v1/microstructure,GET,/tape/{symbol}/analysis,/api/v1/microstructure/tape/{symbol}/analysis,Microstructure,Microstructure,Tape analysis
+microstructure_routes.py,/api/v1/microstructure,GET,/models/metrics,/api/v1/microstructure/models/metrics,Microstructure,Microstructure,Model metrics
+microstructure_routes.py,/api/v1/microstructure,GET,/backtest/results,/api/v1/microstructure/backtest/results,Microstructure,Microstructure,Backtest results
+microstructure_routes.py,/api/v1/microstructure,POST,/backtest/run,/api/v1/microstructure/backtest/run,Microstructure,Microstructure,Run microstructure backtest
+# =====================================
+# CROSS-EXCHANGE ARBITRAGE (api/routes/cross_exchange_routes.py)
+# =====================================
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/prices,/api/v1/arbitrage/prices,Arbitrage,Cross-Exchange,Cross-exchange prices
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/opportunities,/api/v1/arbitrage/opportunities,Arbitrage,Cross-Exchange,Arbitrage opportunities
+cross_exchange_routes.py,/api/v1/arbitrage,POST,/opportunities/{opp_id}/execute,/api/v1/arbitrage/opportunities/{opp_id}/execute,Arbitrage,Cross-Exchange,Execute opportunity
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/triangular,/api/v1/arbitrage/triangular,Arbitrage,Cross-Exchange,Triangular arbitrage
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/cex-dex/{symbol},/api/v1/arbitrage/cex-dex/{symbol},Arbitrage,Cross-Exchange,CEX-DEX spread
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/cex-dex/{symbol}/history,/api/v1/arbitrage/cex-dex/{symbol}/history,Arbitrage,Cross-Exchange,CEX-DEX history
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/latency,/api/v1/arbitrage/latency,Arbitrage,Cross-Exchange,Latency metrics
+cross_exchange_routes.py,/api/v1/arbitrage,GET,/executions,/api/v1/arbitrage/executions,Arbitrage,Cross-Exchange,Execution history
+# =====================================
+# NEWS & EVENTS (api/routes/news_events_routes.py)
+# =====================================
+news_events_routes.py,/api/v1/news-events,GET,/news,/api/v1/news-events/news,Research,News & Events,Get news
+news_events_routes.py,/api/v1/news-events,GET,/sentiment/market,/api/v1/news-events/sentiment/market,Research,News & Events,Market sentiment
+news_events_routes.py,/api/v1/news-events,GET,/sentiment/{symbol},/api/v1/news-events/sentiment/{symbol},Research,News & Events,Symbol sentiment
+news_events_routes.py,/api/v1/news-events,GET,/earnings,/api/v1/news-events/earnings,Research,News & Events,Earnings calendar
+news_events_routes.py,/api/v1/news-events,GET,/economic,/api/v1/news-events/economic,Research,News & Events,Economic calendar
+news_events_routes.py,/api/v1/news-events,GET,/signals,/api/v1/news-events/signals,Research,News & Events,Event signals
+news_events_routes.py,/api/v1/news-events,POST,/analyze-headline,/api/v1/news-events/analyze-headline,Research,News & Events,Analyze headline
+# =====================================
+# DECISION INTELLIGENCE (api/routes/decision_intelligence_routes.py)
+# =====================================
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/control-plane/status,/api/decision-intelligence/control-plane/status,Brain/ML,decision-intelligence,Control plane status
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/control-plane/health,/api/decision-intelligence/control-plane/health,Brain/ML,decision-intelligence,Control plane health
+decision_intelligence_routes.py,/api/decision-intelligence,POST,/control-plane/kill-switch,/api/decision-intelligence/control-plane/kill-switch,Brain/ML,decision-intelligence,Activate kill switch
+decision_intelligence_routes.py,/api/decision-intelligence,POST,/control-plane/kill-switch/release,/api/decision-intelligence/control-plane/kill-switch/release,Brain/ML,decision-intelligence,Release kill switch
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/trace/stats,/api/decision-intelligence/trace/stats,Brain/ML,decision-intelligence,Trace statistics
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/trace/path/{context_id},/api/decision-intelligence/trace/path/{context_id},Brain/ML,decision-intelligence,Get trace path
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/trace/failure-patterns,/api/decision-intelligence/trace/failure-patterns,Brain/ML,decision-intelligence,Failure patterns
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/trace/success-patterns,/api/decision-intelligence/trace/success-patterns,Brain/ML,decision-intelligence,Success patterns
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/trace/query,/api/decision-intelligence/trace/query,Brain/ML,decision-intelligence,Query traces
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/exit-learning/stats,/api/decision-intelligence/exit-learning/stats,Brain/ML,decision-intelligence,Exit learning stats
+decision_intelligence_routes.py,/api/decision-intelligence,POST,/exit-learning/recommend/{position_id},/api/decision-intelligence/exit-learning/recommend/{position_id},Brain/ML,decision-intelligence,Exit recommendation
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/exit-learning/value-surface/{regime},/api/decision-intelligence/exit-learning/value-surface/{regime},Brain/ML,decision-intelligence,Value surface
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/exit-learning/optimal-exits,/api/decision-intelligence/exit-learning/optimal-exits,Brain/ML,decision-intelligence,Optimal exits
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/shadow/components,/api/decision-intelligence/shadow/components,Brain/ML,decision-intelligence,Shadow components
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/shadow/report/{component_id},/api/decision-intelligence/shadow/report/{component_id},Brain/ML,decision-intelligence,Shadow report
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/shadow/comparison,/api/decision-intelligence/shadow/comparison,Brain/ML,decision-intelligence,Shadow comparison
+decision_intelligence_routes.py,/api/decision-intelligence,POST,/shadow/promote/{component_id},/api/decision-intelligence/shadow/promote/{component_id},Brain/ML,decision-intelligence,Promote component
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/self-improvement/status,/api/decision-intelligence/self-improvement/status,Brain/ML,decision-intelligence,Self-improvement status
+decision_intelligence_routes.py,/api/decision-intelligence,GET,/self-improvement/history,/api/decision-intelligence/self-improvement/history,Brain/ML,decision-intelligence,Improvement history
+decision_intelligence_routes.py,/api/decision-intelligence,POST,/self-improvement/trigger,/api/decision-intelligence/self-improvement/trigger,Brain/ML,decision-intelligence,Trigger improvement
+decision_intelligence_routes.py,/api/decision-intelligence,POST,/self-improvement/check-drift,/api/decision-intelligence/self-improvement/check-drift,Brain/ML,decision-intelligence,Check drift
+# =====================================
+# PROP FIRM (api/routes/prop_firm_routes.py)
+# =====================================
+prop_firm_routes.py,/prop-firm,POST,/register,/prop-firm/register,PropFirm,prop-firm,Register trader
+prop_firm_routes.py,/prop-firm,POST,/login,/prop-firm/login,PropFirm,prop-firm,Trader login
+prop_firm_routes.py,/prop-firm,GET,/challenges/available,/prop-firm/challenges/available,PropFirm,prop-firm,Available challenges
+prop_firm_routes.py,/prop-firm,POST,/kyc/{trader_id},/prop-firm/kyc/{trader_id},PropFirm,prop-firm,Submit KYC
+prop_firm_routes.py,/prop-firm,POST,/challenges/enroll/{trader_id},/prop-firm/challenges/enroll/{trader_id},PropFirm,prop-firm,Enroll in challenge
+prop_firm_routes.py,/prop-firm,GET,/onboarding/status/{trader_id},/prop-firm/onboarding/status/{trader_id},PropFirm,prop-firm,Onboarding status
+prop_firm_routes.py,/prop-firm,GET,/challenges/{challenge_id},/prop-firm/challenges/{challenge_id},PropFirm,prop-firm,Challenge details
+prop_firm_routes.py,/prop-firm,POST,/challenges/{challenge_id}/update,/prop-firm/challenges/{challenge_id}/update,PropFirm,prop-firm,Update challenge
+prop_firm_routes.py,/prop-firm,GET,/challenges/{challenge_id}/evaluations,/prop-firm/challenges/{challenge_id}/evaluations,PropFirm,prop-firm,Challenge evaluations
+prop_firm_routes.py,/prop-firm,POST,/risk/pre-trade-check,/prop-firm/risk/pre-trade-check,PropFirm,prop-firm,Pre-trade risk check
+prop_firm_routes.py,/prop-firm,GET,/risk/limits/{account_id},/prop-firm/risk/limits/{account_id},PropFirm,prop-firm,Risk limits
+prop_firm_routes.py,/prop-firm,POST,/risk/emergency-flatten/{account_id},/prop-firm/risk/emergency-flatten/{account_id},PropFirm,prop-firm,Emergency flatten
+prop_firm_routes.py,/prop-firm,GET,/payouts/estimate/{account_id},/prop-firm/payouts/estimate/{account_id},PropFirm,prop-firm,Payout estimate
+prop_firm_routes.py,/prop-firm,POST,/payouts/request/{trader_id}/{account_id},/prop-firm/payouts/request/{trader_id}/{account_id},PropFirm,prop-firm,Request payout
+prop_firm_routes.py,/prop-firm,GET,/payouts/history/{trader_id},/prop-firm/payouts/history/{trader_id},PropFirm,prop-firm,Payout history
+prop_firm_routes.py,/prop-firm,GET,/leaderboard,/prop-firm/leaderboard,PropFirm,prop-firm,Leaderboard
+prop_firm_routes.py,/prop-firm,GET,/profile/{trader_id},/prop-firm/profile/{trader_id},PropFirm,prop-firm,Trader profile
+prop_firm_routes.py,/prop-firm,GET,/achievements/{trader_id},/prop-firm/achievements/{trader_id},PropFirm,prop-firm,Achievements
+prop_firm_routes.py,/prop-firm,POST,/badges/check/{trader_id},/prop-firm/badges/check/{trader_id},PropFirm,prop-firm,Check badges
+prop_firm_routes.py,/prop-firm,GET,/coaching/insights/{trader_id},/prop-firm/coaching/insights/{trader_id},PropFirm,prop-firm,Coaching insights
+prop_firm_routes.py,/prop-firm,GET,/coaching/briefing/{trader_id},/prop-firm/coaching/briefing/{trader_id},PropFirm,prop-firm,Daily briefing
+prop_firm_routes.py,/prop-firm,POST,/coaching/ask/{trader_id},/prop-firm/coaching/ask/{trader_id},PropFirm,prop-firm,Ask coach
+prop_firm_routes.py,/prop-firm,POST,/admin/kyc/approve/{trader_id},/prop-firm/admin/kyc/approve/{trader_id},PropFirm,prop-firm,Approve KYC
+prop_firm_routes.py,/prop-firm,POST,/admin/rankings/update,/prop-firm/admin/rankings/update,PropFirm,prop-firm,Update rankings
+# =====================================
+# WEBSOCKET ROUTES (api/websocket/routes.py)
+# =====================================
+websocket/routes.py,/ws,WEBSOCKET,/connect,/ws/connect,WebSocket,websocket,Main WS connection
+websocket/routes.py,/ws,WEBSOCKET,/market/{symbol},/ws/market/{symbol},WebSocket,websocket,Market data stream
+websocket/routes.py,/ws,WEBSOCKET,/orderbook/{symbol},/ws/orderbook/{symbol},WebSocket,websocket,Order book stream
+websocket/routes.py,/ws,WEBSOCKET,/signals,/ws/signals,WebSocket,websocket,Signals stream
+websocket/routes.py,/ws,WEBSOCKET,/risk,/ws/risk,WebSocket,websocket,Risk alerts stream
+websocket/routes.py,/ws,WEBSOCKET,/executions,/ws/executions,WebSocket,websocket,Executions stream
+websocket/routes.py,/ws,GET,/stats,/ws/stats,WebSocket,websocket,WS stats
+websocket/routes.py,/ws,GET,/channels,/ws/channels,WebSocket,websocket,List channels
+# =====================================
+# BACKTEST SERVICE (services/backtest_service.py)
+# =====================================
+backtest_service.py,/backtest,POST,/submit,/backtest/submit,Backtest,backtest,Submit backtest job
+backtest_service.py,/backtest,GET,/job/{job_id},/backtest/job/{job_id},Backtest,backtest,Get job status
+backtest_service.py,/backtest,GET,/job/{job_id}/result,/backtest/job/{job_id}/result,Backtest,backtest,Get job result
+backtest_service.py,/backtest,DELETE,/job/{job_id},/backtest/job/{job_id},Backtest,backtest,Cancel job
+backtest_service.py,/backtest,GET,/queue/status,/backtest/queue/status,Backtest,backtest,Queue status
+backtest_service.py,/backtest,GET,/usage/{tenant_id},/backtest/usage/{tenant_id},Backtest,backtest,Tenant usage
+# =====================================
+# BACKEND ORDERBOOK (backend/api/routes/orderbook_routes.py)
+# =====================================
+orderbook_routes.py,/api/orderbook,GET,/{symbol}/snapshot,/api/orderbook/{symbol}/snapshot,Microstructure,orderbook,Order book snapshot
+orderbook_routes.py,/api/orderbook,GET,/{symbol}/metrics,/api/orderbook/{symbol}/metrics,Microstructure,orderbook,Order book metrics
+orderbook_routes.py,/api/orderbook,GET,/{symbol}/signal,/api/orderbook/{symbol}/signal,Microstructure,orderbook,Order book signal
+orderbook_routes.py,/api/orderbook,POST,/{symbol}/update,/api/orderbook/{symbol}/update,Microstructure,orderbook,Update order book
+orderbook_routes.py,/api/orderbook,GET,/{symbol}/impact,/api/orderbook/{symbol}/impact,Microstructure,orderbook,Price impact
+# =====================================
+# BACKEND RISK (backend/api/routes/risk_routes.py)
+# =====================================
+risk_routes.py,/api/risk,GET,/summary,/api/risk/summary,Risk,risk,Risk summary
+risk_routes.py,/api/risk,GET,/alerts,/api/risk/alerts,Risk,risk,Risk alerts
+risk_routes.py,/api/risk,POST,/alerts/{alert_key}/acknowledge,/api/risk/alerts/{alert_key}/acknowledge,Risk,risk,Acknowledge alert
+risk_routes.py,/api/risk,POST,/montecarlo/simulate,/api/risk/montecarlo/simulate,Risk,risk,Monte Carlo sim
+risk_routes.py,/api/risk,GET,/var,/api/risk/var,Risk,risk,Value at Risk
+# =====================================
+# BACKEND MAIN.PY - DIRECT ENDPOINTS
+# =====================================
+backend/main.py,,GET,/,/,System,,Root
+backend/main.py,,GET,/api/health,/api/health,System,,Health check
+backend/main.py,,GET,/api/system/memory,/api/system/memory,System,,Memory status
+backend/main.py,,GET,/api/data-mode,/api/data-mode,System,,Get data mode
+backend/main.py,,POST,/api/data-mode,/api/data-mode,System,,Set data mode
+backend/main.py,,GET,/api/data-integrity/status,/api/data-integrity/status,System,,Data integrity status
+backend/main.py,,GET,/api/data-integrity/price/{symbol},/api/data-integrity/price/{symbol},System,,Price with provenance
+backend/main.py,,GET,/api/data/staleness,/api/data/staleness,System,,Data staleness
+backend/main.py,,GET,/api/data/staleness/{symbol},/api/data/staleness/{symbol},System,,Symbol staleness
+backend/main.py,,GET,/api/market/status,/api/market/status,Market Data,,Market status
+backend/main.py,,GET,/api/market/tickers,/api/market/tickers,Market Data,,Ticker prices
+backend/main.py,,GET,/api/market/quote/{symbol},/api/market/quote/{symbol},Market Data,,Quote
+backend/main.py,,GET,/api/market/sectors,/api/market/sectors,Market Data,,Sector performance
+backend/main.py,,GET,/api/market/movers,/api/market/movers,Market Data,,Top movers
+backend/main.py,,GET,/api/screener/scan,/api/screener/scan,Trading,,Stock screener
+backend/main.py,,GET,/api/charts/ohlcv/{symbol},/api/charts/ohlcv/{symbol},Market Data,,OHLCV data
+backend/main.py,,GET,/api/charts/indicators/{symbol},/api/charts/indicators/{symbol},Market Data,,Technical indicators
+backend/main.py,,GET,/api/options/chain/{symbol},/api/options/chain/{symbol},Options,,Options chain
+backend/main.py,,GET,/api/options/gex/{symbol},/api/options/gex/{symbol},Options,,GEX data
+backend/main.py,,GET,/api/signals/active,/api/signals/active,Trading,,Active signals
+backend/main.py,,GET,/api/positions,/api/positions,Trading,,Positions
+backend/main.py,,POST,/api/backtest/run,/api/backtest/run,Backtest,,Run backtest
+backend/main.py,,POST,/api/ai/confirm-trade,/api/ai/confirm-trade,Trading,,AI trade confirm
+backend/main.py,,GET,/api/risk/metrics,/api/risk/metrics,Risk,,Risk metrics
+backend/main.py,,GET,/api/risk/limits,/api/risk/limits,Risk,,Risk limits
+backend/main.py,,GET,/api/risk/sector-exposure,/api/risk/sector-exposure,Risk,,Sector exposure
+backend/main.py,,GET,/api/risk/correlation,/api/risk/correlation,Risk,,Correlation matrix
+backend/main.py,,GET,/api/risk/correlation/{symbol},/api/risk/correlation/{symbol},Risk,,Symbol correlation
+backend/main.py,,POST,/api/risk/check-trade,/api/risk/check-trade,Risk,,Check trade risk
+backend/main.py,,GET,/api/neural/analysis/{symbol},/api/neural/analysis/{symbol},Brain/ML,,Neural analysis
+backend/main.py,,GET,/api/neural/predictions/{symbol},/api/neural/predictions/{symbol},Brain/ML,,Neural predictions
+backend/main.py,,GET,/api/neural/regime,/api/neural/regime,Brain/ML,,Regime detection
+backend/main.py,,GET,/api/research/13f/{symbol},/api/research/13f/{symbol},Research,,13F filings
+backend/main.py,,GET,/api/research/sec/{symbol},/api/research/sec/{symbol},Research,,SEC filings
+backend/main.py,,GET,/api/research/darkpool/{symbol},/api/research/darkpool/{symbol},Research,,Dark pool data
+backend/main.py,,GET,/api/research/earnings,/api/research/earnings,Research,,Earnings calendar
+backend/main.py,,GET,/api/research/earnings/{symbol},/api/research/earnings/{symbol},Research,,Symbol earnings
+backend/main.py,,POST,/api/screener/scan,/api/screener/scan,Trading,,Post screener
+backend/main.py,,GET,/api/portfolio,/api/portfolio,Portfolio,,Portfolio
+backend/main.py,,GET,/api/portfolio/holdings,/api/portfolio/holdings,Portfolio,,Holdings
+backend/main.py,,GET,/api/portfolio/performance,/api/portfolio/performance,Portfolio,,Performance
+backend/main.py,,WEBSOCKET,/ws/unified,/ws/unified,WebSocket,,Unified WS
+backend/main.py,,WEBSOCKET,/ws/market,/ws/market,WebSocket,,Market WS
+backend/main.py,,WEBSOCKET,/ws/signals,/ws/signals,WebSocket,,Signals WS
+backend/main.py,,WEBSOCKET,/ws/trades,/ws/trades,WebSocket,,Trades WS
+backend/main.py,,WEBSOCKET,/ws/flow,/ws/flow,WebSocket,,Options flow WS
+backend/main.py,,WEBSOCKET,/ws/brain,/ws/brain,WebSocket,,Brain WS
+backend/main.py,,WEBSOCKET,/ws/system,/ws/system,WebSocket,,System WS
+backend/main.py,,GET,/api/ws/stats,/api/ws/stats,WebSocket,,WS stats
+backend/main.py,,POST,/api/ws/broadcast,/api/ws/broadcast,WebSocket,,WS broadcast
+backend/main.py,,GET,/api/quant/strategies,/api/quant/strategies,Trading,,Quant strategies
+backend/main.py,,POST,/api/quant/optimize,/api/quant/optimize,Trading,,Optimize strategy
+backend/main.py,,GET,/api/quant/walkforward/{symbol},/api/quant/walkforward/{symbol},Trading,,Walk-forward
+backend/main.py,,GET,/api/algobot/status,/api/algobot/status,Brain/ML,,AlgoBot status
+backend/main.py,,POST,/api/algobot/start,/api/algobot/start,Brain/ML,,Start AlgoBot
+backend/main.py,,POST,/api/algobot/stop,/api/algobot/stop,Brain/ML,,Stop AlgoBot
+backend/main.py,,POST,/api/algobot/pause,/api/algobot/pause,Brain/ML,,Pause AlgoBot
+backend/main.py,,GET,/api/algobot/trades,/api/algobot/trades,Brain/ML,,AlgoBot trades
+backend/main.py,,GET,/api/kill-switch,/api/kill-switch,System,,Kill switch status
+backend/main.py,,POST,/api/kill-switch/activate,/api/kill-switch/activate,System,,Activate kill switch
+backend/main.py,,POST,/api/kill-switch/deactivate,/api/kill-switch/deactivate,System,,Deactivate kill switch
+backend/main.py,,GET,/api/settings,/api/settings,System,,Get settings
+backend/main.py,,POST,/api/settings,/api/settings,System,,Update settings
+backend/main.py,,GET,/api/settings/presets,/api/settings/presets,System,,Settings presets
+backend/main.py,,POST,/api/settings/preset/{preset_name},/api/settings/preset/{preset_name},System,,Apply preset
+backend/main.py,,GET,/api/settings/api-keys,/api/settings/api-keys,System,,API keys
+backend/main.py,,POST,/api/settings/api-keys/{provider},/api/settings/api-keys/{provider},System,,Update API key
+backend/main.py,,POST,/api/settings/api-keys,/api/settings/api-keys,System,,Save API keys
+backend/main.py,,GET,/api/settings/api-keys/{provider}/test,/api/settings/api-keys/{provider}/test,System,,Test API key
+backend/main.py,,GET,/api/settings/test-connection/{provider},/api/settings/test-connection/{provider},System,,Test connection
+backend/main.py,,GET,/api/live/quote/{symbol},/api/live/quote/{symbol},Market Data,,Live quote
+backend/main.py,,GET,/api/live/historical/{symbol},/api/live/historical/{symbol},Market Data,,Historical data
+backend/main.py,,GET,/api/system/health,/api/system/health,System,,System health
+backend/main.py,,GET,/api/system/status,/api/system/status,System,,System status
+backend/main.py,,GET,/api/system/ml-capabilities,/api/system/ml-capabilities,System,,ML capabilities
+backend/main.py,,GET,/api/system/resources,/api/system/resources,System,,System resources
+backend/main.py,,GET,/api/beast/status,/api/beast/status,Brain/ML,,BEAST status
+backend/main.py,,POST,/api/beast/train/{symbol},/api/beast/train/{symbol},Brain/ML,,Train BEAST
+backend/main.py,,GET,/api/beast/predict/{symbol},/api/beast/predict/{symbol},Brain/ML,,BEAST predict
+backend/main.py,,GET,/api/rl/status,/api/rl/status,Brain/ML,,RL status
+backend/main.py,,POST,/api/rl/train/{symbol},/api/rl/train/{symbol},Brain/ML,,Train RL
+backend/main.py,,GET,/api/rl/action/{symbol},/api/rl/action/{symbol},Brain/ML,,RL action
+backend/main.py,,GET,/api/dl/status,/api/dl/status,Brain/ML,,Deep learning status
+backend/main.py,,POST,/api/dl/train/{symbol},/api/dl/train/{symbol},Brain/ML,,Train DL
+backend/main.py,,GET,/api/dl/predict/{symbol},/api/dl/predict/{symbol},Brain/ML,,DL predict
+backend/main.py,,GET,/api/evolution/status,/api/evolution/status,Brain/ML,,Evolution status
+backend/main.py,,POST,/api/evolution/evolve/{symbol},/api/evolution/evolve/{symbol},Brain/ML,,Run evolution
+backend/main.py,,GET,/api/evolution/best,/api/evolution/best,Brain/ML,,Best evolved
+backend/main.py,,GET,/api/propfirm/status,/api/propfirm/status,PropFirm,,PropFirm status
+backend/main.py,,POST,/api/propfirm/record-trade,/api/propfirm/record-trade,PropFirm,,Record trade
+backend/main.py,,GET,/api/propfirm/position-size,/api/propfirm/position-size,PropFirm,,Position sizing
+backend/main.py,,GET,/api/propfirm/daily-summary,/api/propfirm/daily-summary,PropFirm,,Daily summary
+backend/main.py,,GET,/api/propfirm/performance,/api/propfirm/performance,PropFirm,,Performance
+backend/main.py,,GET,/api/brain/modules,/api/brain/modules,Brain/ML,,Brain modules
+backend/main.py,,GET,/api/brain/gpu,/api/brain/gpu,Brain/ML,,GPU status
+backend/main.py,,GET,/api/feedback/status,/api/feedback/status,Brain/ML,,Feedback status
+backend/main.py,,GET,/api/feedback/metrics,/api/feedback/metrics,Brain/ML,,Feedback metrics
+backend/main.py,,GET,/api/feedback/strategies,/api/feedback/strategies,Brain/ML,,Feedback strategies
+backend/main.py,,POST,/api/feedback/record,/api/feedback/record,Brain/ML,,Record feedback
+backend/main.py,,GET,/api/feedback/history,/api/feedback/history,Brain/ML,,Feedback history
+backend/main.py,,GET,/api/feedback/performance-history,/api/feedback/performance-history,Brain/ML,,Performance history
+backend/main.py,,POST,/api/pairs/scan-legacy,/api/pairs/scan-legacy,Trading,,Pairs scan (legacy)
+backend/main.py,,GET,/api/news,/api/news,Research,,Get news
+backend/main.py,,GET,/api/news/sentiment,/api/news/sentiment,Research,,News sentiment
+backend/main.py,,GET,/api/reports/summary,/api/reports/summary,Reports,,Reports summary
+backend/main.py,,POST,/api/reports/generate,/api/reports/generate,Reports,,Generate report
+backend/main.py,,GET,/api/connections,/api/connections,System,,List connections
+backend/main.py,,POST,/api/connections/{connection_id}/test,/api/connections/{connection_id}/test,System,,Test connection
+backend/main.py,,POST,/api/connections,/api/connections,System,,Add connection
+backend/main.py,,DELETE,/api/connections/{connection_id},/api/connections/{connection_id},System,,Delete connection
+backend/main.py,,GET,/api/trades/closed,/api/trades/closed,Trading,,Closed trades
+backend/main.py,,GET,/api/trades/stats,/api/trades/stats,Trading,,Trade stats
+backend/main.py,,GET,/api/brain-v6/status,/api/brain-v6/status,Brain/ML,,Brain V6 status
+backend/main.py,,GET,/api/brain-v6/signal/{symbol},/api/brain-v6/signal/{symbol},Brain/ML,,Brain V6 signal
+backend/main.py,,POST,/api/brain-v6/train,/api/brain-v6/train,Brain/ML,,Train Brain V6
+backend/main.py,,GET,/api/brain-v6/config,/api/brain-v6/config,Brain/ML,,Brain V6 config
+backend/main.py,,POST,/api/brain-v6/config,/api/brain-v6/config,Brain/ML,,Update config
+backend/main.py,,GET,/api/brain-v6/training-history,/api/brain-v6/training-history,Brain/ML,,Training history
+backend/main.py,,POST,/api/brain-v6/record-trade,/api/brain-v6/record-trade,Brain/ML,,Record trade
+backend/main.py,,POST,/api/brain-v6/auto-train/start,/api/brain-v6/auto-train/start,Brain/ML,,Start auto-train
+backend/main.py,,POST,/api/brain-v6/auto-train/stop,/api/brain-v6/auto-train/stop,Brain/ML,,Stop auto-train
+backend/main.py,,GET,/api/brain-v6/rulesets,/api/brain-v6/rulesets,Brain/ML,,Brain V6 rulesets
+backend/main.py,,POST,/api/brain-v6/set-ruleset,/api/brain-v6/set-ruleset,Brain/ML,,Set ruleset
+backend/main.py,,POST,/api/brain-v6/bootstrap,/api/brain-v6/bootstrap,Brain/ML,,Bootstrap Brain V6
+backend/main.py,,GET,/api/brain-v6/strategies,/api/brain-v6/strategies,Brain/ML,,Brain V6 strategies
+backend/main.py,,GET,/api/brain-v6/regime,/api/brain-v6/regime,Brain/ML,,Brain V6 regime
+backend/main.py,,GET,/api/brain-v6/drift,/api/brain-v6/drift,Brain/ML,,Brain V6 drift
+backend/main.py,,GET,/api/ict/status,/api/ict/status,Trading,,ICT status
+backend/main.py,,POST,/api/ict/analyze/{symbol},/api/ict/analyze/{symbol},Trading,,ICT analysis
+backend/main.py,,GET,/api/ict/zones/{symbol},/api/ict/zones/{symbol},Trading,,ICT zones
+backend/main.py,,GET,/api/memory/status,/api/memory/status,Brain/ML,,Market memory status
+backend/main.py,,POST,/api/memory/store,/api/memory/store,Brain/ML,,Store memory
+backend/main.py,,POST,/api/memory/search,/api/memory/search,Brain/ML,,Search memory
+backend/main.py,,GET,/api/regime/status,/api/regime/status,Brain/ML,,Regime status
+backend/main.py,,POST,/api/regime/detect/{symbol},/api/regime/detect/{symbol},Brain/ML,,Detect regime
+backend/main.py,,GET,/api/regime/history/{symbol},/api/regime/history/{symbol},Brain/ML,,Regime history
+backend/main.py,,GET,/api/tpt/status,/api/tpt/status,Trading,,TPT status
+backend/main.py,,POST,/api/tpt/signal/{symbol},/api/tpt/signal/{symbol},Trading,,TPT signal
+backend/main.py,,GET,/api/journal/status,/api/journal/status,Trading,,Journal status
+backend/main.py,,POST,/api/journal/record,/api/journal/record,Trading,,Record journal
+backend/main.py,,GET,/api/journal/summary,/api/journal/summary,Trading,,Journal summary
+backend/main.py,,GET,/api/broker/status,/api/broker/status,Trading,,Broker status
+backend/main.py,,GET,/api/broker/account,/api/broker/account,Trading,,Broker account
+backend/main.py,,GET,/api/broker/positions,/api/broker/positions,Trading,,Broker positions
+backend/main.py,,POST,/api/broker/order,/api/broker/order,Trading,,Submit order
+backend/main.py,,GET,/api/learning/status,/api/learning/status,System,,Learning center status
+backend/main.py,,GET,/api/learning/topics,/api/learning/topics,System,,Learning topics
+backend/main.py,,GET,/api/learning/topics/{topic_id},/api/learning/topics/{topic_id},System,,Topic details
+backend/main.py,,GET,/api/learning/categories,/api/learning/categories,System,,Topic categories
+backend/main.py,,GET,/api/learning/search,/api/learning/search,System,,Search learning
+backend/main.py,,GET,/api/modules/status,/api/modules/status,System,,Modules status
+backend/main.py,,GET,/api/pairs,/api/pairs,Trading,,Pairs trading
+backend/main.py,,POST,/api/pairs/scan,/api/pairs/scan,Trading,,Scan pairs
+backend/main.py,,GET,/api/benchmark,/api/benchmark,Portfolio,,Benchmarks
+backend/main.py,,POST,/api/benchmark/add,/api/benchmark/add,Portfolio,,Add benchmark
+backend/main.py,,POST,/api/benchmark/update,/api/benchmark/update,Portfolio,,Update benchmark
+backend/main.py,,DELETE,/api/benchmark/{symbol},/api/benchmark/{symbol},Portfolio,,Delete benchmark
+backend/main.py,,GET,/api/benchmark/comparison,/api/benchmark/comparison,Portfolio,,Benchmark comparison
+backend/main.py,,GET,/api/correlation/matrix,/api/correlation/matrix,Risk,,Correlation matrix
+backend/main.py,,POST,/api/monte-carlo/run,/api/monte-carlo/run,Backtest,,Monte Carlo run
+backend/main.py,,GET,/api/monte-carlo/presets,/api/monte-carlo/presets,Backtest,,MC presets
+backend/main.py,,GET,/api/slide-doctrine,/api/slide-doctrine,System,,Slide doctrine
+backend/main.py,,GET,/api/slide-doctrine/models,/api/slide-doctrine/models,System,,Slide models
+backend/main.py,,GET,/api/slide-doctrine/audit,/api/slide-doctrine/audit,System,,Slide audit
+backend/main.py,,POST,/api/system/clear-cache,/api/system/clear-cache,System,,Clear cache
+backend/main.py,,GET,/api/bots/auto-run,/api/bots/auto-run,Brain/ML,,Auto-run bots
+backend/main.py,,POST,/api/bots/auto-run/{bot_name}/start,/api/bots/auto-run/{bot_name}/start,Brain/ML,,Start bot
+backend/main.py,,POST,/api/bots/auto-run/{bot_name}/stop,/api/bots/auto-run/{bot_name}/stop,Brain/ML,,Stop bot
+backend/main.py,,POST,/api/bots/auto-run/all/start,/api/bots/auto-run/all/start,Brain/ML,,Start all bots
+backend/main.py,,POST,/api/bots/auto-run/all/stop,/api/bots/auto-run/all/stop,Brain/ML,,Stop all bots
+backend/main.py,,GET,/api/signals,/api/signals,Trading,,Get signals
+backend/main.py,,POST,/api/signals/{signal_id}/execute,/api/signals/{signal_id}/execute,Trading,,Execute signal
+backend/main.py,,POST,/api/signals/{signal_id}/dismiss,/api/signals/{signal_id}/dismiss,Trading,,Dismiss signal
+backend/main.py,,GET,/api/brain-v6/signals,/api/brain-v6/signals,Brain/ML,,Brain V6 signals
+backend/main.py,,POST,/api/brain-v6/generate-signal,/api/brain-v6/generate-signal,Brain/ML,,Generate signal
+backend/main.py,,GET,/api/brain-v6/analyze/{symbol},/api/brain-v6/analyze/{symbol},Brain/ML,,Brain V6 analyze
+backend/main.py,,GET,/api/orders,/api/orders,Trading,,Get orders
+backend/main.py,,POST,/api/orders,/api/orders,Trading,,Create order
+backend/main.py,,DELETE,/api/orders/{order_id},/api/orders/{order_id},Trading,,Cancel order
+backend/main.py,,GET,/api/risk/exposure,/api/risk/exposure,Risk,,Risk exposure
+backend/main.py,,GET,/api/risk/safety,/api/risk/safety,Risk,,Safety status
+backend/main.py,,GET,/api/strategies,/api/strategies,Trading,,List strategies
+backend/main.py,,GET,/api/backtest/results/{result_id},/api/backtest/results/{result_id},Backtest,,Backtest result
+backend/main.py,,GET,/api/options/flow,/api/options/flow,Options,,Options flow
+backend/main.py,,GET,/api/screener/presets,/api/screener/presets,Trading,,Screener presets
+backend/main.py,,GET,/api/ml/predict/{symbol},/api/ml/predict/{symbol},Brain/ML,,ML prediction
+backend/main.py,,GET,/api/ml/regime,/api/ml/regime,Brain/ML,,ML regime
+backend/main.py,,POST,/api/confirm-trade,/api/confirm-trade,Trading,,Confirm trade
+backend/main.py,,GET,/api/gex/{symbol},/api/gex/{symbol},Options,,GEX data
+backend/main.py,,POST,/api/quotes,/api/quotes,Market Data,,Batch quotes
+backend/main.py,,PUT,/api/settings,/api/settings,System,,Update settings
+backend/main.py,,GET,/api/neural/analyze/{symbol},/api/neural/analyze/{symbol},Brain/ML,,Neural analyze

@@ -61,6 +61,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Deprecation middleware for v1 → v2 migration
+try:
+    from api.middleware.deprecation import (
+        add_deprecation_middleware,
+        create_metrics_routes,
+    )
+    add_deprecation_middleware(app, log_warnings=True, track_metrics=True)
+    logger.info("✅ Deprecation middleware enabled")
+    
+    # Mount deprecation metrics routes under /admin
+    metrics_router = create_metrics_routes()
+    app.include_router(metrics_router, prefix="/admin", tags=["admin"])
+    logger.info("✅ Deprecation metrics routes mounted at /admin/deprecation/*")
+except Exception as e:
+    logger.warning(f"Could not load deprecation middleware: {e}")
+
 # Import and register routes
 try:
     from api.routes.core_routes import router as core_router
@@ -151,6 +167,30 @@ try:
 except Exception as e:
     logger.warning(f"Could not load ML Brain routes: {e}")
 
+# API v2 - Consolidated Routes
+try:
+    from api.v2 import api_v2
+    app.include_router(api_v2, prefix="/api/v2")
+    logger.info("Loaded API v2 routes")
+except Exception as e:
+    logger.warning(f"Could not load API v2 routes: {e}")
+
+# V2 API Routes (consolidated)
+try:
+    from api.v2 import api_v2
+    app.include_router(api_v2, prefix="/api/v2")
+    logger.info("✅ Loaded V2 API routes")
+except Exception as e:
+    logger.warning(f"Could not load V2 routes: {e}")
+
+# Deprecation Middleware
+try:
+    from api.middleware.deprecation import DeprecationMiddleware
+    app.add_middleware(DeprecationMiddleware)
+    logger.info("✅ Deprecation middleware registered")
+except Exception as e:
+    logger.warning(f"Could not load deprecation middleware: {e}")
+
 
 @app.get("/")
 async def root():
@@ -161,6 +201,7 @@ async def root():
         "status": "running",
         "docs": "/docs",
         "endpoints": {
+            "v2": "/api/v2 (recommended)",
             "tax": "/tax",
             "reconciliation": "/reconciliation",
             "backtest": "/backtest",
@@ -169,6 +210,18 @@ async def root():
             "microstructure": "/api/v1/microstructure",
             "arbitrage": "/api/v1/arbitrage",
             "news_events": "/api/v1/news-events"
+        },
+        "v2_domains": {
+            "health": "/api/v2/health",
+            "market": "/api/v2/market",
+            "trading": "/api/v2/trading",
+            "portfolio": "/api/v2/portfolio",
+            "risk": "/api/v2/risk",
+            "brain": "/api/v2/brain",
+            "options": "/api/v2/options",
+            "backtest": "/api/v2/backtest",
+            "research": "/api/v2/research",
+            "settings": "/api/v2/settings"
         }
     }
 

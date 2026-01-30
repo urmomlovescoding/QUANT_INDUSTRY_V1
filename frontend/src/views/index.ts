@@ -43,6 +43,7 @@ export { News } from './News'
 export { Portfolio } from './Portfolio'
 export { PairsTrading } from './PairsTrading'
 export { Reports } from './Reports'
+export { TaxLots } from './TaxLots'
 
 // System views
 export { APIConnector } from './APIConnector'

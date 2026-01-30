@@ -1,0 +1,1668 @@
+openapi: 3.1.0
+info:
+  title: QUANT INDUSTRY V1 API
+  description: |
+    Institutional-grade quantitative trading platform API.
+    
+    ## Overview
+    This API provides endpoints for:
+    - Real-time market data and quotes
+    - Trading signals and order management
+    - ML/AI brain for signal generation
+    - Risk management and monitoring
+    - Portfolio tracking and analytics
+    - Options flow and GEX analysis
+    - Backtesting and strategy optimization
+    
+    ## Authentication
+    Currently supports API key authentication via environment variables.
+    Future: JWT-based auth for multi-tenant support.
+    
+    ## WebSocket
+    Real-time data available via WebSocket at `/ws/unified`
+    
+  version: 1.0.0
+  contact:
+    name: QUANT INDUSTRY Support
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: http://localhost:8001
+    description: Backend server (alternative)
+
+tags:
+  - name: health
+    description: Health and system status
+  - name: market
+    description: Market data and quotes
+  - name: trading
+    description: Trading operations - signals, orders, positions
+  - name: portfolio
+    description: Portfolio management and performance
+  - name: risk
+    description: Risk management and monitoring
+  - name: brain
+    description: ML/AI trading brain
+  - name: options
+    description: Options chain and flow analysis
+  - name: backtest
+    description: Backtesting and strategy optimization
+  - name: research
+    description: Research data - SEC, 13F, dark pool
+  - name: settings
+    description: Application settings and configuration
+  - name: websocket
+    description: WebSocket endpoints for real-time data
+
+paths:
+  # ==================== HEALTH ====================
+  /api/health:
+    get:
+      tags: [health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /api/system/status:
+    get:
+      tags: [health]
+      summary: System status
+      operationId: getSystemStatus
+      responses:
+        '200':
+          description: System status details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+
+  /api/system/memory:
+    get:
+      tags: [health]
+      summary: Memory usage status
+      operationId: getMemoryStatus
+      responses:
+        '200':
+          description: Memory metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_mb:
+                    type: number
+                  used_mb:
+                    type: number
+                  percent:
+                    type: number
+
+  # ==================== MARKET DATA ====================
+  /api/market/status:
+    get:
+      tags: [market]
+      summary: Market hours status
+      operationId: getMarketStatus
+      responses:
+        '200':
+          description: Current market session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketStatus'
+
+  /api/market/tickers:
+    get:
+      tags: [market]
+      summary: Get ticker prices
+      operationId: getTickers
+      parameters:
+        - name: symbols
+          in: query
+          schema:
+            type: string
+            default: SPY,QQQ,DIA,IWM
+          description: Comma-separated list of symbols
+      responses:
+        '200':
+          description: Ticker prices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TickerPrice'
+
+  /api/market/quote/{symbol}:
+    get:
+      tags: [market]
+      summary: Get detailed quote
+      operationId: getQuote
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quote data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+
+  /api/charts/ohlcv/{symbol}:
+    get:
+      tags: [market]
+      summary: Get OHLCV data for charting
+      operationId: getOHLCV
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: interval
+          in: query
+          schema:
+            type: string
+            enum: [1D, 1H, 5M, 15M, 1W]
+            default: 1D
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1M, 3M, 6M, 1Y, 2Y, ALL]
+            default: 1Y
+      responses:
+        '200':
+          description: OHLCV data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OHLCVData'
+
+  /api/charts/indicators/{symbol}:
+    get:
+      tags: [market]
+      summary: Get technical indicators
+      operationId: getIndicators
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          schema:
+            type: string
+            default: 1Y
+      responses:
+        '200':
+          description: Technical indicators
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TechnicalIndicators'
+
+  /api/market/sectors:
+    get:
+      tags: [market]
+      summary: Get sector performance
+      operationId: getSectors
+      responses:
+        '200':
+          description: Sector data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SectorData'
+
+  /api/market/movers:
+    get:
+      tags: [market]
+      summary: Get top movers
+      operationId: getMovers
+      responses:
+        '200':
+          description: Top gainers and losers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MoversData'
+
+  # ==================== TRADING ====================
+  /api/signals:
+    get:
+      tags: [trading]
+      summary: Get all signals
+      operationId: getSignals
+      responses:
+        '200':
+          description: List of signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Signal'
+
+  /api/signals/active:
+    get:
+      tags: [trading]
+      summary: Get active signals
+      operationId: getActiveSignals
+      responses:
+        '200':
+          description: Active signals only
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Signal'
+
+  /api/signals/{signalId}/execute:
+    post:
+      tags: [trading]
+      summary: Execute a signal
+      operationId: executeSignal
+      parameters:
+        - name: signalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionResult'
+
+  /api/signals/{signalId}/dismiss:
+    post:
+      tags: [trading]
+      summary: Dismiss a signal
+      operationId: dismissSignal
+      parameters:
+        - name: signalId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Signal dismissed
+
+  /api/positions:
+    get:
+      tags: [trading]
+      summary: Get all positions
+      operationId: getPositions
+      responses:
+        '200':
+          description: Current positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Position'
+
+  /api/orders:
+    get:
+      tags: [trading]
+      summary: Get all orders
+      operationId: getOrders
+      responses:
+        '200':
+          description: Order list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+    post:
+      tags: [trading]
+      summary: Submit an order
+      operationId: submitOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+      responses:
+        '200':
+          description: Order submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResult'
+
+  /api/orders/{orderId}:
+    delete:
+      tags: [trading]
+      summary: Cancel an order
+      operationId: cancelOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order cancelled
+
+  /api/confirm-trade:
+    post:
+      tags: [trading]
+      summary: AI trade confirmation
+      operationId: confirmTrade
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TradeConfirmRequest'
+      responses:
+        '200':
+          description: AI decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIDecision'
+
+  # ==================== PORTFOLIO ====================
+  /api/portfolio:
+    get:
+      tags: [portfolio]
+      summary: Get portfolio overview
+      operationId: getPortfolio
+      responses:
+        '200':
+          description: Portfolio data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+
+  /api/portfolio/holdings:
+    get:
+      tags: [portfolio]
+      summary: Get holdings
+      operationId: getHoldings
+      responses:
+        '200':
+          description: Holdings list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Holding'
+
+  /api/portfolio/performance:
+    get:
+      tags: [portfolio]
+      summary: Get performance metrics
+      operationId: getPerformance
+      responses:
+        '200':
+          description: Performance data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Performance'
+
+  # ==================== RISK ====================
+  /api/risk/metrics:
+    get:
+      tags: [risk]
+      summary: Get risk metrics
+      operationId: getRiskMetrics
+      responses:
+        '200':
+          description: Risk metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskMetrics'
+
+  /api/risk/safety:
+    get:
+      tags: [risk]
+      summary: Get safety status
+      operationId: getSafetyStatus
+      responses:
+        '200':
+          description: Safety status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetyStatus'
+
+  /api/risk/exposure:
+    get:
+      tags: [risk]
+      summary: Get risk exposure
+      operationId: getRiskExposure
+      responses:
+        '200':
+          description: Exposure data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Exposure'
+
+  /api/kill-switch:
+    get:
+      tags: [risk]
+      summary: Get kill switch status
+      operationId: getKillSwitchStatus
+      responses:
+        '200':
+          description: Kill switch status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  engaged:
+                    type: boolean
+                  reason:
+                    type: string
+                  engaged_at:
+                    type: string
+                    format: date-time
+
+  /api/kill-switch/activate:
+    post:
+      tags: [risk]
+      summary: Activate kill switch
+      operationId: activateKillSwitch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Kill switch activated
+
+  /api/kill-switch/deactivate:
+    post:
+      tags: [risk]
+      summary: Deactivate kill switch
+      operationId: deactivateKillSwitch
+      responses:
+        '200':
+          description: Kill switch deactivated
+
+  # ==================== BRAIN/ML ====================
+  /api/brain-v6/status:
+    get:
+      tags: [brain]
+      summary: Get Brain V6 status
+      operationId: getBrainStatus
+      responses:
+        '200':
+          description: Brain status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrainStatus'
+
+  /api/brain-v6/signals:
+    get:
+      tags: [brain]
+      summary: Get brain signals
+      operationId: getBrainSignals
+      responses:
+        '200':
+          description: Brain-generated signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Signal'
+
+  /api/brain-v6/generate-signal:
+    post:
+      tags: [brain]
+      summary: Generate signal for symbol
+      operationId: generateSignal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbol]
+              properties:
+                symbol:
+                  type: string
+      responses:
+        '200':
+          description: Generated signal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signal'
+
+  /api/brain-v6/train:
+    post:
+      tags: [brain]
+      summary: Train the brain model
+      operationId: trainBrain
+      responses:
+        '200':
+          description: Training result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainResult'
+
+  /api/brain-v6/config:
+    get:
+      tags: [brain]
+      summary: Get brain configuration
+      operationId: getBrainConfig
+      responses:
+        '200':
+          description: Brain config
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags: [brain]
+      summary: Update brain configuration
+      operationId: updateBrainConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Config updated
+
+  /api/ml/regime:
+    get:
+      tags: [brain]
+      summary: Get market regime
+      operationId: getMarketRegime
+      responses:
+        '200':
+          description: Current market regime
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketRegime'
+
+  /api/feedback/status:
+    get:
+      tags: [brain]
+      summary: Get feedback loop status
+      operationId: getFeedbackStatus
+      responses:
+        '200':
+          description: Feedback status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackStatus'
+
+  # ==================== OPTIONS ====================
+  /api/options/chain/{symbol}:
+    get:
+      tags: [options]
+      summary: Get options chain
+      operationId: getOptionsChain
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: expiration
+          in: query
+          schema:
+            type: string
+        - name: option_type
+          in: query
+          schema:
+            type: string
+            enum: [ALL, CALL, PUT]
+            default: ALL
+      responses:
+        '200':
+          description: Options chain
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OptionContract'
+
+  /api/gex/{symbol}:
+    get:
+      tags: [options]
+      summary: Get gamma exposure
+      operationId: getGEX
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: GEX data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GEXData'
+
+  /api/options/flow:
+    get:
+      tags: [options]
+      summary: Get options flow
+      operationId: getOptionsFlow
+      responses:
+        '200':
+          description: Options flow data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OptionsFlow'
+
+  # ==================== BACKTEST ====================
+  /api/backtest/run:
+    post:
+      tags: [backtest]
+      summary: Run backtest
+      operationId: runBacktest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BacktestConfig'
+      responses:
+        '200':
+          description: Backtest result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestResult'
+
+  /api/strategies:
+    get:
+      tags: [backtest]
+      summary: List strategies
+      operationId: getStrategies
+      responses:
+        '200':
+          description: Strategy list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Strategy'
+
+  /api/monte-carlo/run:
+    post:
+      tags: [backtest]
+      summary: Run Monte Carlo simulation
+      operationId: runMonteCarlo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                strategy:
+                  type: string
+                symbol:
+                  type: string
+                simulations:
+                  type: integer
+                  default: 1000
+      responses:
+        '200':
+          description: Monte Carlo result
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ==================== RESEARCH ====================
+  /api/news:
+    get:
+      tags: [research]
+      summary: Get news
+      operationId: getNews
+      parameters:
+        - name: symbol
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: News items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NewsItem'
+
+  /api/research/13f/{symbol}:
+    get:
+      tags: [research]
+      summary: Get 13F filings
+      operationId: get13F
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 13F data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Filing13F'
+
+  /api/research/earnings:
+    get:
+      tags: [research]
+      summary: Get earnings calendar
+      operationId: getEarnings
+      responses:
+        '200':
+          description: Earnings calendar
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EarningsData'
+
+  # ==================== SETTINGS ====================
+  /api/settings:
+    get:
+      tags: [settings]
+      summary: Get settings
+      operationId: getSettings
+      responses:
+        '200':
+          description: Application settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Settings'
+    put:
+      tags: [settings]
+      summary: Update settings
+      operationId: updateSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Settings'
+      responses:
+        '200':
+          description: Settings updated
+
+  /api/settings/api-keys:
+    get:
+      tags: [settings]
+      summary: Get API key status
+      operationId: getApiKeys
+      responses:
+        '200':
+          description: API key status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeys'
+
+  # ==================== WEBSOCKET ====================
+  /ws/unified:
+    get:
+      tags: [websocket]
+      summary: Unified WebSocket connection
+      description: |
+        Real-time data stream. Supports channels:
+        - market: Real-time quotes
+        - signals: Trading signals
+        - positions: Position updates
+        - risk: Risk alerts
+        - brain: Brain status updates
+        - system: System events
+        
+        Subscribe: `{"action": "subscribe", "channels": ["market", "risk"]}`
+      responses:
+        '101':
+          description: Switching protocols to WebSocket
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        market:
+          $ref: '#/components/schemas/MarketStatus'
+        services:
+          type: object
+          additionalProperties:
+            type: boolean
+        timestamp:
+          type: string
+          format: date-time
+
+    SystemStatus:
+      type: object
+      properties:
+        cpu_percent:
+          type: number
+        memory_percent:
+          type: number
+        gpu_available:
+          type: boolean
+        gpu_percent:
+          type: number
+        active_connections:
+          type: integer
+        uptime_hours:
+          type: number
+
+    MarketStatus:
+      type: object
+      properties:
+        session:
+          type: string
+          enum: [pre_market, regular, after_hours, closed]
+        is_open:
+          type: boolean
+        is_pre_market:
+          type: boolean
+        is_after_hours:
+          type: boolean
+        is_weekend:
+          type: boolean
+        is_holiday:
+          type: boolean
+        next_open:
+          type: string
+          format: date-time
+        next_close:
+          type: string
+          format: date-time
+
+    TickerPrice:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+        change:
+          type: number
+        change_pct:
+          type: number
+        volume:
+          type: integer
+
+    Quote:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+        bid:
+          type: number
+        ask:
+          type: number
+        change:
+          type: number
+        change_pct:
+          type: number
+        volume:
+          type: integer
+        high:
+          type: number
+        low:
+          type: number
+        open:
+          type: number
+        prev_close:
+          type: number
+        source:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    OHLCVData:
+      type: object
+      properties:
+        symbol:
+          type: string
+        interval:
+          type: string
+        period:
+          type: string
+        data_points:
+          type: integer
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              open:
+                type: number
+              high:
+                type: number
+              low:
+                type: number
+              close:
+                type: number
+              volume:
+                type: integer
+
+    TechnicalIndicators:
+      type: object
+      properties:
+        symbol:
+          type: string
+        indicators:
+          type: object
+          properties:
+            sma_20:
+              type: number
+            sma_50:
+              type: number
+            sma_200:
+              type: number
+            rsi:
+              type: number
+            macd:
+              type: number
+            macd_signal:
+              type: number
+            adx:
+              type: number
+            atr:
+              type: number
+            bb_upper:
+              type: number
+            bb_middle:
+              type: number
+            bb_lower:
+              type: number
+
+    SectorData:
+      type: object
+      properties:
+        name:
+          type: string
+        change_pct:
+          type: number
+        weight:
+          type: number
+
+    MoversData:
+      type: object
+      properties:
+        gainers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TickerPrice'
+        losers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TickerPrice'
+
+    Signal:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        direction:
+          type: string
+          enum: [LONG, SHORT]
+        confidence:
+          type: number
+        strategy:
+          type: string
+        entry_price:
+          type: number
+        stop_loss:
+          type: number
+        take_profit:
+          type: number
+        risk_reward:
+          type: number
+        timeframe:
+          type: string
+        regime_alignment:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, executed, dismissed, expired]
+
+    Position:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [long, short]
+        quantity:
+          type: number
+        entry_price:
+          type: number
+        current_price:
+          type: number
+        pnl:
+          type: number
+        pnl_pct:
+          type: number
+        opened_at:
+          type: string
+          format: date-time
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        quantity:
+          type: number
+        filled_qty:
+          type: number
+        order_type:
+          type: string
+        status:
+          type: string
+        limit_price:
+          type: number
+        stop_price:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+        filled_at:
+          type: string
+          format: date-time
+
+    OrderRequest:
+      type: object
+      required: [symbol, side, quantity, order_type]
+      properties:
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        quantity:
+          type: number
+        order_type:
+          type: string
+          enum: [market, limit, stop, stop_limit]
+        limit_price:
+          type: number
+        stop_price:
+          type: number
+        time_in_force:
+          type: string
+          enum: [day, gtc, ioc, fok]
+          default: day
+
+    OrderResult:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [submitted, filled, partial, rejected, cancelled]
+        filled_qty:
+          type: number
+        filled_price:
+          type: number
+        message:
+          type: string
+
+    ExecutionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        order_id:
+          type: string
+        message:
+          type: string
+
+    TradeConfirmRequest:
+      type: object
+      required: [ticker, direction, entry_price, target, stop_loss]
+      properties:
+        ticker:
+          type: string
+        direction:
+          type: string
+        entry_price:
+          type: number
+        target:
+          type: number
+        stop_loss:
+          type: number
+
+    AIDecision:
+      type: object
+      properties:
+        approved:
+          type: boolean
+        score:
+          type: integer
+        confidence:
+          type: number
+        components:
+          type: object
+        recommendation:
+          type: string
+        analysis:
+          type: string
+
+    Portfolio:
+      type: object
+      properties:
+        equity:
+          type: number
+        cash:
+          type: number
+        buying_power:
+          type: number
+        day_pnl:
+          type: number
+        day_pnl_pct:
+          type: number
+        total_pnl:
+          type: number
+        total_pnl_pct:
+          type: number
+        positions_count:
+          type: integer
+
+    Holding:
+      type: object
+      properties:
+        symbol:
+          type: string
+        shares:
+          type: integer
+        cost_basis:
+          type: number
+        current_price:
+          type: number
+        value:
+          type: number
+        pnl:
+          type: number
+        pnl_pct:
+          type: number
+        weight:
+          type: number
+        day_change:
+          type: number
+
+    Performance:
+      type: object
+      properties:
+        total_return:
+          type: number
+        total_return_pct:
+          type: number
+        win_rate:
+          type: number
+        profit_factor:
+          type: number
+        sharpe_ratio:
+          type: number
+        sortino_ratio:
+          type: number
+        max_drawdown:
+          type: number
+        avg_win:
+          type: number
+        avg_loss:
+          type: number
+        total_trades:
+          type: integer
+        winning_trades:
+          type: integer
+        losing_trades:
+          type: integer
+
+    RiskMetrics:
+      type: object
+      properties:
+        var_95:
+          type: number
+        current_drawdown:
+          type: number
+        max_position_exposure:
+          type: number
+        sector_concentration:
+          type: number
+        daily_pnl:
+          type: number
+        risk_score:
+          type: number
+
+    SafetyStatus:
+      type: object
+      properties:
+        is_safe:
+          type: boolean
+        breaches:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        daily_loss:
+          type: number
+        max_daily_loss:
+          type: number
+        current_drawdown:
+          type: number
+        max_drawdown_limit:
+          type: number
+
+    Exposure:
+      type: object
+      properties:
+        gross:
+          type: number
+        net:
+          type: number
+        long:
+          type: number
+        short:
+          type: number
+        by_sector:
+          type: object
+          additionalProperties:
+            type: number
+
+    BrainStatus:
+      type: object
+      properties:
+        available:
+          type: boolean
+        device:
+          type: string
+        is_trained:
+          type: boolean
+        current_regime:
+          type: string
+        auto_train_enabled:
+          type: boolean
+        training_step:
+          type: integer
+        total_trades:
+          type: integer
+        metrics:
+          type: object
+          properties:
+            win_rate:
+              type: number
+            total_pnl:
+              type: number
+            profit_factor:
+              type: number
+        strategies:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              weight:
+                type: number
+              win_rate:
+                type: number
+
+    TrainResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        epochs:
+          type: integer
+        final_loss:
+          type: number
+        metrics:
+          type: object
+          additionalProperties:
+            type: number
+
+    MarketRegime:
+      type: object
+      properties:
+        regime:
+          type: string
+          enum: [trending, ranging, volatile, quiet]
+        confidence:
+          type: number
+        volatility:
+          type: number
+        trend_strength:
+          type: number
+
+    FeedbackStatus:
+      type: object
+      properties:
+        phase:
+          type: string
+        total_trades:
+          type: integer
+        win_rate:
+          type: number
+        profit_factor:
+          type: number
+        sharpe_ratio:
+          type: number
+        convergence_progress:
+          type: object
+          additionalProperties:
+            type: number
+        is_converged:
+          type: boolean
+
+    OptionContract:
+      type: object
+      properties:
+        expiration:
+          type: string
+        strike:
+          type: number
+        option_type:
+          type: string
+          enum: [call, put]
+        bid:
+          type: number
+        ask:
+          type: number
+        iv:
+          type: number
+        delta:
+          type: number
+        gamma:
+          type: number
+        theta:
+          type: number
+        vega:
+          type: number
+        oi:
+          type: integer
+        volume:
+          type: integer
+
+    GEXData:
+      type: object
+      properties:
+        symbol:
+          type: string
+        total_gex:
+          type: number
+        call_gex:
+          type: number
+        put_gex:
+          type: number
+        key_levels:
+          type: array
+          items:
+            type: object
+            properties:
+              strike:
+                type: number
+              gex:
+                type: number
+        flip_point:
+          type: number
+
+    OptionsFlow:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        type:
+          type: string
+          enum: [call, put]
+        side:
+          type: string
+          enum: [buy, sell]
+        sentiment:
+          type: string
+          enum: [bullish, bearish]
+        strike:
+          type: number
+        expiry:
+          type: string
+        premium:
+          type: number
+        contracts:
+          type: integer
+        is_unusual:
+          type: boolean
+        is_sweep:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+
+    BacktestConfig:
+      type: object
+      required: [strategy, symbol, start_date, end_date]
+      properties:
+        strategy:
+          type: string
+        symbol:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        initial_capital:
+          type: number
+          default: 100000
+        params:
+          type: object
+
+    BacktestResult:
+      type: object
+      properties:
+        total_return:
+          type: number
+        sharpe_ratio:
+          type: number
+        max_drawdown:
+          type: number
+        win_rate:
+          type: number
+        trade_count:
+          type: integer
+        profit_factor:
+          type: number
+        equity_curve:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              equity:
+                type: number
+        trades:
+          type: array
+          items:
+            type: object
+
+    Strategy:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        params:
+          type: object
+
+    NewsItem:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        source:
+          type: string
+        url:
+          type: string
+        symbols:
+          type: array
+          items:
+            type: string
+        sentiment:
+          type: string
+          enum: [positive, negative, neutral]
+        published_at:
+          type: string
+          format: date-time
+
+    Filing13F:
+      type: object
+      properties:
+        holder:
+          type: string
+        shares:
+          type: integer
+        value:
+          type: number
+        change_pct:
+          type: number
+        report_date:
+          type: string
+          format: date
+
+    EarningsData:
+      type: object
+      properties:
+        symbol:
+          type: string
+        report_date:
+          type: string
+          format: date
+        eps_estimate:
+          type: number
+        eps_actual:
+          type: number
+        revenue_estimate:
+          type: number
+        revenue_actual:
+          type: number
+        surprise_pct:
+          type: number
+
+    Settings:
+      type: object
+      properties:
+        theme:
+          type: string
+          enum: [dark, light]
+        notifications_enabled:
+          type: boolean
+        auto_refresh_interval:
+          type: integer
+        default_order_type:
+          type: string
+        risk_params:
+          type: object
+
+    ApiKeys:
+      type: object
+      properties:
+        alpaca:
+          type: boolean
+        tradier:
+          type: boolean
+        polygon:
+          type: boolean
