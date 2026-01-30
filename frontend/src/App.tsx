@@ -37,6 +37,7 @@ import { TradingBrain } from './views/TradingBrain'
 import { AlgoBot } from './views/AlgoBot'
 import { UnifiedBrain } from './views/UnifiedBrain'
 import MLTraining from './views/MLTraining'
+import { MarketMicrostructure } from './views/MarketMicrostructure'
 
 // Prop Firm views
 import { TPTDashboard } from './views/TPTDashboard'
@@ -105,6 +106,7 @@ function AppContent() {
           <Route path="/algo-bot" element={<AlgoBot />} />
           <Route path="/unified-brain" element={<UnifiedBrain />} />
           <Route path="/ml-training" element={<MLTraining />} />
+          <Route path="/market-microstructure" element={<MarketMicrostructure />} />
 
           {/* Prop Firm */}
           <Route path="/tpt-dashboard" element={<TPTDashboard />} />

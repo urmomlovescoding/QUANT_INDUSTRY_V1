@@ -116,6 +116,7 @@ const navSections: NavSection[] = [
       { path: '/regime-detect', icon: Gauge, label: 'Regime Detect' },
       { path: '/trading-brain', icon: Cpu, label: 'Trading Brain' },
       { path: '/algo-bot', icon: Bot, label: 'Algo Bot' },
+      { path: '/market-microstructure', icon: Zap, label: 'Microstructure' },
     ],
   },
   {

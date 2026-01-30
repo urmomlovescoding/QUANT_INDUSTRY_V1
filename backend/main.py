@@ -231,6 +231,19 @@ except ImportError as e:
     PERFORMANCE_MIDDLEWARE_AVAILABLE = False
     logger.warning(f"Performance middleware not available: {e}")
 
+# Market Microstructure Engine
+try:
+    from brain.market_microstructure import (
+        get_microstructure_engine,
+        MicrostructureConfig,
+        MarketMicrostructureEngine,
+    )
+    MICROSTRUCTURE_AVAILABLE = True
+    logger.info("Market Microstructure Engine loaded")
+except ImportError as e:
+    MICROSTRUCTURE_AVAILABLE = False
+    logger.warning(f"Market Microstructure Engine not available: {e}")
+
 app = FastAPI(
     title="QUANT INDUSTRY API",
     description="Professional Trading Platform Backend",
@@ -8184,6 +8197,389 @@ async def update_settings_put(settings_data: Dict[str, Any]):
 async def get_neural_analyze(symbol: str):
     """Alias endpoint for neural analysis (frontend uses /analyze, backend has /analysis)"""
     return await get_neural_analysis(symbol)
+
+
+# ============== MARKET MICROSTRUCTURE ENGINE ==============
+
+@app.get("/api/microstructure/status")
+async def get_microstructure_status():
+    """Get Market Microstructure Engine status and module statistics"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        return {"available": False, "message": "Market Microstructure Engine not available"}
+    try:
+        engine = get_microstructure_engine()
+        return {"available": True, **engine.get_status()}
+    except Exception as e:
+        logger.error(f"Microstructure status error: {e}")
+        return {"available": True, "error": str(e)}
+
+
+@app.get("/api/microstructure/config")
+async def get_microstructure_config():
+    """Get current microstructure engine configuration"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Market Microstructure Engine not available")
+    try:
+        engine = get_microstructure_engine()
+        return engine.get_config()
+    except Exception as e:
+        logger.error(f"Microstructure config error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/microstructure/config")
+async def update_microstructure_config(updates: Dict[str, Any] = None):
+    """Update microstructure engine configuration"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Market Microstructure Engine not available")
+    try:
+        engine = get_microstructure_engine()
+        return engine.update_config(updates or {})
+    except Exception as e:
+        logger.error(f"Microstructure config update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/analyze/{symbol}")
+async def analyze_microstructure(symbol: str, lookback_days: int = 60):
+    """Run full microstructure analysis for a symbol"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Market Microstructure Engine not available")
+    if not SERVICES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Data services not available")
+
+    try:
+        import pandas as pd
+        engine = get_microstructure_engine()
+        data_service = get_data_service()
+        sym = symbol.upper()
+
+        # Get current quote
+        quote = data_service.get_quote(sym)
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"No quote data for {sym}")
+
+        # Get historical data for volatility analysis
+        hist_data = data_service.get_historical(sym, f"{lookback_days}d", "1d")
+        prices = np.array([d.close for d in hist_data]) if hist_data else np.array([])
+        highs = np.array([d.high for d in hist_data]) if hist_data else None
+        lows = np.array([d.low for d in hist_data]) if hist_data else None
+
+        # Get VIX level
+        vix_quote = data_service.get_quote("^VIX")
+        vix_level = vix_quote.price if vix_quote else None
+
+        # Get sector return for cross-asset validation
+        from brain.market_microstructure import CrossAssetValidator
+        validator = engine.cross_asset
+        sector_etf = validator._find_sector(sym)
+        sector_return = None
+        asset_returns = {}
+
+        if sector_etf:
+            sector_quote = data_service.get_quote(sector_etf)
+            if sector_quote:
+                sector_return = sector_quote.change_pct / 100.0 if sector_quote.change_pct else 0.0
+
+        # Get related asset returns
+        related = validator.get_related_assets(sym)
+        for peer in (related.get("sector_peers", [])[:3] + related.get("index_etfs", [])):
+            try:
+                peer_quote = data_service.get_quote(peer)
+                if peer_quote:
+                    asset_returns[peer] = peer_quote.change_pct / 100.0 if peer_quote.change_pct else 0.0
+            except Exception:
+                pass
+
+        # Determine signal direction from brain if available
+        signal_direction = None
+        signal_conf = None
+        if PROPFIRM_BRAIN_V6_AVAILABLE and len(prices) > 20:
+            try:
+                brain = get_propfirm_brain_v6()
+                df = pd.DataFrame([{
+                    'timestamp': d.timestamp, 'open': d.open, 'high': d.high,
+                    'low': d.low, 'close': d.close, 'volume': d.volume
+                } for d in hist_data])
+                df.set_index('timestamp', inplace=True)
+                brain_signal = brain.generate_signal(df, sym)
+                if isinstance(brain_signal, dict):
+                    sig_val = brain_signal.get("signal", 0)
+                    if sig_val > 0:
+                        signal_direction = "BUY"
+                    elif sig_val < 0:
+                        signal_direction = "SELL"
+                    signal_conf = brain_signal.get("confidence", 0.5)
+            except Exception as e:
+                logger.debug(f"Brain signal not available for microstructure: {e}")
+
+        # Previous data for flow analysis
+        prev_price = prices[-2] if len(prices) >= 2 else None
+        avg_volume = float(np.mean([d.volume for d in hist_data[-20:]])) if hist_data else None
+
+        result = engine.analyze_symbol(
+            symbol=sym,
+            price=quote.price,
+            bid=quote.bid if quote.bid else quote.price - 0.01,
+            ask=quote.ask if quote.ask else quote.price + 0.01,
+            volume=quote.volume,
+            prices=prices if len(prices) > 0 else None,
+            highs=highs,
+            lows=lows,
+            vix=vix_level,
+            prev_price=prev_price,
+            prev_volume=hist_data[-1].volume if hist_data else None,
+            avg_volume=avg_volume,
+            signal_direction=signal_direction,
+            signal_confidence_val=signal_conf,
+            asset_returns=asset_returns,
+            sector_return=sector_return,
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Microstructure analysis error for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/volatility-regime/{symbol}")
+async def get_volatility_regime(symbol: str, lookback_days: int = 120):
+    """Get volatility regime classification for a symbol"""
+    if not MICROSTRUCTURE_AVAILABLE or not SERVICES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+
+    try:
+        engine = get_microstructure_engine()
+        data_service = get_data_service()
+        sym = symbol.upper()
+
+        hist_data = data_service.get_historical(sym, f"{lookback_days}d", "1d")
+        if not hist_data or len(hist_data) < 30:
+            raise HTTPException(status_code=404, detail=f"Insufficient data for {sym}")
+
+        prices = np.array([d.close for d in hist_data])
+        highs = np.array([d.high for d in hist_data])
+        lows = np.array([d.low for d in hist_data])
+
+        vix_quote = data_service.get_quote("^VIX")
+        vix = vix_quote.price if vix_quote else None
+
+        regime = engine.volatility_regime.classify(prices, highs, lows, vix)
+        return regime.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Volatility regime error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/order-flow/{symbol}")
+async def get_order_flow(symbol: str):
+    """Get current order flow analysis for a symbol"""
+    if not MICROSTRUCTURE_AVAILABLE or not SERVICES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+
+    try:
+        engine = get_microstructure_engine()
+        data_service = get_data_service()
+        sym = symbol.upper()
+
+        quote = data_service.get_quote(sym)
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"No quote data for {sym}")
+
+        flow = engine.order_flow.analyze(
+            sym,
+            bid=quote.bid if quote.bid else quote.price - 0.01,
+            ask=quote.ask if quote.ask else quote.price + 0.01,
+            price=quote.price,
+            volume=quote.volume,
+            prev_price=quote.prev_close,
+        )
+        return {
+            "current": flow.to_dict(),
+            "history": engine.get_flow_history(sym, limit=50),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Order flow error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/liquidity/{symbol}")
+async def get_liquidity(symbol: str):
+    """Get liquidity analysis for a symbol"""
+    if not MICROSTRUCTURE_AVAILABLE or not SERVICES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+
+    try:
+        engine = get_microstructure_engine()
+        data_service = get_data_service()
+        sym = symbol.upper()
+
+        quote = data_service.get_quote(sym)
+        if not quote:
+            raise HTTPException(status_code=404, detail=f"No quote data for {sym}")
+
+        hist_data = data_service.get_historical(sym, "30d", "1d")
+        avg_volume = float(np.mean([d.volume for d in hist_data[-20:]])) if hist_data else None
+
+        liq = engine.liquidity.analyze(
+            sym,
+            bid=quote.bid if quote.bid else quote.price - 0.01,
+            ask=quote.ask if quote.ask else quote.price + 0.01,
+            price=quote.price,
+            volume=quote.volume,
+            avg_volume=avg_volume,
+        )
+        return liq.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Liquidity analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/signals")
+async def get_microstructure_signals():
+    """Get all active signals with current confidence levels"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+    try:
+        engine = get_microstructure_engine()
+        return {"signals": engine.get_active_signals()}
+    except Exception as e:
+        logger.error(f"Microstructure signals error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/sessions")
+async def get_session_profiles():
+    """Get market session profiles with performance attribution"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+    try:
+        engine = get_microstructure_engine()
+        current = engine.market_hours.get_current_session()
+        should_trade, reason, mult = engine.market_hours.should_trade()
+        return {
+            "current_session": current.value,
+            "should_trade": should_trade,
+            "reason": reason,
+            "size_multiplier": mult,
+            "profiles": engine.get_session_profiles(),
+        }
+    except Exception as e:
+        logger.error(f"Session profiles error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/cross-asset/{symbol}")
+async def get_cross_asset_validation(symbol: str):
+    """Get cross-asset signal validation for a symbol"""
+    if not MICROSTRUCTURE_AVAILABLE or not SERVICES_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+
+    try:
+        engine = get_microstructure_engine()
+        data_service = get_data_service()
+        sym = symbol.upper()
+
+        # Get related assets
+        related = engine.get_related_assets(sym)
+
+        # Get returns for related assets
+        asset_returns = {}
+        sector_return = None
+
+        if related.get("sector_etf"):
+            try:
+                etf_quote = data_service.get_quote(related["sector_etf"])
+                if etf_quote:
+                    sector_return = etf_quote.change_pct / 100.0 if etf_quote.change_pct else 0.0
+            except Exception:
+                pass
+
+        for peer in (related.get("sector_peers", [])[:5] + related.get("index_etfs", [])):
+            try:
+                peer_quote = data_service.get_quote(peer)
+                if peer_quote:
+                    asset_returns[peer] = peer_quote.change_pct / 100.0 if peer_quote.change_pct else 0.0
+            except Exception:
+                pass
+
+        # Get current quote to determine direction
+        quote = data_service.get_quote(sym)
+        direction = "BUY" if quote and quote.change_pct and quote.change_pct > 0 else "SELL"
+
+        validation = engine.cross_asset.validate(
+            sym, direction,
+            asset_returns=asset_returns,
+            sector_return=sector_return,
+        )
+
+        return {
+            "validation": validation.to_dict(),
+            "related_assets": related,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Cross-asset validation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/microstructure/position-size/{symbol}")
+async def get_adaptive_position_size(
+    symbol: str,
+    signal_confidence: float = 0.7,
+    direction: str = "BUY",
+    portfolio_value: float = 100000.0,
+):
+    """Calculate adaptive position size for a symbol"""
+    if not MICROSTRUCTURE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+
+    try:
+        engine = get_microstructure_engine()
+
+        # Get volatility multiplier if we have price data
+        vol_mult = 1.0
+        if SERVICES_AVAILABLE:
+            try:
+                data_service = get_data_service()
+                hist_data = data_service.get_historical(symbol.upper(), "120d", "1d")
+                if hist_data and len(hist_data) > 30:
+                    prices = np.array([d.close for d in hist_data])
+                    highs = np.array([d.high for d in hist_data])
+                    lows = np.array([d.low for d in hist_data])
+                    vol_state = engine.volatility_regime.classify(prices, highs, lows)
+                    vol_mult = vol_state.position_size_multiplier
+            except Exception:
+                pass
+
+        size = engine.position_sizer.calculate(
+            symbol=symbol.upper(),
+            win_rate=0.55,
+            avg_win=100.0,
+            avg_loss=80.0,
+            signal_confidence=signal_confidence,
+            volatility_multiplier=vol_mult,
+            portfolio_value=portfolio_value,
+        )
+        return size.to_dict()
+
+    except Exception as e:
+        logger.error(f"Position sizing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============== RUN SERVER ==============
