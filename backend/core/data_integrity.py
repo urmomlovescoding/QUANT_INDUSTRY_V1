@@ -329,6 +329,167 @@ def assert_live_data(price_truth: PriceTruth, context: str = "operation"):
         )
 
 
+# ============================================================================
+# ENHANCED VALIDATION (ported from quant-platform)
+# ============================================================================
+
+# Maximum age for price data (60 seconds for trading, 600 for display)
+MAX_PRICE_AGE_TRADING_SECONDS = 60
+MAX_PRICE_AGE_DISPLAY_SECONDS = 600
+
+
+def validate_timestamp_freshness(
+    timestamp: datetime,
+    max_age_seconds: float = MAX_PRICE_AGE_TRADING_SECONDS,
+    context: str = "price data"
+) -> tuple:
+    """
+    Validate that a timestamp is fresh enough for trading.
+
+    Args:
+        timestamp: Data timestamp to validate
+        max_age_seconds: Maximum allowed age
+        context: Description for logging
+
+    Returns:
+        (is_valid, age_seconds, message)
+    """
+    import math
+
+    if timestamp is None:
+        return False, float('inf'), f"No timestamp for {context}"
+
+    # Handle timezone-aware timestamps
+    now = datetime.now()
+    if timestamp.tzinfo is not None:
+        try:
+            from datetime import timezone
+            now = datetime.now(timestamp.tzinfo)
+        except Exception:
+            # Strip timezone for comparison
+            timestamp = timestamp.replace(tzinfo=None)
+
+    age_seconds = (now - timestamp.replace(tzinfo=None)).total_seconds()
+
+    if age_seconds > max_age_seconds:
+        return False, age_seconds, f"{context} is stale: {age_seconds:.1f}s > {max_age_seconds}s"
+
+    if age_seconds < -60:  # Allow 1 min clock skew
+        return False, age_seconds, f"{context} timestamp is in the future by {-age_seconds:.1f}s"
+
+    return True, age_seconds, "OK"
+
+
+def validate_data_schema(data: dict, required_fields: list = None) -> tuple:
+    """
+    Validate data has required fields and no NaN values.
+
+    Args:
+        data: Dictionary to validate
+        required_fields: List of required field names
+
+    Returns:
+        (is_valid, message)
+    """
+    import math
+
+    if data is None:
+        return False, "Data is None"
+
+    required = required_fields or ['price', 'symbol']
+
+    # Check required fields
+    for field in required:
+        if field not in data:
+            return False, f"Missing required field: {field}"
+
+    # Check for NaN/None values in numeric fields
+    numeric_fields = ['price', 'bid', 'ask', 'volume', 'high', 'low', 'open', 'close']
+    for field in numeric_fields:
+        if field in data:
+            val = data[field]
+            if val is None:
+                return False, f"Field {field} is None"
+            if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                return False, f"Field {field} has invalid value: {val}"
+
+    return True, "OK"
+
+
+def validate_price_reasonableness(
+    price: float,
+    symbol: str,
+    prev_price: float = None,
+    max_change_pct: float = 20.0
+) -> tuple:
+    """
+    Validate that a price change is reasonable (not a bad tick).
+
+    Args:
+        price: Current price
+        symbol: Symbol for logging
+        prev_price: Previous known price
+        max_change_pct: Maximum allowed percent change
+
+    Returns:
+        (is_valid, message)
+    """
+    if price <= 0:
+        return False, f"Invalid price {price} for {symbol}: must be > 0"
+
+    if prev_price is not None and prev_price > 0:
+        change_pct = abs((price - prev_price) / prev_price) * 100
+        if change_pct > max_change_pct:
+            return False, f"Suspicious price change for {symbol}: {change_pct:.1f}% (max {max_change_pct}%)"
+
+    return True, "OK"
+
+
+def assert_data_integrity_for_trading(
+    price_truth: PriceTruth,
+    require_live: bool = True,
+    max_age_seconds: float = MAX_PRICE_AGE_TRADING_SECONDS
+):
+    """
+    Comprehensive data integrity check for trading operations.
+
+    This is the FINAL gate before any trade execution.
+
+    Args:
+        price_truth: Price data to validate
+        require_live: Whether to require live data
+        max_age_seconds: Maximum data age
+
+    Raises:
+        RuntimeError: If any validation fails
+    """
+    # Check data mode
+    if _current_data_mode == DataMode.SIMULATION:
+        raise RuntimeError("Cannot trade with SIMULATION data")
+
+    # Check live requirement
+    if require_live and not price_truth.is_live:
+        raise RuntimeError(
+            f"Trading requires live data, got {price_truth.quality.value} "
+            f"from {price_truth.source}"
+        )
+
+    # Check timestamp freshness
+    is_fresh, age, msg = validate_timestamp_freshness(
+        price_truth.timestamp,
+        max_age_seconds,
+        f"Price for {price_truth.symbol}"
+    )
+    if not is_fresh:
+        raise RuntimeError(f"Data integrity check failed: {msg}")
+
+    # Check price validity
+    if not validate_price(price_truth.price, price_truth.symbol):
+        raise RuntimeError(f"Invalid price for {price_truth.symbol}: {price_truth.price}")
+
+    logger.debug(f"Data integrity OK for {price_truth.symbol}: age={age:.1f}s, source={price_truth.source}")
+
+
 # Data quality tracking
 _quality_stats: Dict[str, Dict] = {}
 

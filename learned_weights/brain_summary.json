@@ -1,0 +1,8 @@
+{
+  "neurons": 24004,
+  "params": 128103907,
+  "epochs": 100,
+  "accuracy": "99.9%",
+  "grown": 23760,
+  "device": "NVIDIA GeForce RTX 4050 Laptop GPU"
+}

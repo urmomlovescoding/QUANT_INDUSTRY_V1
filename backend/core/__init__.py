@@ -34,6 +34,17 @@ from .regime_discovery import (
     get_regime_discovery,
 )
 
+from .safety_guard import (
+    SafetyGuard,
+    SafetyStatus,
+    HaltReason,
+    TradingLimits,
+    SafetyEvent,
+    SafetyError,
+    get_safety_guard,
+    require_safe_trading,
+)
+
 __all__ = [
     # Deployment
     "DeploymentStage",
@@ -53,4 +64,13 @@ __all__ = [
     "RegimeTransition",
     "RegimeDiscovery",
     "get_regime_discovery",
+    # Safety Guard
+    "SafetyGuard",
+    "SafetyStatus",
+    "HaltReason",
+    "TradingLimits",
+    "SafetyEvent",
+    "SafetyError",
+    "get_safety_guard",
+    "require_safe_trading",
 ]

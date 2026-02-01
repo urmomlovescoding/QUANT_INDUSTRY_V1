@@ -4,15 +4,26 @@ Kill Switch
 P0 Critical Feature: Emergency stop for all trading activity.
 
 Implements exact parity with quant-platform/execution/kill_switch.py
+
+Features:
+- Thread-safe singleton pattern
+- Confirmation code required to deactivate
+- Auto-triggers for loss limits
+- Persistence across restarts
+- Callback notifications
 """
 import json
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Tuple
 from dataclasses import dataclass, field
 
 logger = logging.getLogger("KILL_SWITCH")
+
+# Confirmation code required to deactivate - prevents accidental resume
+CONFIRMATION_CODE = "CONFIRM_RESUME_TRADING"
 
 
 @dataclass
@@ -37,7 +48,8 @@ class KillSwitch:
     Emergency kill switch for all trading activity.
 
     Implements exact parity with quant-platform behavior:
-    - Global activation/deactivation
+    - Thread-safe singleton pattern
+    - Confirmation code required to deactivate
     - Automatic triggers (daily loss, consecutive losses, etc.)
     - Event logging
     - Persistence across restarts
@@ -49,7 +61,21 @@ class KillSwitch:
     - Alert is sent to operators
     """
 
+    _instance = None
+    _class_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        """Ensure singleton pattern."""
+        if cls._instance is None:
+            with cls._class_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, state_dir: Optional[Path] = None):
+        # Prevent re-initialization
+        if hasattr(self, '_initialized') and self._initialized:
+            return
         # State
         self.is_active: bool = False
         self.reason: str = ""
@@ -73,8 +99,14 @@ class KillSwitch:
         self.consecutive_loss_limit: int = 5
         self.error_rate_limit: float = 0.10  # 10%
 
+        # Thread lock for state changes
+        self._lock = threading.RLock()
+
         # Load persisted state
         self._load_state()
+
+        # Mark as initialized
+        self._initialized = True
 
         logger.info(f"KillSwitch initialized: {'ACTIVE' if self.is_active else 'INACTIVE'}")
 
@@ -160,79 +192,91 @@ class KillSwitch:
             reason: Why the kill switch was activated
             triggered_by: Who/what triggered it (system, operator, etc.)
         """
-        if self.is_active:
-            logger.warning(f"Kill switch already active: {self.reason}")
-            return
+        with self._lock:
+            if self.is_active:
+                logger.warning(f"Kill switch already active: {self.reason}")
+                return
 
-        self.is_active = True
-        self.reason = reason
-        self.activated_at = datetime.now()
+            self.is_active = True
+            self.reason = reason
+            self.activated_at = datetime.now()
 
-        # Log event
-        event = KillSwitchEvent(
-            event_type="activated",
-            timestamp=self.activated_at,
-            reason=reason,
-            triggered_by=triggered_by,
-        )
-        self.events.append(event)
+            # Log event
+            event = KillSwitchEvent(
+                event_type="activated",
+                timestamp=self.activated_at,
+                reason=reason,
+                triggered_by=triggered_by,
+            )
+            self.events.append(event)
 
-        # Persist
-        self._save_state()
-        self._save_log()
+            # Persist
+            self._save_state()
+            self._save_log()
 
-        # Critical log
+        # Critical log (outside lock)
         logger.critical(f"KILL SWITCH ACTIVATED: {reason} (by {triggered_by})")
 
-        # Notify callbacks
+        # Notify callbacks (outside lock to prevent deadlock)
         for callback in self._on_activate:
             try:
                 callback(reason)
             except Exception as e:
                 logger.error(f"Activation callback error: {e}")
 
-    def deactivate(self, reason: str = "Manual deactivation", triggered_by: str = "operator") -> None:
+    def deactivate(self, confirmation_code: str, reason: str = "Manual deactivation", triggered_by: str = "operator") -> Tuple[bool, str]:
         """
         Deactivate the kill switch.
 
-        Requires explicit confirmation (triggered_by should be 'operator').
+        REQUIRES confirmation code to prevent accidental resume.
 
         Args:
+            confirmation_code: Must match CONFIRMATION_CODE constant
             reason: Why it's being deactivated
             triggered_by: Who is deactivating (should be 'operator')
+
+        Returns:
+            (success, message) tuple
         """
-        if not self.is_active:
-            logger.info("Kill switch already inactive")
-            return
+        # Verify confirmation code FIRST
+        if confirmation_code != CONFIRMATION_CODE:
+            logger.warning(f"Kill switch deactivation DENIED - invalid confirmation code")
+            return False, f"Invalid confirmation code. Use: {CONFIRMATION_CODE}"
 
-        self.is_active = False
-        deactivated_at = datetime.now()
+        with self._lock:
+            if not self.is_active:
+                return True, "Kill switch already inactive"
 
-        # Log event
-        event = KillSwitchEvent(
-            event_type="deactivated",
-            timestamp=deactivated_at,
-            reason=reason,
-            triggered_by=triggered_by,
-        )
-        self.events.append(event)
+            self.is_active = False
+            deactivated_at = datetime.now()
 
-        # Persist
-        self._save_state()
-        self._save_log()
+            # Log event
+            event = KillSwitchEvent(
+                event_type="deactivated",
+                timestamp=deactivated_at,
+                reason=reason,
+                triggered_by=triggered_by,
+            )
+            self.events.append(event)
+
+            # Clear activation state
+            self.reason = ""
+            self.activated_at = None
+
+            # Persist
+            self._save_state()
+            self._save_log()
 
         logger.warning(f"Kill switch DEACTIVATED: {reason} (by {triggered_by})")
 
-        # Clear activation state
-        self.reason = ""
-        self.activated_at = None
-
-        # Notify callbacks
+        # Notify callbacks (outside lock)
         for callback in self._on_deactivate:
             try:
                 callback(reason)
             except Exception as e:
                 logger.error(f"Deactivation callback error: {e}")
+
+        return True, "Kill switch deactivated"
 
     def check(self) -> bool:
         """
@@ -241,7 +285,23 @@ class KillSwitch:
         Returns:
             True if active (trading should stop), False otherwise
         """
-        return self.is_active
+        with self._lock:
+            return self.is_active
+
+    def check_and_block(self, operation: str = "trade") -> Tuple[bool, str]:
+        """
+        Check if operation is allowed.
+
+        Args:
+            operation: Type of operation being attempted
+
+        Returns:
+            (allowed, reason) tuple
+        """
+        with self._lock:
+            if self.is_active:
+                return False, f"Kill switch active: {self.reason}"
+            return True, ""
 
     def check_auto_triggers(
         self,

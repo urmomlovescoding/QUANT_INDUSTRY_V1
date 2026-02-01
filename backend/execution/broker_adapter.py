@@ -10,6 +10,7 @@ Provides a unified interface for:
 - Order management
 - Position tracking
 - Account information
+- SafetyGuard integration for non-negotiable risk limits
 """
 import logging
 from abc import ABC, abstractmethod
@@ -17,6 +18,30 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Any, Callable, Tuple
+
+# Import SafetyGuard for order validation
+try:
+    from backend.core.safety_guard import get_safety_guard, SafetyError
+    SAFETY_GUARD_AVAILABLE = True
+except ImportError:
+    try:
+        from core.safety_guard import get_safety_guard, SafetyError
+        SAFETY_GUARD_AVAILABLE = True
+    except ImportError:
+        SAFETY_GUARD_AVAILABLE = False
+        get_safety_guard = None
+
+# Import KillSwitch singleton
+try:
+    from backend.execution.kill_switch import get_kill_switch
+    KILL_SWITCH_AVAILABLE = True
+except ImportError:
+    try:
+        from .kill_switch import get_kill_switch
+        KILL_SWITCH_AVAILABLE = True
+    except ImportError:
+        KILL_SWITCH_AVAILABLE = False
+        get_kill_switch = None
 
 logger = logging.getLogger("BROKER_ADAPTER")
 
@@ -494,15 +519,76 @@ class BrokerAdapter(ABC):
     and implement the abstract methods.
 
     Matches quant-platform broker adapter interface.
+
+    Integrates with SafetyGuard for non-negotiable risk limits.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, is_live: bool = False):
         self.name = name
+        self.is_live = is_live
         self.connected: bool = False
         self._order_callbacks: List[Callable] = []
         self._fill_callbacks: List[Callable] = []
 
-        logger.info(f"BrokerAdapter '{name}' initialized")
+        logger.info(f"BrokerAdapter '{name}' initialized (live={is_live})")
+
+    def validate_order_safety(self, order: 'Order') -> Tuple[bool, str]:
+        """
+        Validate order through SafetyGuard and KillSwitch.
+
+        This is the FINAL gate - if this returns False, do NOT submit.
+
+        Args:
+            order: Order to validate
+
+        Returns:
+            (allowed, reason) tuple
+        """
+        # Check KillSwitch first
+        if KILL_SWITCH_AVAILABLE and get_kill_switch:
+            ks = get_kill_switch()
+            allowed, reason = ks.check_and_block("order_submission")
+            if not allowed:
+                logger.warning(f"Order blocked by KillSwitch: {reason}")
+                return False, reason
+
+        # Check SafetyGuard
+        if SAFETY_GUARD_AVAILABLE and get_safety_guard:
+            guard = get_safety_guard()
+
+            # Calculate position size as percentage (rough estimate)
+            # This would be more accurate with actual account equity
+            size_pct = 0.05  # Default 5% position
+
+            allowed, reason = guard.can_trade(
+                symbol=order.symbol,
+                size_pct=size_pct,
+                contracts=order.quantity if hasattr(order, 'quantity') else 0,
+                is_live=self.is_live
+            )
+
+            if not allowed:
+                logger.warning(f"Order blocked by SafetyGuard: {reason}")
+                return False, reason
+
+        return True, "OK"
+
+    def pre_submit_validation(self, order: 'Order') -> 'Order':
+        """
+        Validate order before submission. Override in subclasses for custom logic.
+
+        Raises:
+            SafetyError: If order is blocked by safety systems
+        """
+        allowed, reason = self.validate_order_safety(order)
+        if not allowed:
+            order.status = OrderStatus.REJECTED
+            order.rejection_reason = reason
+            if SAFETY_GUARD_AVAILABLE:
+                raise SafetyError(f"Order blocked: {reason}")
+            else:
+                raise ValueError(f"Order blocked: {reason}")
+        return order
 
     # Connection management
 
@@ -876,6 +962,22 @@ class PaperBroker(BrokerAdapter):
 
     def submit_order(self, order: Order) -> Order:
         """Submit and immediately fill market orders."""
+        # Validate through SafetyGuard first
+        try:
+            self.pre_submit_validation(order)
+        except (SafetyError if SAFETY_GUARD_AVAILABLE else ValueError) as e:
+            logger.warning(f"Order rejected by safety check: {e}")
+            order.status = OrderStatus.REJECTED
+            order.rejection_reason = str(e)
+            self.orders[order.order_id] = order
+            return order
+        except Exception as e:
+            logger.warning(f"Order rejected: {e}")
+            order.status = OrderStatus.REJECTED
+            order.rejection_reason = str(e)
+            self.orders[order.order_id] = order
+            return order
+
         order.submitted_at = datetime.now()
         order.status = OrderStatus.SUBMITTED
 
