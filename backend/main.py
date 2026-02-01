@@ -319,6 +319,14 @@ async def startup_event():
     logger.info("[STARTUP] QUANT INDUSTRY API v10.0 starting...")
     logger.info(f"[STARTUP] Services available: {SERVICES_AVAILABLE}")
 
+    # Initialize database (create tables if they don't exist)
+    try:
+        from database.connection import init_database
+        init_database()
+        logger.info("[STARTUP] Database initialized successfully")
+    except Exception as e:
+        logger.warning(f"[STARTUP] Database initialization failed: {e}")
+
     # Initialize data integrity layer
     if DATA_INTEGRITY_AVAILABLE:
         # Default to PAPER mode for safety
