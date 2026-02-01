@@ -2,13 +2,55 @@
 V1 API Routes
 =============
 Endpoints for frontend V2 API client with /api/v1/ prefix.
-These were documented but never implemented.
+
+WARNING: These endpoints return SIMULATED data for UI development.
+Data provenance fields indicate the source and quality of data.
+
+Data Source Types:
+- LIVE: Real-time data from production sources
+- DELAYED: Real data with time delay
+- SIMULATED: Random/mock data for testing
+- CACHED: Previously fetched data
 """
 
 import random
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter
+from enum import Enum
+
+
+class DataSource(Enum):
+    """Data provenance source types."""
+    LIVE = "live"
+    DELAYED = "delayed"
+    SIMULATED = "simulated"
+    CACHED = "cached"
+
+
+class DataQuality(Enum):
+    """Data quality indicators."""
+    FRESH = "fresh"          # < 1 second old
+    RECENT = "recent"        # < 60 seconds old
+    STALE = "stale"          # > 60 seconds old
+    MOCK = "mock"            # Generated/fake data
+
+
+def add_provenance(data: dict, source: DataSource = DataSource.SIMULATED) -> dict:
+    """
+    Add data provenance metadata to response.
+
+    This is CRITICAL for preventing simulated data from being treated as real.
+    """
+    data["_provenance"] = {
+        "source": source.value,
+        "quality": DataQuality.MOCK.value if source == DataSource.SIMULATED else DataQuality.FRESH.value,
+        "as_of": datetime.now().isoformat(),
+        "is_simulated": source == DataSource.SIMULATED,
+        "warning": "SIMULATED DATA - NOT FOR TRADING" if source == DataSource.SIMULATED else None
+    }
+    return data
+
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
@@ -17,14 +59,18 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 @router.get("/microstructure/orderbook/{symbol}")
 async def get_orderbook(symbol: str):
-    """Get order book for a symbol"""
+    """
+    Get order book for a symbol.
+
+    WARNING: Returns SIMULATED data. Check _provenance.is_simulated field.
+    """
     symbol = symbol.upper()
     mid = random.uniform(150, 500)
 
     bids = [{"price": round(mid - i * 0.05, 2), "size": random.randint(100, 5000)} for i in range(1, 11)]
     asks = [{"price": round(mid + i * 0.05, 2), "size": random.randint(100, 5000)} for i in range(1, 11)]
 
-    return {
+    return add_provenance({
         "symbol": symbol,
         "timestamp": datetime.now().isoformat(),
         "bids": bids,
@@ -32,7 +78,7 @@ async def get_orderbook(symbol: str):
         "midPrice": round(mid, 2),
         "spread": round(asks[0]["price"] - bids[0]["price"], 4),
         "imbalance": round(random.uniform(-0.3, 0.3), 4)
-    }
+    })
 
 
 @router.get("/microstructure/imbalance/{symbol}")
@@ -132,7 +178,11 @@ async def get_arb_prices(symbol: Optional[str] = None):
 
 @router.get("/arbitrage/opportunities")
 async def get_opportunities():
-    """Get arbitrage opportunities"""
+    """
+    Get arbitrage opportunities.
+
+    WARNING: Returns SIMULATED data. DO NOT TRADE on this data.
+    """
     opps = []
     if random.random() > 0.3:
         opps.append({
@@ -144,13 +194,22 @@ async def get_opportunities():
             "estimated_profit": round(random.uniform(50, 500), 2),
             "expires_at": (datetime.now() + timedelta(seconds=30)).isoformat()
         })
-    return opps
+    return add_provenance({"opportunities": opps, "count": len(opps)})
 
 
 @router.post("/arbitrage/opportunities/{opp_id}/execute")
 async def execute_opportunity(opp_id: str):
-    """Execute an arbitrage opportunity"""
-    return {"status": "executed", "opp_id": opp_id, "pnl": round(random.uniform(20, 200), 2)}
+    """
+    Execute an arbitrage opportunity.
+
+    WARNING: SIMULATED endpoint. No actual trades are executed.
+    """
+    return add_provenance({
+        "status": "SIMULATED_EXECUTION",
+        "warning": "This is a SIMULATED execution - no real trades occurred",
+        "opp_id": opp_id,
+        "pnl": round(random.uniform(20, 200), 2)
+    })
 
 
 @router.get("/arbitrage/triangular")
@@ -409,7 +468,11 @@ async def get_smart_money_metrics(symbol: Optional[str] = None):
 
 @router.get("/options-flow/signals")
 async def get_flow_signals(symbol: Optional[str] = None):
-    """Get flow-based signals"""
+    """
+    Get flow-based signals.
+
+    WARNING: Returns SIMULATED signals. DO NOT USE for actual trading decisions.
+    """
     signals = []
     symbols = [symbol.upper()] if symbol else ["AAPL", "NVDA", "TSLA"]
 
@@ -423,4 +486,8 @@ async def get_flow_signals(symbol: Optional[str] = None):
                 "timestamp": datetime.now().isoformat()
             })
 
-    return signals
+    return add_provenance({
+        "signals": signals,
+        "warning": "SIMULATED SIGNALS - NOT FOR TRADING",
+        "count": len(signals)
+    })

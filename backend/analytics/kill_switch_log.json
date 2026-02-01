@@ -1,0 +1,62 @@
+[
+  {
+    "event_type": "activated",
+    "timestamp": "2026-02-01T08:40:50.501243",
+    "reason": "Test activation",
+    "triggered_by": "test"
+  },
+  {
+    "event_type": "deactivated",
+    "timestamp": "2026-02-01T08:40:50.501243",
+    "reason": "Manual deactivation",
+    "triggered_by": "operator"
+  },
+  {
+    "event_type": "activated",
+    "timestamp": "2026-02-01T08:42:16.826704",
+    "reason": "Test activation",
+    "triggered_by": "test"
+  },
+  {
+    "event_type": "deactivated",
+    "timestamp": "2026-02-01T08:42:16.826704",
+    "reason": "Manual deactivation",
+    "triggered_by": "operator"
+  },
+  {
+    "event_type": "activated",
+    "timestamp": "2026-02-01T08:42:53.401144",
+    "reason": "Test activation",
+    "triggered_by": "test"
+  },
+  {
+    "event_type": "deactivated",
+    "timestamp": "2026-02-01T08:42:53.406093",
+    "reason": "Manual deactivation",
+    "triggered_by": "operator"
+  },
+  {
+    "event_type": "activated",
+    "timestamp": "2026-02-01T08:43:19.650960",
+    "reason": "Test activation",
+    "triggered_by": "test"
+  },
+  {
+    "event_type": "deactivated",
+    "timestamp": "2026-02-01T08:43:19.653476",
+    "reason": "Manual deactivation",
+    "triggered_by": "operator"
+  },
+  {
+    "event_type": "activated",
+    "timestamp": "2026-02-01T08:49:51.949124",
+    "reason": "Test activation",
+    "triggered_by": "test"
+  },
+  {
+    "event_type": "deactivated",
+    "timestamp": "2026-02-01T08:49:51.952121",
+    "reason": "Manual deactivation",
+    "triggered_by": "operator"
+  }
+]

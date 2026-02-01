@@ -29,6 +29,14 @@ from .tpt_aggressive import (
     TPTAggressiveStrategy,
 )
 
+from .strategy_weights import (
+    StrategyWeight,
+    WeightConfig,
+    StrategyWeightsManager,
+    get_weights_manager,
+    DEFAULT_WEIGHTS,
+)
+
 __all__ = [
     # ICT Types
     "Bias",
@@ -45,4 +53,10 @@ __all__ = [
     "TPTState",
     "TradeSetup",
     "TPTAggressiveStrategy",
+    # Strategy Weights
+    "StrategyWeight",
+    "WeightConfig",
+    "StrategyWeightsManager",
+    "get_weights_manager",
+    "DEFAULT_WEIGHTS",
 ]

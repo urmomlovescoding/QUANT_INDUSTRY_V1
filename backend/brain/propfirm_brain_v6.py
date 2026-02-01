@@ -2133,6 +2133,180 @@ class PropFirmBrainV6:
         conn.commit()
         conn.close()
 
+        # Try to load saved model on initialization
+        self._try_load_model()
+
+    def save_model(self, path: str = None) -> bool:
+        """
+        Save model weights to file.
+
+        Args:
+            path: Path to save weights (defaults to 'brain_v6_weights.pt')
+
+        Returns:
+            True if save successful
+        """
+        if not TORCH_AVAILABLE or self.model is None:
+            logger.warning("Cannot save model: PyTorch not available or model not initialized")
+            return False
+
+        path = path or "brain_v6_weights.pt"
+
+        try:
+            checkpoint = {
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict() if self.optimizer else None,
+                'training_step': self.training_step,
+                'is_trained': self.is_trained,
+                'total_trades_seen': self.total_trades_seen,
+                'model_version': self.model_version,
+                'feature_schema_hash': self._feature_schema_hash,
+                'config': {
+                    'input_dim': self.config.input_dim,
+                    'hidden_dim': self.config.hidden_dim,
+                    'd_model': self.config.d_model,
+                    'n_heads': self.config.n_heads,
+                    'n_layers': self.config.n_layers,
+                },
+                'saved_at': datetime.now().isoformat()
+            }
+
+            torch.save(checkpoint, path)
+            logger.info(f"Model saved to {path} | Version: {self.model_version}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save model: {e}")
+            return False
+
+    def load_model(self, path: str = None) -> bool:
+        """
+        Load model weights from file.
+
+        Args:
+            path: Path to load weights from (defaults to 'brain_v6_weights.pt')
+
+        Returns:
+            True if load successful
+        """
+        if not TORCH_AVAILABLE or self.model is None:
+            logger.warning("Cannot load model: PyTorch not available or model not initialized")
+            return False
+
+        path = path or "brain_v6_weights.pt"
+
+        try:
+            import os
+            if not os.path.exists(path):
+                logger.debug(f"Model file not found: {path}")
+                return False
+
+            checkpoint = torch.load(path, map_location=self.device)
+
+            # Check schema compatibility
+            saved_schema = checkpoint.get('feature_schema_hash')
+            if saved_schema and saved_schema != self._feature_schema_hash:
+                logger.warning(f"Feature schema mismatch: saved={saved_schema}, current={self._feature_schema_hash}")
+                logger.warning("Model may not work correctly - consider retraining")
+
+            # Load model state
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+
+            # Load optimizer state if available
+            if checkpoint.get('optimizer_state_dict') and self.optimizer:
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+            # Restore training state
+            self.training_step = checkpoint.get('training_step', 0)
+            self.is_trained = checkpoint.get('is_trained', True)
+            self.total_trades_seen = checkpoint.get('total_trades_seen', 0)
+            self._model_version = checkpoint.get('model_version')
+
+            logger.info(f"Model loaded from {path} | Version: {self.model_version} | Steps: {self.training_step}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            return False
+
+    def _try_load_model(self):
+        """Try to load model on initialization."""
+        # Try standard paths
+        paths_to_try = [
+            "brain_v6_weights.pt",
+            "weights/brain_v6_weights.pt",
+            "models/brain_v6_weights.pt",
+        ]
+
+        for path in paths_to_try:
+            if self.load_model(path):
+                return
+
+        logger.info("No pre-trained model found - will train from scratch")
+
+    def save_checkpoint_to_db(self) -> bool:
+        """Save model checkpoint to database."""
+        if not TORCH_AVAILABLE or self.model is None:
+            return False
+
+        try:
+            import pickle
+
+            weights_blob = pickle.dumps(self.model.state_dict())
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO model_checkpoints (epoch, loss, accuracy, weights)
+                VALUES (?, ?, ?, ?)
+            """, (self.training_step, 0.0, 0.0, weights_blob))
+
+            conn.commit()
+            conn.close()
+
+            logger.info(f"Checkpoint saved to database | Step: {self.training_step}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save checkpoint to DB: {e}")
+            return False
+
+    def load_checkpoint_from_db(self) -> bool:
+        """Load latest model checkpoint from database."""
+        if not TORCH_AVAILABLE or self.model is None:
+            return False
+
+        try:
+            import pickle
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT epoch, weights FROM model_checkpoints
+                ORDER BY id DESC LIMIT 1
+            """)
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if not row:
+                return False
+
+            epoch, weights_blob = row
+            state_dict = pickle.loads(weights_blob)
+            self.model.load_state_dict(state_dict)
+            self.training_step = epoch
+            self.is_trained = True
+
+            logger.info(f"Checkpoint loaded from database | Step: {epoch}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint from DB: {e}")
+            return False
+
     def generate_signal(
         self,
         df: pd.DataFrame,
@@ -2370,6 +2544,11 @@ class PropFirmBrainV6:
 
             # Log training
             self._log_training(avg_loss)
+
+            # Auto-save model after training
+            if self.training_step % 10 == 0:  # Save every 10 steps
+                self.save_model()
+                self.save_checkpoint_to_db()
 
             return {
                 'loss': avg_loss,

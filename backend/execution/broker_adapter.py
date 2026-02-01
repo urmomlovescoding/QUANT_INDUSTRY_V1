@@ -789,6 +789,63 @@ class BrokerAdapter(ABC):
             except Exception as e:
                 logger.error(f"Fill callback error: {e}")
 
+    def _update_safety_guard_equity(self, equity: float) -> None:
+        """Update SafetyGuard with current account equity."""
+        if SAFETY_GUARD_AVAILABLE and get_safety_guard:
+            try:
+                guard = get_safety_guard()
+                guard.set_equity(equity, is_starting=False)
+            except Exception as e:
+                logger.warning(f"Failed to update SafetyGuard equity: {e}")
+
+    def _record_trade_to_feedback_loop(
+        self,
+        symbol: str,
+        pnl: float,
+        strategy_id: str = None,
+        signal_confidence: float = 0.0
+    ) -> None:
+        """Record trade result to feedback loop for ML learning."""
+        try:
+            from brain.feedback_loop import get_feedback_loop, TradeResult, TradeOutcome
+            from datetime import datetime, timezone
+
+            feedback = get_feedback_loop()
+
+            # Determine outcome
+            if pnl > 0:
+                outcome = TradeOutcome.WIN
+            elif pnl < 0:
+                outcome = TradeOutcome.LOSS
+            else:
+                outcome = TradeOutcome.BREAKEVEN
+
+            # Create trade result (simplified - full version would have more details)
+            result = TradeResult(
+                trade_id=f"trade_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+                symbol=symbol,
+                direction="UNKNOWN",  # Would be set from order
+                entry_price=0,  # Would be tracked
+                exit_price=0,
+                entry_time=datetime.now(timezone.utc),
+                exit_time=datetime.now(timezone.utc),
+                quantity=0,
+                pnl=pnl,
+                pnl_pct=0,
+                outcome=outcome,
+                strategy=strategy_id or "unknown",
+                signal_confidence=signal_confidence,
+                regime_at_entry="unknown"
+            )
+
+            feedback.record_trade(result)
+            logger.info(f"Recorded trade to feedback loop: {symbol} PnL=${pnl:.2f}")
+
+        except ImportError:
+            logger.debug("FeedbackLoop not available")
+        except Exception as e:
+            logger.warning(f"Failed to record trade to feedback loop: {e}")
+
     # Utility methods
 
     def create_market_order(
@@ -1049,6 +1106,11 @@ class PaperBroker(BrokerAdapter):
                 self.realized_pnl += pnl
                 self.cash += pnl
                 del self.positions[symbol]
+
+                # Record to feedback loop and update SafetyGuard
+                self._record_trade_to_feedback_loop(symbol, pnl)
+                self._update_safety_guard_equity(self.get_account().equity)
+
             elif (new_qty > 0) != (old_qty > 0):
                 # Position flipped
                 # First close old position
@@ -1059,6 +1121,10 @@ class PaperBroker(BrokerAdapter):
 
                 self.realized_pnl += pnl
                 self.cash += pnl
+
+                # Record to feedback loop and update SafetyGuard
+                self._record_trade_to_feedback_loop(symbol, pnl)
+                self._update_safety_guard_equity(self.get_account().equity)
 
                 # Then open new position
                 self.positions[symbol] = Position(
