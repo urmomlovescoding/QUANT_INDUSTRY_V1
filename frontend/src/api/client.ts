@@ -754,3 +754,86 @@ export interface MoverStock {
   change_pct: number
   volume: number
 }
+
+// Decision Intelligence
+export const decisionIntelApi = {
+  getControlPlaneStatus: () => api.get<ControlPlaneStatus>('/api/decision-intel/status'),
+  engageKillSwitch: (reason: string) => api.post<void>('/api/decision-intel/kill-switch/engage', { reason }),
+  releaseKillSwitch: () => api.post<void>('/api/decision-intel/kill-switch/release'),
+  getDecisionTrace: () => api.get<DecisionTraceStats>('/api/decision-intel/trace'),
+  getExitRecommendation: (symbol: string, position: unknown) =>
+    api.post<ExitRecommendation>('/api/decision-intel/exit-recommendation', { symbol, position }),
+  getShadowComponents: () => api.get<ShadowComponent[]>('/api/decision-intel/shadow/components'),
+  getSelfImprovementStatus: () => api.get<SelfImprovementStatus>('/api/decision-intel/self-improvement'),
+}
+
+// Data Integrity
+export const dataIntegrityApi = {
+  getStatus: () => api.get<DataIntegrityStatus>('/api/data/integrity/status'),
+  getMode: () => api.get<DataMode>('/api/data/mode'),
+  setMode: (mode: DataMode) => api.post<void>('/api/data/mode', { mode }),
+  validateData: (symbol: string) => api.get<DataValidation>('/api/data/validate/' + symbol),
+}
+
+// Decision Intelligence Types
+export interface ControlPlaneStatus {
+  mode: 'shadow' | 'paper' | 'live'
+  is_active: boolean
+  kill_switch_engaged: boolean
+  components: Record<string, unknown>
+  health: Record<string, boolean>
+}
+
+export interface DecisionContext {
+  context_id: string
+  symbol: string
+  timestamp: string
+  decisions: unknown[]
+}
+
+export interface DecisionTraceStats {
+  total_decisions: number
+  success_rate: number
+  avg_confidence: number
+  by_component: Record<string, unknown>
+}
+
+export interface ExitRecommendation {
+  action: 'hold' | 'exit'
+  reason: string
+  confidence: number
+  expected_value_hold: number
+  expected_value_exit: number
+}
+
+export interface ShadowComponent {
+  component_id: string
+  component_name: string
+  version: string
+  status: string
+  accuracy: number
+  decisions_count: number
+}
+
+export interface SelfImprovementStatus {
+  phase: string
+  active_cycle: boolean
+  consecutive_failures: number
+  last_improvement: string | null
+}
+
+export type DataMode = 'live' | 'paper' | 'mock'
+
+export interface DataIntegrityStatus {
+  is_healthy: boolean
+  last_check: string
+  issues: string[]
+}
+
+export interface DataValidation {
+  symbol: string
+  is_valid: boolean
+  issues: string[]
+  last_price: number
+  timestamp: string
+}

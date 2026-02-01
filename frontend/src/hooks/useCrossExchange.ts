@@ -41,7 +41,7 @@ export function usePriceMatrix(options: UseCrossExchangeOptions = {}) {
     try {
       const response = await apiV2.arbitrage.getPrices(symbol);
       if (response.ok && response.data) {
-        const result = response.data as PriceMatrix[] | { data: PriceMatrix[] };
+        const result = response.data as unknown as PriceMatrix[] | { data: PriceMatrix[] };
         setData(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -76,7 +76,7 @@ export function useArbOpportunities(options: UseCrossExchangeOptions = {}) {
     try {
       const response = await apiV2.arbitrage.getOpportunities();
       if (response.ok && response.data) {
-        const result = response.data as ArbOpportunity[] | { data: ArbOpportunity[] };
+        const result = response.data as unknown as ArbOpportunity[] | { data: ArbOpportunity[] };
         setOpportunities(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -124,7 +124,7 @@ export function useTriangularArb(options: UseCrossExchangeOptions = {}) {
     try {
       const response = await apiV2.arbitrage.getTriangularPaths();
       if (response.ok && response.data) {
-        const result = response.data as TriangularArbPath[] | { data: TriangularArbPath[] };
+        const result = response.data as unknown as TriangularArbPath[] | { data: TriangularArbPath[] };
         setPaths(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {

@@ -91,7 +91,7 @@ export const useBrain = (): UseBrainReturn => {
     try {
       const response = await apiV2.brainLegacy.getStatus();
       if (response.ok && response.data) {
-        setBrainStatus(response.data as BrainStatus);
+        setBrainStatus(response.data as unknown as BrainStatus);
       }
     } catch (err) {
       console.error('Failed to fetch brain status:', err);
@@ -103,7 +103,7 @@ export const useBrain = (): UseBrainReturn => {
     try {
       const response = await apiV2.brainLegacy.getBots();
       if (response.ok && response.data) {
-        setBots(response.data as BotStatus[]);
+        setBots(response.data as unknown as BotStatus[]);
       }
     } catch (err) {
       console.error('Failed to fetch bots:', err);
@@ -115,7 +115,7 @@ export const useBrain = (): UseBrainReturn => {
     try {
       const response = await apiV2.brainLegacy.getFeatures();
       if (response.ok && response.data) {
-        setFeatures(response.data as FeatureImportance[]);
+        setFeatures(response.data as unknown as FeatureImportance[]);
       }
     } catch (err) {
       console.error('Failed to fetch features:', err);
@@ -127,7 +127,7 @@ export const useBrain = (): UseBrainReturn => {
     try {
       const response = await apiV2.brainLegacy.getSignalHistory(50);
       if (response.ok && response.data) {
-        setSignalHistory(response.data as Signal[]);
+        setSignalHistory(response.data as unknown as Signal[]);
       }
     } catch (err) {
       console.error('Failed to fetch signal history:', err);
@@ -175,9 +175,9 @@ export const useBrain = (): UseBrainReturn => {
       }
       
       if (brainStatus.multi_timeframe && response.data) {
-        setSignals((response.data as { signals: Record<string, Signal> }).signals);
+        setSignals((response.data as unknown as { signals: Record<string, Signal> }).signals);
       } else if (response.data) {
-        setSignals({ single: response.data as Signal });
+        setSignals({ single: response.data as unknown as Signal });
       }
       
       // Refresh related data

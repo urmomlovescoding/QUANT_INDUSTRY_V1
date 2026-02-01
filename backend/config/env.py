@@ -27,6 +27,7 @@ def _load_env():
             Path(__file__).parent.parent.parent / '.env',  # QUANT_INDUSTRY_V1/.env
             Path(__file__).parent.parent.parent.parent / '.env',  # clawd/.env
             Path.cwd() / '.env',
+            Path('C:/QUANT_INDUSTRY_V1/.env'),  # Explicit path as fallback
         ]
         
         for env_path in paths:
@@ -44,10 +45,14 @@ def _load_env():
 _load_env()
 
 
-@lru_cache()
+_config_instance = None
+
 def get_config():
-    """Get cached configuration object."""
-    return Config()
+    """Get configuration object (singleton without lru_cache for proper env loading)."""
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = Config()
+    return _config_instance
 
 
 class Config:
@@ -56,7 +61,7 @@ class Config:
     def __init__(self):
         # Data Providers
         self.ALPACA_API_KEY = os.environ.get('ALPACA_API_KEY', '')
-        self.ALPACA_API_SECRET = os.environ.get('ALPACA_API_SECRET', '')
+        self.ALPACA_API_SECRET = os.environ.get('ALPACA_API_SECRET', '') or os.environ.get('ALPACA_SECRET_KEY', '')
         self.POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
         
         # Database

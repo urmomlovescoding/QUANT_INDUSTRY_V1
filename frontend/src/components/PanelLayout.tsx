@@ -153,7 +153,7 @@ function PanelContent({ type }: { type: PanelType }) {
 
 // Minimal panel implementations using existing API data
 function PositionsPanel() {
-  const { data } = useQuery(['panel-positions'], () => portfolioApi.getPositions(), { refetchInterval: 5000 })
+  const { data } = useQuery({ queryKey: ['panel-positions'], queryFn: () => portfolioApi.getPositions(), refetchInterval: 5000 })
   const positions = data?.ok ? data.data || [] : []
 
   return (
@@ -189,7 +189,7 @@ function PositionsPanel() {
 }
 
 function OrdersPanel() {
-  const { data } = useQuery(['panel-orders'], () => tradingApi.getOrders(), { refetchInterval: 5000 })
+  const { data } = useQuery({ queryKey: ['panel-orders'], queryFn: () => tradingApi.getOrders(), refetchInterval: 5000 })
   const orders = data?.ok ? data.data || [] : []
 
   return (
@@ -223,7 +223,7 @@ function OrdersPanel() {
 }
 
 function RiskPanel() {
-  const { data } = useQuery(['panel-risk'], () => riskApi.getMetrics(), { refetchInterval: 10000 })
+  const { data } = useQuery({ queryKey: ['panel-risk'], queryFn: () => riskApi.getMetrics(), refetchInterval: 10000 })
   const risk = data?.ok ? data.data : null
 
   const metrics = risk ? [
@@ -254,7 +254,7 @@ function RiskPanel() {
 }
 
 function PnLPanel() {
-  const { data } = useQuery(['panel-portfolio'], () => portfolioApi.getPortfolio(), { refetchInterval: 5000 })
+  const { data } = useQuery({ queryKey: ['panel-portfolio'], queryFn: () => portfolioApi.getPortfolio(), refetchInterval: 5000 })
   const portfolio = data?.ok ? data.data : null
 
   const equity = (portfolio as any)?.equity || (portfolio as any)?.total_value || 0
@@ -323,7 +323,7 @@ function ChartPanel() {
 }
 
 function BrainPanel() {
-  const { data } = useQuery(['panel-brain'], () => brainApi.getStatus(), { refetchInterval: 10000 })
+  const { data } = useQuery({ queryKey: ['panel-brain'], queryFn: () => brainApi.getStatus(), refetchInterval: 10000 })
   const brain = data?.ok ? data.data : null
 
   return (

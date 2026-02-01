@@ -419,7 +419,7 @@ export function SignalFeed({ maxHeight = '500px', compact = false, className }: 
                 className={cn(
                   'text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider transition-colors',
                   filterType === t
-                    ? t === 'all' ? 'bg-accent-primary/20 text-accent-primary' : `${typeConfig[t === 'all' ? 'info' : t].bgColor} ${typeConfig[t === 'all' ? 'info' : t].color}`
+                    ? t === 'all' ? 'bg-accent-primary/20 text-accent-primary' : `${typeConfig[t as keyof typeof typeConfig].bgColor} ${typeConfig[t as keyof typeof typeConfig].color}`
                     : 'text-foreground-muted hover:bg-background-hover'
                 )}
               >

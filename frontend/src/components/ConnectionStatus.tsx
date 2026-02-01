@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 import { Wifi, WifiOff, Server, ServerOff, AlertCircle, CheckCircle } from 'lucide-react'
 // V2 API Client
 import { apiV2 } from '@/api/v2'
-// OLD: import { healthApi } from '@/api'
+import { healthApi } from '@/api'
 
 interface ConnectionState {
   api: 'connected' | 'disconnected' | 'checking'

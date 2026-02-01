@@ -31,7 +31,7 @@ export function KillSwitch({ compact = true, className }: KillSwitchProps) {
       // V2: apiV2.risk.getKillSwitchStatus() instead of decisionIntelApi.getControlPlaneStatus()
       const response = await apiV2.risk.getKillSwitchStatus();
       if (response.ok && response.data) {
-        setIsEngaged(response.data.engaged);
+        setIsEngaged(response.data.engaged ?? false);
       }
     } catch (e) {
       console.error('Failed to check kill switch status:', e);
