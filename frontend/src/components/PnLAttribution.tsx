@@ -1153,7 +1153,7 @@ function AssetsView({
               onClick={(entry) => {
                 if (entry && entry.name) onAssetClick(entry.name)
               }}
-              content={({ x, y, width, height, name, pnl, color }: any) => {
+              content={(({ x, y, width, height, name, pnl, color }: any) => {
                 if (width < 40 || height < 30) return null
                 return (
                   <g>
@@ -1195,7 +1195,7 @@ function AssetsView({
                     )}
                   </g>
                 )
-              }}
+              }) as any}
             />
           </ResponsiveContainer>
         </div>

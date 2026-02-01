@@ -165,10 +165,10 @@ export function useCexDexSpread(symbol: string, options: Omit<UseCrossExchangeOp
       ]);
       
       if (spreadRes.ok && spreadRes.data) {
-        setSpread(spreadRes.data as CexDexSpread);
+        setSpread(spreadRes.data as unknown as CexDexSpread);
       }
       if (historyRes.ok && historyRes.data) {
-        setHistory(historyRes.data as CexDexSpreadHistory);
+        setHistory(historyRes.data as unknown as unknown as CexDexSpreadHistory);
       }
       setError(null);
     } catch (e) {
@@ -200,7 +200,7 @@ export function useExchangeLatency(options: UseCrossExchangeOptions = {}) {
     try {
       const response = await apiV2.arbitrage.getLatency();
       if (response.ok && response.data) {
-        const result = response.data as ExchangeLatency[] | { data: ExchangeLatency[] };
+        const result = response.data as unknown as ExchangeLatency[] | { data: ExchangeLatency[] };
         setLatencies(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -235,7 +235,7 @@ export function useArbExecutions(options: UseCrossExchangeOptions = {}) {
     try {
       const response = await apiV2.arbitrage.getExecutions();
       if (response.ok && response.data) {
-        const result = response.data as ArbExecution[] | { data: ArbExecution[] };
+        const result = response.data as unknown as ArbExecution[] | { data: ArbExecution[] };
         setExecutions(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {

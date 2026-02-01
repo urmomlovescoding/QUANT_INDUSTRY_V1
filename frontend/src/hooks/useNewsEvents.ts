@@ -42,7 +42,7 @@ export function useNewsFeed(options: UseNewsEventsOptions = {}) {
     try {
       const response = await apiV2.newsEvents.getNews(symbol);
       if (response.ok && response.data) {
-        setFeed(response.data as NewsFeed);
+        setFeed(response.data as unknown as NewsFeed);
         setError(null);
       } else {
         throw new Error(getErrorMessage(response));
@@ -76,7 +76,7 @@ export function useSentiment(symbol?: string, options: Omit<UseNewsEventsOptions
     try {
       const response = await apiV2.newsEvents.getSentiment(symbol);
       if (response.ok && response.data) {
-        setMetrics(response.data as SentimentMetrics);
+        setMetrics(response.data as unknown as SentimentMetrics);
         setError(null);
       } else {
         throw new Error(getErrorMessage(response));
@@ -110,7 +110,7 @@ export function useEarningsCalendar(options: UseNewsEventsOptions = {}) {
     try {
       const response = await apiV2.newsEvents.getEarnings(symbol);
       if (response.ok && response.data) {
-        const result = response.data as EarningsEvent[] | { data: EarningsEvent[] };
+        const result = response.data as unknown as EarningsEvent[] | { data: EarningsEvent[] };
         setEarnings(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -145,7 +145,7 @@ export function useEconomicCalendar(startDate?: string, endDate?: string, option
     try {
       const response = await apiV2.newsEvents.getEconomicCalendar(startDate, endDate);
       if (response.ok && response.data) {
-        setCalendar(response.data as EconomicCalendar);
+        setCalendar(response.data as unknown as EconomicCalendar);
         setError(null);
       } else {
         throw new Error(getErrorMessage(response));
@@ -179,7 +179,7 @@ export function useEventSignals(options: UseNewsEventsOptions = {}) {
     try {
       const response = await apiV2.newsEvents.getSignals(symbol);
       if (response.ok && response.data) {
-        const result = response.data as EventSignal[] | { data: EventSignal[] };
+        const result = response.data as unknown as EventSignal[] | { data: EventSignal[] };
         setSignals(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -215,7 +215,7 @@ export function useHeadlineAnalysis() {
       if (!response.ok) {
         throw new Error(getErrorMessage(response));
       }
-      const result = response.data as HeadlineAnalysis;
+      const result = response.data as unknown as HeadlineAnalysis;
       setAnalysis(result);
       setError(null);
       return result;

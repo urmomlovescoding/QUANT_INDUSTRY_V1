@@ -17,10 +17,12 @@ from .portfolio_routes import router as portfolio_router
 from .broker_routes import router as broker_router
 from .parity_routes import router as parity_router
 from .algobot_routes import router as algobot_router
+from .advanced_routes import router as advanced_router
+from .v1_routes import router as v1_router
 
 __all__ = [
     'market_router',
-    'trading_router', 
+    'trading_router',
     'brain_router',
     'risk_router',
     'options_router',
@@ -31,7 +33,9 @@ __all__ = [
     'portfolio_router',
     'broker_router',
     'parity_router',
-    'algobot_routes',
+    'algobot_router',
+    'advanced_router',
+    'v1_router',
     'ws_manager',
     'data_engine',
 ]

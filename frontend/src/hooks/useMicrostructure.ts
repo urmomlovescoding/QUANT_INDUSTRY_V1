@@ -43,7 +43,7 @@ export function useOrderBook(symbol: string, options: Omit<UseMicrostructureOpti
     try {
       const response = await apiV2.microstructure.getOrderBook(symbol);
       if (response.ok && response.data) {
-        const result = response.data as OrderBook;
+        const result = response.data as unknown as OrderBook;
         setData(result);
         
         // Append to history for heatmap
@@ -91,7 +91,7 @@ export function useImbalance(symbol: string, options: Omit<UseMicrostructureOpti
     try {
       const response = await apiV2.microstructure.getImbalance(symbol);
       if (response.ok && response.data) {
-        setData(response.data as ImbalanceMetrics);
+        setData(response.data as unknown as ImbalanceMetrics);
         setError(null);
       } else {
         throw new Error(getErrorMessage(response));
@@ -131,11 +131,11 @@ export function useTape(symbol: string, options: Omit<UseMicrostructureOptions, 
       ]);
       
       if (entriesRes.ok && entriesRes.data) {
-        const result = entriesRes.data as TapeEntry[] | { data: TapeEntry[] };
+        const result = entriesRes.data as unknown as TapeEntry[] | { data: TapeEntry[] };
         setEntries(Array.isArray(result) ? result : result.data || []);
       }
       if (analysisRes.ok && analysisRes.data) {
-        setAnalysis(analysisRes.data as TapeAnalysis);
+        setAnalysis(analysisRes.data as unknown as TapeAnalysis);
       }
       setError(null);
     } catch (e) {
@@ -166,7 +166,7 @@ export function useFlowModels() {
     try {
       const response = await apiV2.microstructure.getModelMetrics();
       if (response.ok && response.data) {
-        const result = response.data as FlowModelMetrics[] | { data: FlowModelMetrics[] };
+        const result = response.data as unknown as FlowModelMetrics[] | { data: FlowModelMetrics[] };
         setMetrics(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -198,7 +198,7 @@ export function useFlowBacktest() {
     try {
       const response = await apiV2.microstructure.getBacktestResults();
       if (response.ok && response.data) {
-        const result = response.data as OrderFlowBacktestResult[] | { data: OrderFlowBacktestResult[] };
+        const result = response.data as unknown as OrderFlowBacktestResult[] | { data: OrderFlowBacktestResult[] };
         setResults(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -218,7 +218,7 @@ export function useFlowBacktest() {
       if (!response.ok) {
         throw new Error(getErrorMessage(response));
       }
-      const result = response.data as OrderFlowBacktestResult;
+      const result = response.data as unknown as OrderFlowBacktestResult;
       setResults(prev => [result, ...prev]);
       setError(null);
       return result;

@@ -289,7 +289,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.market.getTickers() instead of marketApi.getTickers()
             const response = await apiV2.market.getTickers()
             if (response.ok && response.data) {
-              setTickers(response.data as MarketTicker[])
+              setTickers(response.data as unknown as MarketTicker[])
               setError('tickers', null)
             } else {
               setError('tickers', response.error?.message || 'Failed to fetch')

@@ -49,7 +49,7 @@ export function SignalsTable({
       // V2: apiV2.signals.getActive() instead of signalsApi.getActive()
       const response = await apiV2.signals.getActive()
       if (response.ok && response.data) {
-        setSignals(response.data)
+        setSignals(response.data as unknown as Signal[])
       } else {
         setError(response.error?.message || 'Failed to fetch signals')
         setSignals([])

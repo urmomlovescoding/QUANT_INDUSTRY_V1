@@ -244,6 +244,15 @@ except ImportError as e:
     MICROSTRUCTURE_AVAILABLE = False
     logger.warning(f"Market Microstructure Engine not available: {e}")
 
+# V1 API Routes (for frontend V2 client compatibility)
+try:
+    from routes.v1_routes import router as v1_router
+    V1_ROUTES_AVAILABLE = True
+    logger.info("V1 API routes loaded")
+except ImportError as e:
+    V1_ROUTES_AVAILABLE = False
+    logger.warning(f"V1 API routes not available: {e}")
+
 app = FastAPI(
     title="QUANT INDUSTRY API",
     description="Professional Trading Platform Backend",
@@ -254,6 +263,11 @@ app = FastAPI(
 if ERROR_UTILS_AVAILABLE:
     app.add_exception_handler(APIError, api_error_handler)
     logger.info("Registered global API error handler")
+
+# Register V1 API routes for frontend V2 client compatibility
+if V1_ROUTES_AVAILABLE:
+    app.include_router(v1_router)
+    logger.info("V1 API routes registered")
 
 # Background task for live data refresh
 async def refresh_market_data():

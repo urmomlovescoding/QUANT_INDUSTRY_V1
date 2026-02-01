@@ -187,7 +187,7 @@ export function RiskDecomposition() {
                   </span>
                 )}
               </div>
-              {factorData && factorData.factors.length > 0 ? (
+              {factorData && factorData.factors && factorData.factors.length > 0 ? (
                 <div className="space-y-3">
                   {factorData.factors.map((f) => (
                     <div key={f.factor}>
@@ -242,7 +242,7 @@ export function RiskDecomposition() {
                   </span>
                 )}
               </div>
-              {attribution && attribution.waterfall.length > 0 ? (
+              {attribution && attribution.waterfall && attribution.waterfall.length > 0 ? (
                 <div className="space-y-2">
                   {attribution.waterfall.map((item, i) => {
                     const maxVal = Math.max(...attribution.waterfall.map(w => Math.abs(w.value)), 1)

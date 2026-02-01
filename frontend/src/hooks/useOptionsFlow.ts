@@ -41,7 +41,7 @@ export function useUnusualActivity(options: UseOptionsFlowOptions = {}) {
     try {
       const response = await apiV2.optionsFlow.getUnusualActivity(symbol);
       if (response.ok && response.data) {
-        const result = response.data as UnusualActivity[] | { data: UnusualActivity[] };
+        const result = response.data as unknown as UnusualActivity[] | { data: UnusualActivity[] };
         setData(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
@@ -76,7 +76,7 @@ export function useGammaExposure(symbol: string) {
     try {
       const response = await apiV2.optionsFlow.getGammaExposure(symbol);
       if (response.ok && response.data) {
-        setData(response.data as GammaExposureProfile);
+        setData(response.data as unknown as GammaExposureProfile);
         setError(null);
       } else {
         throw new Error(getErrorMessage(response));
@@ -113,11 +113,11 @@ export function useDarkPool(options: UseOptionsFlowOptions = {}) {
       ]);
       
       if (printsRes.ok && printsRes.data) {
-        const result = printsRes.data as DarkPoolPrint[] | { data: DarkPoolPrint[] };
+        const result = printsRes.data as unknown as DarkPoolPrint[] | { data: DarkPoolPrint[] };
         setPrints(Array.isArray(result) ? result : result.data || []);
       }
       if (accumRes.ok && accumRes.data) {
-        const result = accumRes.data as DarkPoolAccumulation[] | { data: DarkPoolAccumulation[] };
+        const result = accumRes.data as unknown as DarkPoolAccumulation[] | { data: DarkPoolAccumulation[] };
         setAccumulation(Array.isArray(result) ? result : result.data || []);
       }
       setError(null);
@@ -155,11 +155,11 @@ export function useSmartMoney(options: UseOptionsFlowOptions = {}) {
       ]);
       
       if (flowRes.ok && flowRes.data) {
-        const result = flowRes.data as InstitutionalFlow[] | { data: InstitutionalFlow[] };
+        const result = flowRes.data as unknown as InstitutionalFlow[] | { data: InstitutionalFlow[] };
         setFlow(Array.isArray(result) ? result : result.data || []);
       }
       if (metricsRes.ok && metricsRes.data) {
-        const result = metricsRes.data as SmartMoneyMetrics[] | { data: SmartMoneyMetrics[] };
+        const result = metricsRes.data as unknown as SmartMoneyMetrics[] | { data: SmartMoneyMetrics[] };
         setMetrics(Array.isArray(result) ? result : result.data || []);
       }
       setError(null);
@@ -192,7 +192,7 @@ export function useFlowSignals(options: UseOptionsFlowOptions = {}) {
     try {
       const response = await apiV2.optionsFlow.getFlowSignals(symbol);
       if (response.ok && response.data) {
-        const result = response.data as FlowSignal[] | { data: FlowSignal[] };
+        const result = response.data as unknown as FlowSignal[] | { data: FlowSignal[] };
         setSignals(Array.isArray(result) ? result : result.data || []);
         setError(null);
       } else {
