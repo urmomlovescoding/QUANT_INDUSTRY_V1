@@ -75,6 +75,26 @@ from .features import (
     FeatureEngine,
 )
 
+from .normalization import (
+    # Types
+    NormalizationMethod,
+    WindowType,
+    NormalizationConfig,
+    NormalizationStats,
+    NormalizationResult,
+    # Core classes
+    RollingStatistics,
+    DataNormalizer,
+    MultiFeatureNormalizer,
+    StreamingNormalizer,
+    NormalizationPipelineAdapter,
+    # Factory functions
+    create_price_normalizer,
+    create_volume_normalizer,
+    create_returns_normalizer,
+    create_pipeline_adapter,
+)
+
 __all__ = [
     # Fetcher types
     'DataSource',
@@ -113,4 +133,21 @@ __all__ = [
     'VolumeIndicators',
     'StatisticalFeatures',
     'FeatureEngine',
+    # Normalization types
+    'NormalizationMethod',
+    'WindowType',
+    'NormalizationConfig',
+    'NormalizationStats',
+    'NormalizationResult',
+    # Normalization classes
+    'RollingStatistics',
+    'DataNormalizer',
+    'MultiFeatureNormalizer',
+    'StreamingNormalizer',
+    'NormalizationPipelineAdapter',
+    # Normalization factory functions
+    'create_price_normalizer',
+    'create_volume_normalizer',
+    'create_returns_normalizer',
+    'create_pipeline_adapter',
 ]
