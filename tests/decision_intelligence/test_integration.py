@@ -38,20 +38,22 @@ class TestFullDecisionFlow:
         """Test full entry decision flow."""
         # 1. Create context via Control Plane
         control_plane = get_control_plane()
-        
-        context = control_plane.create_context(
-            symbol="AAPL",
-            regime="trending_bull",
-            regime_confidence=0.85,
-            signal={"direction": "LONG", "confidence": 0.72}
-        )
-        
-        ctx_id = context["context_id"]
+
+        # create_context only takes symbol; regime/signal set separately
+        context = control_plane.create_context(symbol="AAPL")
+
+        ctx_id = context.context_id
         assert ctx_id is not None
-        
+
+        # Set regime and signal on the context object directly
+        context.regime = "trending_bull"
+        context.regime_confidence = 0.85
+        context.signal_direction = "LONG"
+        context.signal_confidence = 0.72
+
         # 2. Record regime decision to trace
         trace = get_decision_trace()
-        
+
         regime_node = trace.add_decision(
             context_id=ctx_id,
             component="regime_detector",
@@ -60,7 +62,7 @@ class TestFullDecisionFlow:
             outputs={"regime": "trending_bull", "confidence": 0.85},
             confidence=0.85,
         )
-        
+
         # 3. Record signal decision
         signal_node = trace.add_decision(
             context_id=ctx_id,
@@ -70,43 +72,41 @@ class TestFullDecisionFlow:
             outputs={"direction": "LONG", "confidence": 0.72},
             confidence=0.72,
         )
-        
+
         # Connect the decisions
         trace.add_edge(regime_node, signal_node, "triggers")
-        
-        # 4. Record to control plane
-        control_plane.record_decision(
-            context_id=ctx_id,
+
+        # 4. Record decision on context (via add_decision method on context)
+        context.add_decision(
             component="signal_generator",
             decision="ENTER_LONG",
             reason="Strong signal in favorable regime",
             data={"entry_price": 185.50}
         )
-        
+
         # 5. Verify decision path
         path = trace.get_decision_path(ctx_id)
         assert len(path) >= 2
-        
+
         # 6. Verify context was updated
-        ctx = control_plane.get_context(ctx_id)
-        assert len(ctx.decisions) >= 1
+        assert len(context.decisions) >= 1
     
     def test_exit_decision_with_learning(self):
         """Test exit decision using value learner."""
+        from decision_intelligence.exit_value_learning import TradeEpisode, ExitAction
+        from datetime import timezone
+
         control_plane = get_control_plane()
         trace = get_decision_trace()
         learner = get_exit_value_learner()
-        
+
         # 1. Create position context
-        context = control_plane.create_context(
-            symbol="MSFT",
-            regime="sideways",
-            regime_confidence=0.7,
-            signal=None  # Existing position
-        )
-        
-        ctx_id = context["context_id"]
-        
+        context = control_plane.create_context(symbol="MSFT")
+        context.regime = "sideways"
+        context.regime_confidence = 0.7
+
+        ctx_id = context.context_id
+
         # 2. Get exit recommendation
         state = learner.discretize_state(
             regime="sideways",
@@ -116,60 +116,63 @@ class TestFullDecisionFlow:
             avg_volatility=0.015,
             direction="LONG",
         )
-        
+
         recommendation = learner.recommend_action(state, unrealized_pnl=1.5)
-        
+
         # 3. Record exit decision
         exit_node = trace.add_decision(
             context_id=ctx_id,
             component="exit_learner",
-            decision=f"RECOMMEND_{recommendation.action.upper()}",
+            decision=f"RECOMMEND_{recommendation.action.value.upper()}",
             inputs={"state": str(state)},
             outputs=recommendation.to_dict(),
             confidence=recommendation.confidence,
         )
-        
+
         # 4. Record outcome
         trace.record_outcome(
             node_id=exit_node,
             outcome="executed",
-            realized_pnl=1.5 if recommendation.action == "exit" else None,
+            realized_pnl=1.5 if recommendation.action == ExitAction.EXIT else None,
         )
-        
-        # 5. Update learner with experience
-        learner.record_experience(
-            state=state,
-            action=recommendation.action,
-            reward=0.015,  # 1.5% P&L as reward
-            next_state=None,
-            done=True,
+
+        # 5. Update learner via an episode (not record_experience)
+        episode = TradeEpisode(
+            episode_id=f"exit_test_{ctx_id}",
+            symbol="MSFT",
+            direction="LONG",
+            entry_time=datetime.now(timezone.utc),
+            exit_time=datetime.now(timezone.utc),
+            states=[state],
+            actions=[recommendation.action],
+            final_pnl=0.015,  # 1.5% P&L
         )
-        
-        assert recommendation.action in ["hold", "exit"]
+        learner.update_from_episode(episode)
+
+        assert recommendation.action in [ExitAction.HOLD, ExitAction.EXIT]
     
     def test_shadow_mode_comparison(self):
         """Test shadow mode alongside live decisions."""
         control_plane = get_control_plane()
         trace = get_decision_trace()
         shadow_manager = get_shadow_manager()
-        
-        # 1. Create shadow component
-        shadow = shadow_manager.create_shadow(
-            name="improved_momentum_v2",
+
+        # 1. Create shadow component (use register_shadow_component)
+        shadow = shadow_manager.register_shadow_component(
+            component_name="improved_momentum_v2",
             version="v2.0",
-            initial_status=ShadowStatus.PARALLEL,
+            config={"initial_status": "parallel"},
         )
-        
+
         # 2. Create decision context
-        context = control_plane.create_context(
-            symbol="GOOGL",
-            regime="trending_bull",
-            regime_confidence=0.9,
-            signal={"direction": "LONG", "confidence": 0.8}
-        )
-        
-        ctx_id = context["context_id"]
-        
+        context = control_plane.create_context(symbol="GOOGL")
+        context.regime = "trending_bull"
+        context.regime_confidence = 0.9
+        context.signal_direction = "LONG"
+        context.signal_confidence = 0.8
+
+        ctx_id = context.context_id
+
         # 3. Live decision
         live_node = trace.add_decision(
             context_id=ctx_id,
@@ -177,26 +180,32 @@ class TestFullDecisionFlow:
             decision="ENTER_LONG",
             confidence=0.75,
         )
-        
-        # 4. Shadow decision (parallel)
-        shadow_manager.record_shadow_decision(
+
+        # 4. Shadow decision (parallel) - use record_shadow_decision API
+        decision_id = shadow_manager.record_shadow_decision(
             component_id=shadow.component_id,
-            context_id=ctx_id,
-            decision="ENTER_LONG",  # Same decision
-            confidence=0.82,  # Higher confidence
-            expected_outcome=0.025,
+            decision_type="signal",
+            decision_value={"direction": "LONG", "action": "ENTER_LONG"},
+            confidence=0.82,
+            symbol="GOOGL",
+            context={"ctx_id": ctx_id, "expected_outcome": 0.025},
         )
-        
-        # 5. After trade completes, compare
+
+        # 5. After trade completes, compare shadow to live
         shadow_manager.compare_to_live(
-            component_id=shadow.component_id,
-            context_id=ctx_id,
-            live_decision="ENTER_LONG",
-            live_outcome=0.02,  # 2% gain
-            shadow_outcome=0.025,  # Shadow expected 2.5%
+            decision_id=decision_id,
+            live_decision={"direction": "LONG", "action": "ENTER_LONG"},
         )
-        
-        # 6. Check shadow performance
+
+        # 6. Record outcome
+        shadow_manager.record_outcome(
+            decision_id=decision_id,
+            was_correct=True,
+            shadow_pnl=0.025,
+            live_pnl=0.02,
+        )
+
+        # 7. Check shadow performance
         report = shadow_manager.get_shadow_report(shadow.component_id)
         assert report is not None
     
@@ -205,84 +214,90 @@ class TestFullDecisionFlow:
         control_plane = get_control_plane()
         trace = get_decision_trace()
         orchestrator = get_self_improvement_orchestrator()
-        
+
         # 1. Simulate poor performance that would trigger improvement
-        ctx = control_plane.create_context(
-            symbol="NVDA",
-            regime="volatile",
-            regime_confidence=0.6,
-            signal={"direction": "LONG", "confidence": 0.55}
-        )
-        
+        ctx = control_plane.create_context(symbol="NVDA")
+        ctx.regime = "volatile"
+        ctx.regime_confidence = 0.6
+        ctx.signal_direction = "LONG"
+        ctx.signal_confidence = 0.55
+
         # 2. Record failing decision
         fail_node = trace.add_decision(
-            context_id=ctx["context_id"],
+            context_id=ctx.context_id,
             component="struggling_strategy",
             decision="ENTER_LONG",
             confidence=0.55,
             outcome="loss",
             metadata={"expected_pnl": 0.02, "actual_pnl": -0.03}
         )
-        
+
         # 3. Check if improvement should trigger
         status = orchestrator.get_status()
-        
+
         # Just verify the system is operational
+        # The orchestrator uses ImprovementPhase enum values
         assert status["current_phase"] in [
-            "detecting", "analyzing", "proposing", 
-            "validating", "deploying", "complete", "failed"
+            "monitoring", "retraining", "validating",
+            "promoting", "rolling_back"
         ]
     
     def test_kill_switch_halts_all(self):
         """Test that kill switch stops all decision making."""
         control_plane = get_control_plane()
-        
+
         # 1. Set to live mode
         control_plane.set_mode(ControlPlaneMode.LIVE)
-        assert control_plane.check_safety()
-        
+        health = control_plane.check_health()
+        assert health["overall_status"] in ["healthy", "partial", "degraded"]
+
         # 2. Engage kill switch
         control_plane.engage_kill_switch("Integration test - market event")
-        
+
         # 3. Verify all systems halt
-        assert not control_plane.check_safety()
+        health_after = control_plane.check_health()
+        assert health_after["overall_status"] == "kill_switch_engaged"
         assert control_plane.kill_switch_engaged
-        
+
         # 4. Release
         control_plane.release_kill_switch("Test complete")
-        assert control_plane.check_safety()
+        health_released = control_plane.check_health()
+        assert health_released["overall_status"] in ["healthy", "partial", "degraded"]
 
 
 class TestModeTransitions:
     """Test system behavior across different modes."""
-    
+
     def test_shadow_mode_no_execution(self):
         """Shadow mode should not allow real execution."""
         control_plane = get_control_plane()
         control_plane.set_mode(ControlPlaneMode.SHADOW)
-        
-        # Safety should pass (system healthy)
-        assert control_plane.check_safety()
-        
-        # But execution not allowed
+
+        # Health check should work (system healthy)
+        health = control_plane.check_health()
+        assert health["overall_status"] in ["healthy", "partial", "degraded"]
+
+        # But execution not allowed (is_active is False in shadow mode)
         assert not control_plane.is_active
-    
+
     def test_paper_mode_execution(self):
         """Paper mode should allow simulated execution."""
         control_plane = get_control_plane()
         control_plane.set_mode(ControlPlaneMode.PAPER)
-        
-        assert control_plane.check_safety()
+
+        health = control_plane.check_health()
+        assert health["overall_status"] in ["healthy", "partial", "degraded"]
         assert control_plane.is_active
-    
+
     def test_live_mode_requires_safety(self):
         """Live mode requires all safety checks."""
         control_plane = get_control_plane()
         control_plane.set_mode(ControlPlaneMode.LIVE)
-        
+
         # Without kill switch
         if not control_plane.kill_switch_engaged:
-            assert control_plane.check_safety()
+            health = control_plane.check_health()
+            assert health["overall_status"] in ["healthy", "partial", "degraded"]
             assert control_plane.is_active
 
 
@@ -313,9 +328,11 @@ class TestDataFlow:
     
     def test_learner_updates_from_decisions(self):
         """Exit learner should update from decision outcomes."""
+        from decision_intelligence.exit_value_learning import TradeEpisode, ExitAction
+
         learner = get_exit_value_learner()
         trace = get_decision_trace()
-        
+
         # 1. Record decision
         node = trace.add_decision(
             context_id="learn_test",
@@ -323,19 +340,34 @@ class TestDataFlow:
             decision="HOLD",
             outputs={"action": "hold"},
         )
-        
+
         # 2. Decision executed, outcome recorded
         trace.record_outcome(node, "profit", 0.03)
-        
-        # 3. Learner gets updated
+
+        # 3. Learner gets updated via an episode
         state = learner.discretize_state(
             "trending_bull", 30, 2.0, 0.015, 0.012, "LONG"
         )
-        learner.update(state, "hold", 0.03, None, True)
-        
-        # 4. Verify learning occurred
-        q = learner.get_q_value(state, "hold")
-        assert q != 0  # Should have learned something
+
+        # Create an episode to update the learner
+        from datetime import datetime, timezone
+        episode = TradeEpisode(
+            episode_id="learn_test_episode",
+            symbol="TEST",
+            direction="LONG",
+            entry_time=datetime.now(timezone.utc),
+            exit_time=datetime.now(timezone.utc),
+            states=[state],
+            actions=[ExitAction.HOLD],
+            final_pnl=0.03,
+        )
+        learner.update_from_episode(episode)
+
+        # 4. Verify learning occurred by checking q_table directly
+        state_tuple = state.to_tuple()
+        q_hold = learner.q_table[state_tuple]["hold"]
+        # After updating, the Q-value should reflect some learning
+        assert q_hold != 0  # Should have learned something
 
 
 class TestAPIReadiness:

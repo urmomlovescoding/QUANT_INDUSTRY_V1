@@ -1,5 +1,5 @@
 """
-Deprecation Middleware for QUANT INDUSTRY V1 → V2 Migration
+Deprecation Middleware for QUANT INDUSTRY V1 -> V2 Migration
 ============================================================
 Handles API deprecation headers, metrics tracking, and optional redirects.
 
@@ -25,12 +25,12 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Deprecation Mapping - Old endpoints → New v2 endpoints
+# Deprecation Mapping - Old endpoints -> New v2 endpoints
 # =============================================================================
 
 DEPRECATION_MAP: Dict[str, Dict[str, str]] = {
     # -------------------------------------------------------------------------
-    # Market Data (15 → 8)
+    # Market Data (15 -> 8)
     # -------------------------------------------------------------------------
     "/api/market/status": {
         "successor": "/api/v2/market/status",
@@ -82,7 +82,7 @@ DEPRECATION_MAP: Dict[str, Dict[str, str]] = {
     },
 
     # -------------------------------------------------------------------------
-    # Trading/Signals (42 → 15)
+    # Trading/Signals (42 -> 15)
     # -------------------------------------------------------------------------
     "/api/signals": {
         "successor": "/api/v2/trading/signals",
@@ -150,7 +150,7 @@ DEPRECATION_MAP: Dict[str, Dict[str, str]] = {
     },
 
     # -------------------------------------------------------------------------
-    # Brain/ML (103 → 25)
+    # Brain/ML (103 -> 25)
     # -------------------------------------------------------------------------
     "/brain/status": {
         "successor": "/api/v2/brain/status",
@@ -294,7 +294,7 @@ DEPRECATION_MAP: Dict[str, Dict[str, str]] = {
     },
 
     # -------------------------------------------------------------------------
-    # Risk Management (18 → 10)
+    # Risk Management (18 -> 10)
     # -------------------------------------------------------------------------
     "/api/risk/metrics": {
         "successor": "/api/v2/risk/summary",
@@ -370,7 +370,7 @@ DEPRECATION_MAP: Dict[str, Dict[str, str]] = {
     },
 
     # -------------------------------------------------------------------------
-    # System/Settings (44 → 15)
+    # System/Settings (44 -> 15)
     # -------------------------------------------------------------------------
     "/api/system/status": {
         "successor": "/api/v2/system/status",
@@ -462,7 +462,7 @@ DEPRECATION_MAP: Dict[str, Dict[str, str]] = {
     },
 
     # -------------------------------------------------------------------------
-    # Options & GEX (9 → 6)
+    # Options & GEX (9 -> 6)
     # -------------------------------------------------------------------------
     "/api/options/chain/{symbol}": {
         "successor": "/api/v2/options/chain/{symbol}",

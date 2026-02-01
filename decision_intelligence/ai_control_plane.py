@@ -4,10 +4,10 @@ AI Control Plane
 P0 Critical: Central coordinator for all AI decision components.
 
 This is the brain's brain - it orchestrates:
-- Regime detection → Strategy selection
-- Strategy signals → Risk validation
-- Risk approval → Execution
-- Execution outcomes → Learning feedback
+- Regime detection -> Strategy selection
+- Strategy signals -> Risk validation
+- Risk approval -> Execution
+- Execution outcomes -> Learning feedback
 
 SHADOW MODE: Enabled by default. Set shadow_mode=False only for live trading.
 
@@ -145,16 +145,16 @@ class AIControlPlane:
     ┌─────────────────────────────────────────────────────────────┐
     │                    AI CONTROL PLANE                         │
     │  ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐   │
-    │  │ Regime  │ → │Strategy │ → │  Risk   │ → │Execution│   │
+    │  │ Regime  │ -> │Strategy │ -> │  Risk   │ -> │Execution│   │
     │  │Detector │   │Selector │   │Governor │   │ Engine  │   │
     │  └─────────┘   └─────────┘   └─────────┘   └─────────┘   │
-    │       ↓             ↓             ↓             ↓         │
+    │       v             v             v             v         │
     │  ┌───────────────────────────────────────────────────┐   │
     │  │              DECISION TRACE LOGGER                 │   │
     │  └───────────────────────────────────────────────────┘   │
-    │                          ↓                                │
+    │                          v                                │
     │  ┌─────────────┐   ┌──────────────┐   ┌──────────────┐  │
-    │  │  Feedback   │ ← │   Market     │ ← │   Drift      │  │
+    │  │  Feedback   │ <- │   Market     │ <- │   Drift      │  │
     │  │    Loop     │   │   Memory     │   │  Detector    │  │
     │  └─────────────┘   └──────────────┘   └──────────────┘  │
     └─────────────────────────────────────────────────────────────┘

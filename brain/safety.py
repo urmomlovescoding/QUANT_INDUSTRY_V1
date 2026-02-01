@@ -968,3 +968,248 @@ class SafetyMonitor:
                 for name, result in drift.items()
             },
         }
+
+
+# =============================================================================
+# STALE CONFIDENCE DETECTOR (RMDP Critical Fix)
+# =============================================================================
+
+@dataclass
+class StaleConfidenceResult:
+    """Result of stale confidence check."""
+    is_stale: bool
+    confidence_value: float
+    stale_count: int  # How many consecutive stale signals
+    recommended_action: str  # 'proceed', 'reduce_size', 'skip'
+    size_multiplier: float  # 1.0 = full size, 0.5 = half, 0.0 = skip
+    reason: str
+
+
+class StaleConfidenceDetector:
+    """
+    Detects when ML confidence hasn't meaningfully changed between signals.
+    
+    Critical Bug Fix (from RMDP analysis):
+    The ML brain was returning identical confidence values for consecutive
+    trades, indicating the model wasn't re-evaluating with fresh data.
+    This led to losses when market conditions changed but confidence didn't.
+    
+    Detection Logic:
+    1. Track last N confidence values per symbol
+    2. If confidence unchanged (within epsilon) for stale_threshold signals:
+       - Flag as stale
+       - Reduce position size or skip trade
+    3. If confidence unchanged for critical_threshold signals:
+       - Force model refresh or halt trading
+    
+    Mathematical Basis:
+    Under proper Bayesian updating, confidence should change as new data
+    arrives. If P(signal|data_t) = P(signal|data_{t-1}) for extended period,
+    either:
+      a) Data is truly unchanged (unlikely in live markets)
+      b) Model is not processing new data
+      c) Model has converged to fixed point (overfit)
+    
+    All cases warrant intervention.
+    """
+    
+    def __init__(
+        self,
+        epsilon: float = 0.001,  # Confidence change threshold
+        stale_threshold: int = 2,  # Signals before flagging stale
+        critical_threshold: int = 5,  # Signals before forcing action
+        history_size: int = 20,  # How many signals to track
+        size_decay_rate: float = 0.5,  # Position size reduction per stale signal
+    ):
+        """
+        Initialize stale confidence detector.
+        
+        Args:
+            epsilon: Minimum confidence change to be considered "fresh"
+                    Default 0.001 = 0.1% change required
+            stale_threshold: Consecutive unchanged signals before warning
+            critical_threshold: Consecutive unchanged signals before halt
+            history_size: Number of signals to track per symbol
+            size_decay_rate: Multiplicative reduction per stale signal
+                           e.g., 0.5 means: stale_count=1 -> 0.5x size
+                                           stale_count=2 -> 0.25x size
+        """
+        self.epsilon = epsilon
+        self.stale_threshold = stale_threshold
+        self.critical_threshold = critical_threshold
+        self.history_size = history_size
+        self.size_decay_rate = size_decay_rate
+        
+        # Track confidence history per symbol
+        # {symbol: deque([(timestamp, confidence, direction), ...])}
+        self._confidence_history: Dict[str, deque] = {}
+        
+        # Track stale counts per symbol
+        self._stale_counts: Dict[str, int] = {}
+        
+        # Statistics
+        self._total_checks = 0
+        self._stale_detections = 0
+        self._trades_reduced = 0
+        self._trades_skipped = 0
+        
+        logger.info(
+            f"StaleConfidenceDetector initialized: "
+            f"epsilon={epsilon}, stale_threshold={stale_threshold}, "
+            f"critical_threshold={critical_threshold}"
+        )
+    
+    def check(
+        self,
+        symbol: str,
+        confidence: float,
+        direction: int,  # -1, 0, 1
+        timestamp: Optional[datetime] = None
+    ) -> StaleConfidenceResult:
+        """
+        Check if confidence is stale (unchanged from previous signals).
+        
+        Args:
+            symbol: Trading symbol
+            confidence: Current ML confidence (0-1)
+            direction: Signal direction (-1=sell, 0=hold, 1=buy)
+            timestamp: Signal timestamp (default: now)
+            
+        Returns:
+            StaleConfidenceResult with action recommendation
+        """
+        self._total_checks += 1
+        timestamp = timestamp or datetime.now(timezone.utc)
+        
+        # Initialize history for new symbols
+        if symbol not in self._confidence_history:
+            self._confidence_history[symbol] = deque(maxlen=self.history_size)
+            self._stale_counts[symbol] = 0
+        
+        history = self._confidence_history[symbol]
+        
+        # Check against last signal
+        is_stale = False
+        if len(history) > 0:
+            last_ts, last_conf, last_dir = history[-1]
+            
+            # Confidence is stale if:
+            # 1. Confidence change < epsilon AND
+            # 2. Direction is the same (or non-zero -> non-zero)
+            conf_change = abs(confidence - last_conf)
+            same_direction = (direction == last_dir) or (direction != 0 and last_dir != 0)
+            
+            if conf_change < self.epsilon and same_direction:
+                is_stale = True
+                self._stale_counts[symbol] += 1
+                self._stale_detections += 1
+            else:
+                # Reset stale count on fresh signal
+                self._stale_counts[symbol] = 0
+        
+        # Record this signal
+        history.append((timestamp, confidence, direction))
+        
+        # Determine action based on stale count
+        stale_count = self._stale_counts[symbol]
+        
+        if stale_count == 0:
+            # Fresh signal - proceed normally
+            return StaleConfidenceResult(
+                is_stale=False,
+                confidence_value=confidence,
+                stale_count=0,
+                recommended_action='proceed',
+                size_multiplier=1.0,
+                reason="Fresh confidence update"
+            )
+        
+        elif stale_count < self.stale_threshold:
+            # Warning zone - proceed with caution
+            return StaleConfidenceResult(
+                is_stale=True,
+                confidence_value=confidence,
+                stale_count=stale_count,
+                recommended_action='proceed',
+                size_multiplier=1.0,
+                reason=f"Confidence unchanged for {stale_count} signal(s) - monitoring"
+            )
+        
+        elif stale_count < self.critical_threshold:
+            # Reduce position size
+            size_mult = self.size_decay_rate ** (stale_count - self.stale_threshold + 1)
+            self._trades_reduced += 1
+            
+            logger.warning(
+                f"Stale confidence detected for {symbol}: "
+                f"conf={confidence:.4f} unchanged for {stale_count} signals. "
+                f"Reducing position size to {size_mult:.1%}"
+            )
+            
+            return StaleConfidenceResult(
+                is_stale=True,
+                confidence_value=confidence,
+                stale_count=stale_count,
+                recommended_action='reduce_size',
+                size_multiplier=size_mult,
+                reason=f"Stale confidence: {stale_count} signals without update"
+            )
+        
+        else:
+            # Critical - skip trade entirely
+            self._trades_skipped += 1
+            
+            logger.error(
+                f"CRITICAL: Confidence stale for {symbol}: "
+                f"conf={confidence:.4f} unchanged for {stale_count} signals. "
+                f"Skipping trade - model may not be processing new data!"
+            )
+            
+            return StaleConfidenceResult(
+                is_stale=True,
+                confidence_value=confidence,
+                stale_count=stale_count,
+                recommended_action='skip',
+                size_multiplier=0.0,
+                reason=f"CRITICAL: {stale_count} stale signals - model refresh required"
+            )
+    
+    def reset_symbol(self, symbol: str) -> None:
+        """Reset stale tracking for a symbol (e.g., after model refresh)."""
+        if symbol in self._stale_counts:
+            self._stale_counts[symbol] = 0
+            logger.info(f"Stale counter reset for {symbol}")
+    
+    def reset_all(self) -> None:
+        """Reset all stale tracking (e.g., after full model retrain)."""
+        self._stale_counts = {s: 0 for s in self._stale_counts}
+        logger.info("All stale counters reset")
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get detector statistics."""
+        return {
+            'total_checks': self._total_checks,
+            'stale_detections': self._stale_detections,
+            'stale_rate': self._stale_detections / max(1, self._total_checks),
+            'trades_reduced': self._trades_reduced,
+            'trades_skipped': self._trades_skipped,
+            'symbols_tracked': len(self._confidence_history),
+            'current_stale_counts': dict(self._stale_counts),
+        }
+    
+    def get_symbol_status(self, symbol: str) -> Dict[str, Any]:
+        """Get stale status for a specific symbol."""
+        if symbol not in self._confidence_history:
+            return {'tracked': False}
+        
+        history = self._confidence_history[symbol]
+        
+        return {
+            'tracked': True,
+            'stale_count': self._stale_counts.get(symbol, 0),
+            'is_stale': self._stale_counts.get(symbol, 0) >= self.stale_threshold,
+            'is_critical': self._stale_counts.get(symbol, 0) >= self.critical_threshold,
+            'history_length': len(history),
+            'last_confidence': history[-1][1] if history else None,
+            'last_direction': history[-1][2] if history else None,
+        }

@@ -107,7 +107,7 @@ class StrategyCard(tk.Frame):
 
         status_dot = tk.Label(
             header,
-            text="●",
+            text="[*]",
             font=theme.get_font(FontSize.XS, FontWeight.NORMAL, "ui"),
             fg=status_color,
             bg=colors.bg_elevated,

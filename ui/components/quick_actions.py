@@ -201,7 +201,7 @@ class QuickActionsBar(tk.Frame):
         if not self._actions:
             self._actions = [
                 ("Execute Signals", "▶", "success", self._placeholder, "Execute all active signals"),
-                ("Close All", "✕", "danger", self._placeholder, "Close all open positions"),
+                ("Close All", "[FAIL]", "danger", self._placeholder, "Close all open positions"),
                 ("Refresh", "↻", "default", self._placeholder, "Refresh market data (F5)"),
                 ("Auto-Trade", "⚡", "primary", self._placeholder, "Toggle auto-trading"),
             ]
@@ -243,7 +243,7 @@ class FloatingActionButton(tk.Toplevel):
         self,
         parent: tk.Tk,
         text: str = "STOP",
-        icon: str = "⚠",
+        icon: str = "[WARN]",
         command: Callable = None,
         position: str = "bottom-right",  # bottom-right, bottom-left, top-right, top-left
     ):

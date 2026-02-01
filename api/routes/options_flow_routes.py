@@ -18,13 +18,13 @@ try:
     from options_flow.unusual_activity import UnusualActivityDetector, DetectorConfig
     from options_flow.gamma_exposure import GammaExposureCalculator
     from options_flow.dark_pool import DarkPoolMonitor
-    from options_flow.flow_signals import FlowSignalGenerator
+    from options_flow.flow_signals import OptionsFlowSignals
     from options_flow.smart_money import SmartMoneyTracker
     
     detector = UnusualActivityDetector()
     gamma_calc = GammaExposureCalculator()
     dark_pool = DarkPoolMonitor()
-    flow_signals = FlowSignalGenerator()
+    flow_signals = OptionsFlowSignals()
     smart_money = SmartMoneyTracker()
     MODULES_LOADED = True
 except ImportError as e:

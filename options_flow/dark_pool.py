@@ -300,7 +300,7 @@ class DarkPoolMonitor:
             alerts.append({
                 "type": "unusual_size",
                 "severity": "medium",
-                "message": f"📊 UNUSUAL SIZE: {trade.symbol} {trade.pct_of_adv*100:.1f}% of ADV "
+                "message": f"[CHART] UNUSUAL SIZE: {trade.symbol} {trade.pct_of_adv*100:.1f}% of ADV "
                           f"({trade.size:,} shares)",
             })
             
@@ -310,7 +310,7 @@ class DarkPoolMonitor:
             alerts.append({
                 "type": "vwap_premium",
                 "severity": "medium", 
-                "message": f"💰 VWAP PREMIUM: {trade.symbol} {abs(trade.premium_to_vwap)*100:.2f}% {direction} VWAP "
+                "message": f"[$] VWAP PREMIUM: {trade.symbol} {abs(trade.premium_to_vwap)*100:.2f}% {direction} VWAP "
                           f"(${trade.price:.2f} vs ${trade.vwap:.2f})",
             })
             

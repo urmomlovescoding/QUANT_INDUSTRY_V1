@@ -262,8 +262,8 @@ class OnChainAnalytics:
         """
         Get exchange inflow/outflow data.
         
-        Large inflows → potential selling pressure
-        Large outflows → accumulation signal
+        Large inflows -> potential selling pressure
+        Large outflows -> accumulation signal
         
         Args:
             token: Token symbol

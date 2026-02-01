@@ -338,8 +338,8 @@ class SocialMediaSentimentModel(FinancialSentimentModel):
         self._negative_words.update({'dump', 'bag', 'rug', 'scam', 'ponzi'})
         
         # Emojis (simplified)
-        self._positive_emojis = {'🚀', '📈', '💎', '🔥', '💪', '🌙'}
-        self._negative_emojis = {'📉', '💀', '🔻', '😢', '😰'}
+        self._positive_emojis = {'[LAUNCH]', '[UP]', '💎', '🔥', '💪', '🌙'}
+        self._negative_emojis = {'[DOWN]', '💀', '🔻', '😢', '😰'}
 
     def analyze(self, text: str) -> Tuple[SentimentLabel, float, Dict[str, float]]:
         # Count emojis

@@ -68,13 +68,13 @@ class Toast(tk.Toplevel):
         """Build the toast UI."""
         # Determine colors based on level
         level_colors = {
-            ToastLevel.INFO: (self._colors.accent_primary, "ℹ"),
-            ToastLevel.SUCCESS: (self._colors.bullish, "✓"),
-            ToastLevel.WARNING: (self._colors.warning, "⚠"),
-            ToastLevel.ERROR: (self._colors.bearish, "✕"),
+            ToastLevel.INFO: (self._colors.accent_primary, "[INFO]"),
+            ToastLevel.SUCCESS: (self._colors.bullish, "[OK]"),
+            ToastLevel.WARNING: (self._colors.warning, "[WARN]"),
+            ToastLevel.ERROR: (self._colors.bearish, "[FAIL]"),
         }
 
-        accent_color, icon = level_colors.get(self._level, (self._colors.accent_primary, "ℹ"))
+        accent_color, icon = level_colors.get(self._level, (self._colors.accent_primary, "[INFO]"))
 
         # Main container with border
         self.configure(bg=accent_color)

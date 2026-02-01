@@ -365,7 +365,7 @@ class UnusualActivityDetector:
             activity_type=OptionsActivityType.UNUSUAL_VOLUME,
             trade=trade,
             score=score,
-            description=f"📊 UNUSUAL VOLUME: {volume_ratio:.1f}x OI on {trade.contract.underlying} "
+            description=f"[CHART] UNUSUAL VOLUME: {volume_ratio:.1f}x OI on {trade.contract.underlying} "
                        f"${trade.contract.strike} {trade.contract.option_type.value.upper()} "
                        f"(Vol: {trade.volume_prior + trade.size}, OI: {trade.open_interest})",
             metadata={
@@ -398,7 +398,7 @@ class UnusualActivityDetector:
             activity_type=OptionsActivityType.REPEAT_BUYER,
             trade=latest,
             score=score,
-            description=f"🔄 REPEAT BUYER: {len(buys)} hits on {latest.contract.underlying} "
+            description=f"[SYNC] REPEAT BUYER: {len(buys)} hits on {latest.contract.underlying} "
                        f"${latest.contract.strike} {latest.contract.option_type.value.upper()}, "
                        f"${total_premium:,.0f} total premium",
             metadata={

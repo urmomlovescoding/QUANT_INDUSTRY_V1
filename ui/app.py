@@ -365,7 +365,7 @@ class AppShell(tk.Tk):
 
         settings_btn = tk.Label(
             settings_container,
-            text="⚙",
+            text="[CONFIG]",
             font=theme.get_font(FontSize.HEADING, FontWeight.NORMAL, "ui"),
             fg=colors.fg_muted,
             bg=colors.bg_secondary,
@@ -440,7 +440,7 @@ class AppShell(tk.Tk):
         # Left: Status text
         self._status_label = tk.Label(
             frame,
-            text="● Ready",
+            text="[*] Ready",
             font=theme.get_font(FontSize.XS, FontWeight.NORMAL, "ui"),
             fg=colors.bullish,
             bg=colors.bg_tertiary,
@@ -679,7 +679,7 @@ class AppShell(tk.Tk):
         # Error icon
         tk.Label(
             error_frame,
-            text="⚠",
+            text="[WARN]",
             font=theme.get_font(48, FontWeight.NORMAL, "ui"),
             fg=colors.error,
             bg=colors.bg_primary,
@@ -767,7 +767,7 @@ class AppShell(tk.Tk):
     def _on_error(self, event) -> None:
         """Handle error event."""
         error = event.data.get('error', 'Unknown error')
-        self.set_status(f"● Error: {error}")
+        self.set_status(f"[*] Error: {error}")
         self._toast_manager.error(error, title="Error")
 
     def _on_notification(self, event) -> None:
@@ -788,7 +788,7 @@ class AppShell(tk.Tk):
         """Set status bar text."""
         colors = self._theme_config.colors
         color = colors.bullish if success else colors.bearish
-        self._status_label.config(text=f"● {text}", fg=color)
+        self._status_label.config(text=f"[*] {text}", fg=color)
 
     def schedule_task(self, task: Callable) -> None:
         """Schedule a task to run on the main thread."""

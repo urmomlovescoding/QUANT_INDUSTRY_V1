@@ -143,7 +143,7 @@ def set_data_mode(mode: DataMode, reason: str = None) -> bool:
     old_mode = _current_data_mode
     _current_data_mode = mode
 
-    logger.info(f"Data mode changed: {old_mode.value} → {mode.value} (reason: {reason})")
+    logger.info(f"Data mode changed: {old_mode.value} -> {mode.value} (reason: {reason})")
     return True
 
 

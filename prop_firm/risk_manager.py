@@ -39,7 +39,7 @@ class PropFirmRiskManager:
     - Continuous P&L and drawdown monitoring
     - Dynamic position limits based on performance
     - Automatic risk reduction triggers
-    - Multi-level alerts (warning → critical → action)
+    - Multi-level alerts (warning -> critical -> action)
     - News event risk adjustment
     - Correlation-based risk limits
     """

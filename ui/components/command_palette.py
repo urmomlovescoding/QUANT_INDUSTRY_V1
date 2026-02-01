@@ -149,7 +149,7 @@ class CommandPalette(tk.Toplevel):
 
         hint = tk.Label(
             footer,
-            text="↑↓ Navigate  ↵ Select  ⎋ Close",
+            text="^v Navigate  ↵ Select  ⎋ Close",
             font=self._theme.get_font(FontSize.XS, FontWeight.NORMAL, "ui"),
             fg=self._colors.fg_muted,
             bg=self._colors.bg_tertiary,

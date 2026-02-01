@@ -67,7 +67,7 @@ class KeyboardShortcutsOverlay(tk.Toplevel):
 
         close_btn = tk.Label(
             header,
-            text="✕",
+            text="[FAIL]",
             font=self._theme.get_font(FontSize.LG, FontWeight.NORMAL, "ui"),
             fg=self._colors.fg_muted,
             bg=self._colors.bg_tertiary,

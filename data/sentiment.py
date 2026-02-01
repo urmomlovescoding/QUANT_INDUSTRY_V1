@@ -119,7 +119,7 @@ class TextSentimentAnalyzer:
         self.ticker_pattern = re.compile(r'\$([A-Z]{1,5})\b')
         self.cashtag_pattern = re.compile(r'#([A-Za-z]+)\b')
         self.url_pattern = re.compile(r'https?://\S+')
-        self.emoji_pattern = re.compile(r'[🚀🌙💎🙌📈📉🐂🐻💰🔥⬆️⬇️❤️👍👎]')
+        self.emoji_pattern = re.compile(r'[[LAUNCH]🌙💎🙌[UP][DOWN]🐂🐻[$]🔥⬆️⬇️❤️👍👎]')
 
     def analyze(self, text: str) -> Tuple[float, float]:
         """
@@ -176,10 +176,10 @@ class TextSentimentAnalyzer:
         # Emoji sentiment
         emojis = self.emoji_pattern.findall(text)
         for emoji in emojis:
-            if emoji in ['🚀', '🌙', '💎', '🙌', '📈', '🐂', '💰', '🔥', '⬆️', '❤️', '👍']:
+            if emoji in ['[LAUNCH]', '🌙', '💎', '🙌', '[UP]', '🐂', '[$]', '🔥', '⬆️', '❤️', '👍']:
                 positive_count += 0.5
                 total_weight += 0.5
-            elif emoji in ['📉', '🐻', '⬇️', '👎']:
+            elif emoji in ['[DOWN]', '🐻', '⬇️', '👎']:
                 negative_count += 0.5
                 total_weight += 0.5
 

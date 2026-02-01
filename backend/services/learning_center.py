@@ -369,7 +369,7 @@ Combination methods:
             ],
             formulas=[
                 {"name": "Weighted Signal", "formula": "Σ(w_i × signal_i) / Σ(w_i)"},
-                {"name": "Meta Learner", "formula": "f(signal_1, ..., signal_n) → final_signal"}
+                {"name": "Meta Learner", "formula": "f(signal_1, ..., signal_n) -> final_signal"}
             ],
             best_practices=[
                 "Use diverse strategies (uncorrelated signals)",

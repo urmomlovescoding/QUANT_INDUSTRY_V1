@@ -141,7 +141,7 @@ class NoPositionsState(EmptyState):
     def __init__(self, parent: tk.Widget, on_new_trade: Callable = None, **kwargs):
         super().__init__(
             parent,
-            icon="📊",
+            icon="[CHART]",
             title="No Open Positions",
             message="You don't have any open positions. Execute a signal or enter a manual trade to get started.",
             action_text="New Trade" if on_new_trade else None,
@@ -178,7 +178,7 @@ class ErrorState(EmptyState):
     ):
         super().__init__(
             parent,
-            icon="⚠️",
+            icon="[WARN]️",
             title="Error",
             message=error_message,
             action_text="Retry" if on_retry else None,
@@ -221,7 +221,7 @@ class LoadingState(tk.Frame):
         # Spinner
         self._spinner = tk.Label(
             container,
-            text="◐",
+            text="[~]",
             font=("Segoe UI", 32),
             fg=colors.accent_primary,
             bg=colors.bg_primary,
@@ -254,7 +254,7 @@ class LoadingState(tk.Frame):
         if not self._running:
             return
 
-        frames = ["◐", "◓", "◑", "◒"]
+        frames = ["[~]", "◓", "◑", "◒"]
         self._phase = (self._phase + 1) % len(frames)
         self._spinner.config(text=frames[self._phase])
 
@@ -289,7 +289,7 @@ class MaintenanceState(EmptyState):
     def __init__(self, parent: tk.Widget, **kwargs):
         super().__init__(
             parent,
-            icon="🔧",
+            icon="[FIX]",
             title="Under Maintenance",
             message="We're performing scheduled maintenance. Please check back shortly.",
             variant="warning",

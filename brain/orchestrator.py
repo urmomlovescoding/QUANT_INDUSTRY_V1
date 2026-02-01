@@ -48,6 +48,9 @@ import numpy as np
 import torch
 from concurrent.futures import ThreadPoolExecutor
 
+# Import stale confidence detector for RMDP critical fix
+from .safety import StaleConfidenceDetector, StaleConfidenceResult
+
 logger = logging.getLogger(__name__)
 
 
@@ -209,6 +212,15 @@ class MLBrain:
         
         # Signal generation
         self._signal_counter = 0
+        
+        # Stale confidence detector (RMDP Critical Fix)
+        # Detects when model isn't properly updating confidence between trades
+        self.stale_detector = StaleConfidenceDetector(
+            epsilon=0.001,  # 0.1% change threshold
+            stale_threshold=2,  # Flag after 2 consecutive stale signals
+            critical_threshold=5,  # Skip trade after 5 stale signals
+            size_decay_rate=0.5  # Halve position size each stale signal
+        )
         
         # Callbacks for bots
         self._bot_callbacks: Dict[str, Callable] = {}
@@ -406,6 +418,7 @@ class MLBrain:
         Generate trading signal from current market data.
         
         This is what gets sent to the trading bots.
+        Includes stale confidence detection (RMDP critical fix).
         """
         if self.trading_brain is None:
             logger.warning("Trading brain not initialized")
@@ -428,6 +441,36 @@ class MLBrain:
         else:
             direction = 0
         
+        # ============================================================
+        # STALE CONFIDENCE CHECK (RMDP Critical Fix)
+        # Detects when confidence hasn't changed between signals,
+        # indicating the model may not be processing new data properly.
+        # ============================================================
+        stale_result = self.stale_detector.check(
+            symbol=symbol,
+            confidence=brain_output['confidence'],
+            direction=direction
+        )
+        
+        # Apply stale detection action
+        if stale_result.recommended_action == 'skip':
+            logger.warning(
+                f"SKIPPING trade for {symbol}: {stale_result.reason}. "
+                f"Model refresh may be required."
+            )
+            return None
+        
+        # Adjust position size based on stale status
+        base_position_size = brain_output['position_size']
+        adjusted_position_size = base_position_size * stale_result.size_multiplier
+        
+        if stale_result.is_stale and stale_result.size_multiplier < 1.0:
+            logger.info(
+                f"Position size adjusted for {symbol}: "
+                f"{base_position_size:.2f} -> {adjusted_position_size:.2f} "
+                f"(stale confidence: {stale_result.stale_count} signals)"
+            )
+        
         # Get regime
         regime_probs = brain_output['regime']
         regime = max(regime_probs.items(), key=lambda x: x[1])[0]
@@ -438,15 +481,21 @@ class MLBrain:
             symbol=symbol,
             signal_type=SignalType.COMPOSITE,
             direction=direction,
-            strength=brain_output['position_size'],
+            strength=adjusted_position_size,  # Use adjusted size
             confidence=brain_output['confidence'],
-            suggested_size=brain_output['position_size'] * 0.1,  # Scale down
+            suggested_size=adjusted_position_size * 0.1,  # Scale down
             entry_price=current_price,
             stop_loss=current_price * (1 - 0.02 * direction) if direction != 0 else None,
             take_profit=current_price * (1 + 0.03 * direction) if direction != 0 else None,
             regime=regime,
             features_used=list(self.feature_importance.keys())[:5],
             model_version="v1.0",
+            metadata={
+                'stale_confidence': stale_result.is_stale,
+                'stale_count': stale_result.stale_count,
+                'size_multiplier': stale_result.size_multiplier,
+                'original_position_size': base_position_size,
+            }
         )
         
         # Store in history

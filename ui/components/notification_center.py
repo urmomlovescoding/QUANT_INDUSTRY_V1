@@ -247,7 +247,7 @@ class NotificationCenter(tk.Toplevel):
 
         indicator = tk.Label(
             inner,
-            text="●",
+            text="[*]",
             font=theme.get_font(FontSize.SM, FontWeight.NORMAL, "ui"),
             fg=indicator_color,
             bg=bg,

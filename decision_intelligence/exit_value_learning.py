@@ -60,7 +60,7 @@ class ExitReason(Enum):
     STOP_HIT = "stop_hit"                # Stop loss hit
 
 
-@dataclass
+@dataclass(frozen=True)
 class ExitState:
     """State representation for exit decision."""
     regime: str

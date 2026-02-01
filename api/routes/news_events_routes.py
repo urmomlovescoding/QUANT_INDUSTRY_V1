@@ -16,13 +16,13 @@ router = APIRouter(prefix="/api/v1/news-events", tags=["News & Events"])
 
 # Try to import backend modules
 try:
-    from news_events.news_feed import NewsFeedAggregator
+    from news_events.news_feed import NewsFeed
     from news_events.sentiment_analyzer import SentimentAnalyzer
     from news_events.event_calendar import EventCalendar
     from news_events.headline_parser import HeadlineParser
     from news_events.event_signals import EventSignalGenerator
     
-    news_feed = NewsFeedAggregator()
+    news_feed = NewsFeed()
     sentiment = SentimentAnalyzer()
     calendar = EventCalendar()
     parser = HeadlineParser()

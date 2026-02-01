@@ -392,7 +392,7 @@ class DashboardView(tk.Frame):
         # Live indicator dot
         live_dot = tk.Label(
             center,
-            text="●",
+            text="[*]",
             font=theme.get_font(FontSize.SM, FontWeight.NORMAL, "ui"),
             fg=colors.bullish,
             bg=colors.bg_secondary,
@@ -448,7 +448,7 @@ class DashboardView(tk.Frame):
 
         actions = [
             ("Execute Signals", "▶", "success", self._execute_all_signals, "Execute all active signals"),
-            ("Close All", "✕", "danger", self._close_all_positions, "Close all open positions"),
+            ("Close All", "[FAIL]", "danger", self._close_all_positions, "Close all open positions"),
             ("Refresh", "↻", "default", self._refresh_data, "Refresh market data"),
             ("New Trade", "+", "primary", self._new_trade, "Open trade entry form"),
         ]
@@ -646,7 +646,7 @@ class DashboardView(tk.Frame):
         }
         indicator = tk.Label(
             alert_frame,
-            text="●",
+            text="[*]",
             font=theme.get_font(FontSize.SM, FontWeight.NORMAL, "ui"),
             fg=severity_colors.get(severity, colors.fg_muted),
             bg=colors.bg_elevated,

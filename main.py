@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
         from api.websocket.manager import get_ws_manager
         _ws_manager = get_ws_manager()
         await _ws_manager.start()
-        logger.info("✅ WebSocket manager started (api)")
+        logger.info("[OK] WebSocket manager started (api)")
     except Exception as e:
         logger.warning(f"Could not start api WebSocket manager: {e}")
     
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     try:
         from core.data_integrity import init_data_integrity, DataMode
         init_data_integrity(DataMode.PAPER)
-        logger.info("✅ Data integrity layer initialized (PAPER mode)")
+        logger.info("[OK] Data integrity layer initialized (PAPER mode)")
     except Exception as e:
         logger.warning(f"Data integrity not available: {e}")
     
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
     try:
         from backend.routes._shared import refresh_market_data
         asyncio.create_task(_background_refresh())
-        logger.info("✅ Background market data refresh started")
+        logger.info("[OK] Background market data refresh started")
     except Exception as e:
         logger.warning(f"Background refresh not available: {e}")
     
@@ -123,7 +123,7 @@ try:
     from middleware.security import SecurityHeadersMiddleware, RateLimitMiddleware
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware)
-    logger.info("✅ Security middleware registered")
+    logger.info("[OK] Security middleware registered")
 except ImportError as e:
     logger.warning(f"Security middleware not available: {e}")
 
@@ -132,7 +132,7 @@ try:
     from middleware.performance import TimingMiddleware, ResponseCacheMiddleware
     app.add_middleware(TimingMiddleware)
     app.add_middleware(ResponseCacheMiddleware)
-    logger.info("✅ Performance middleware registered")
+    logger.info("[OK] Performance middleware registered")
 except ImportError as e:
     logger.warning(f"Performance middleware not available: {e}")
 
@@ -147,10 +147,10 @@ def _safe_include_router(router_import, router_attr="router", prefix="", name=""
         module = __import__(router_import, fromlist=[router_attr])
         router = getattr(module, router_attr)
         app.include_router(router, prefix=prefix)
-        logger.info(f"✅ Loaded {name or router_import}")
+        logger.info(f"[OK] Loaded {name or router_import}")
         return True
     except Exception as e:
-        logger.warning(f"⚠️ Could not load {name or router_import}: {e}")
+        logger.warning(f"[WARN]️ Could not load {name or router_import}: {e}")
         return False
 
 
@@ -173,9 +173,9 @@ _safe_include_router("api.routes.prop_firm_routes", name="prop firm routes")
 try:
     from api.websocket.routes import router as api_ws_router
     app.include_router(api_ws_router)
-    logger.info("✅ Loaded WebSocket routes (api)")
+    logger.info("[OK] Loaded WebSocket routes (api)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load api WebSocket routes: {e}")
+    logger.warning(f"[WARN]️ Could not load api WebSocket routes: {e}")
 
 # Backtest service routes
 try:
@@ -183,9 +183,9 @@ try:
     backtest_service = BacktestService(max_workers=4)
     backtest_router = create_backtest_routes(backtest_service)
     app.include_router(backtest_router)
-    logger.info("✅ Loaded backtest routes")
+    logger.info("[OK] Loaded backtest routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load backtest routes: {e}")
+    logger.warning(f"[WARN]️ Could not load backtest routes: {e}")
 
 
 # ==============================================================================
@@ -197,93 +197,93 @@ logger.info("Loading backend/routes/ (extracted routes)...")
 try:
     from backend.routes.market_routes import router as market_router
     app.include_router(market_router)
-    logger.info("✅ Loaded market routes (backend)")
+    logger.info("[OK] Loaded market routes (backend)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load market routes: {e}")
+    logger.warning(f"[WARN]️ Could not load market routes: {e}")
 
 try:
     from backend.routes.trading_routes import router as trading_router
     app.include_router(trading_router)
-    logger.info("✅ Loaded trading routes (backend)")
+    logger.info("[OK] Loaded trading routes (backend)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load trading routes: {e}")
+    logger.warning(f"[WARN]️ Could not load trading routes: {e}")
 
 try:
     from backend.routes.brain_routes import router as brain_router_backend
     app.include_router(brain_router_backend)
-    logger.info("✅ Loaded brain routes (backend)")
+    logger.info("[OK] Loaded brain routes (backend)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load brain routes (backend): {e}")
+    logger.warning(f"[WARN]️ Could not load brain routes (backend): {e}")
 
 try:
     from backend.routes.risk_routes import router as risk_router
     app.include_router(risk_router)
-    logger.info("✅ Loaded risk routes")
+    logger.info("[OK] Loaded risk routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load risk routes: {e}")
+    logger.warning(f"[WARN]️ Could not load risk routes: {e}")
 
 try:
     from backend.routes.options_routes import router as options_router
     app.include_router(options_router)
-    logger.info("✅ Loaded options routes (backend)")
+    logger.info("[OK] Loaded options routes (backend)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load options routes: {e}")
+    logger.warning(f"[WARN]️ Could not load options routes: {e}")
 
 try:
     from backend.routes.system_routes import router as system_router
     app.include_router(system_router)
-    logger.info("✅ Loaded system routes")
+    logger.info("[OK] Loaded system routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load system routes: {e}")
+    logger.warning(f"[WARN]️ Could not load system routes: {e}")
 
 try:
     from backend.routes.websocket_routes import router as ws_router_backend
     app.include_router(ws_router_backend)
-    logger.info("✅ Loaded WebSocket routes (backend)")
+    logger.info("[OK] Loaded WebSocket routes (backend)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load WebSocket routes (backend): {e}")
+    logger.warning(f"[WARN]️ Could not load WebSocket routes (backend): {e}")
 
 try:
     from backend.routes.research_routes import router as research_router
     app.include_router(research_router)
-    logger.info("✅ Loaded research routes")
+    logger.info("[OK] Loaded research routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load research routes: {e}")
+    logger.warning(f"[WARN]️ Could not load research routes: {e}")
 
 try:
     from backend.routes.quant_routes import router as quant_router
     app.include_router(quant_router)
-    logger.info("✅ Loaded quant routes")
+    logger.info("[OK] Loaded quant routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load quant routes: {e}")
+    logger.warning(f"[WARN]️ Could not load quant routes: {e}")
 
 try:
     from backend.routes.portfolio_routes import router as portfolio_router
     app.include_router(portfolio_router)
-    logger.info("✅ Loaded portfolio routes")
+    logger.info("[OK] Loaded portfolio routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load portfolio routes: {e}")
+    logger.warning(f"[WARN]️ Could not load portfolio routes: {e}")
 
 try:
     from backend.routes.broker_routes import router as broker_router
     app.include_router(broker_router)
-    logger.info("✅ Loaded broker routes")
+    logger.info("[OK] Loaded broker routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load broker routes: {e}")
+    logger.warning(f"[WARN]️ Could not load broker routes: {e}")
 
 try:
     from backend.routes.parity_routes import router as parity_router
     app.include_router(parity_router)
-    logger.info("✅ Loaded parity routes (ICT, Memory, Regime, TPT, Journal, Learning)")
+    logger.info("[OK] Loaded parity routes (ICT, Memory, Regime, TPT, Journal, Learning)")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load parity routes: {e}")
+    logger.warning(f"[WARN]️ Could not load parity routes: {e}")
 
 try:
     from backend.routes.algobot_routes import router as algobot_router
     app.include_router(algobot_router)
-    logger.info("✅ Loaded algobot routes")
+    logger.info("[OK] Loaded algobot routes")
 except Exception as e:
-    logger.warning(f"⚠️ Could not load algobot routes: {e}")
+    logger.warning(f"[WARN]️ Could not load algobot routes: {e}")
 
 
 # ==============================================================================

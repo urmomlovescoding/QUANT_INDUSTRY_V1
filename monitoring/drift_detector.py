@@ -59,9 +59,9 @@ class DriftAlert:
     
     def __str__(self) -> str:
         emoji = {
-            DriftSeverity.NONE: "✅",
+            DriftSeverity.NONE: "[OK]",
             DriftSeverity.MINOR: "⚡",
-            DriftSeverity.MODERATE: "⚠️",
+            DriftSeverity.MODERATE: "[WARN]️",
             DriftSeverity.SEVERE: "🔴",
             DriftSeverity.CRITICAL: "🚨"
         }[self.severity]
@@ -112,7 +112,7 @@ class DriftReport:
     recommendations: List[str]
     
     def __str__(self) -> str:
-        status = "🔴 DRIFTING" if self.is_drifting else "✅ ON TRACK"
+        status = "🔴 DRIFTING" if self.is_drifting else "[OK] ON TRACK"
         return f"""
 ╔═══════════════════════════════════════════════════════════════════╗
 ║                     DRIFT DETECTION REPORT                        ║
@@ -566,18 +566,18 @@ class DriftDetector:
         recs = []
         
         if severity in [DriftSeverity.NONE, DriftSeverity.MINOR]:
-            recs.append("✓ Performance within expected range. Continue monitoring.")
+            recs.append("[OK] Performance within expected range. Continue monitoring.")
             return recs
             
         if cause == DriftCause.EXECUTION:
-            recs.append("🔧 Check broker execution quality")
-            recs.append("🔧 Review order routing and timing")
-            recs.append("🔧 Consider switching to limit orders or better execution algos")
+            recs.append("[FIX] Check broker execution quality")
+            recs.append("[FIX] Review order routing and timing")
+            recs.append("[FIX] Consider switching to limit orders or better execution algos")
             
         elif cause == DriftCause.ALPHA_DECAY:
-            recs.append("📉 Signal may be decaying - reduce position size")
-            recs.append("📉 Analyze if competitors discovered same signal")
-            recs.append("📉 Consider refreshing or retiring strategy")
+            recs.append("[DOWN] Signal may be decaying - reduce position size")
+            recs.append("[DOWN] Analyze if competitors discovered same signal")
+            recs.append("[DOWN] Consider refreshing or retiring strategy")
             
         elif cause == DriftCause.REGIME_CHANGE:
             recs.append("🌊 Market regime may have changed")
@@ -585,8 +585,8 @@ class DriftDetector:
             recs.append("🌊 Consider regime-specific adjustments")
             
         elif cause == DriftCause.CAPACITY:
-            recs.append("📊 Strategy may be hitting capacity constraints")
-            recs.append("📊 Reduce AUM or improve execution")
+            recs.append("[CHART] Strategy may be hitting capacity constraints")
+            recs.append("[CHART] Reduce AUM or improve execution")
             
         if severity in [DriftSeverity.SEVERE, DriftSeverity.CRITICAL]:
             recs.append("🚨 Consider reducing or halting strategy")

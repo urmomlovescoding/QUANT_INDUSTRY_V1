@@ -5,13 +5,13 @@ End-to-end model combining feature extraction, context encoding,
 policy decisions, and risk-aware position sizing.
 
 Architecture:
-    Market Data → TCN (local patterns) → Transformer (regime/context)
-                                      ↓
-                              RL Policy Head → Action distribution
-                                      ↓
-                              Risk Head → Position sizing with uncertainty
-                                      ↓
-                              Meta-Learner → Online adaptation
+    Market Data -> TCN (local patterns) -> Transformer (regime/context)
+                                      v
+                              RL Policy Head -> Action distribution
+                                      v
+                              Risk Head -> Position sizing with uncertainty
+                                      v
+                              Meta-Learner -> Online adaptation
 """
 
 import torch
@@ -404,13 +404,13 @@ class TradingBrain(nn.Module):
     Unified Trading Brain combining all components.
     
     Pipeline:
-        Market Data → Feature Extractor (TCN) → Context Encoder (Transformer)
-                                             ↓
-                                    Policy Head → Action
-                                             ↓
-                                    Risk Head → Position Size
-                                             ↓
-                                    Meta-Learner → Adaptation (optional)
+        Market Data -> Feature Extractor (TCN) -> Context Encoder (Transformer)
+                                             v
+                                    Policy Head -> Action
+                                             v
+                                    Risk Head -> Position Size
+                                             v
+                                    Meta-Learner -> Adaptation (optional)
     """
     
     def __init__(self, config: TradingBrainConfig):

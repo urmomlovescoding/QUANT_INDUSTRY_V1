@@ -17,16 +17,16 @@ router = APIRouter(prefix="/api/v1/microstructure", tags=["Microstructure"])
 # Try to import backend modules
 try:
     from microstructure.order_flow_features import OrderFlowFeatureEngine
-    from microstructure.imbalance_signals import ImbalanceSignalGenerator
+    from microstructure.imbalance_signals import ImbalanceDetector
     from microstructure.tape_reader import TapeReader
-    from microstructure.flow_models import FlowPredictionModel
-    from microstructure.flow_backtester import FlowBacktester
+    from microstructure.flow_models import OrderFlowPredictor
+    from microstructure.flow_backtester import OrderFlowBacktester
     
     feature_engine = OrderFlowFeatureEngine()
-    imbalance_gen = ImbalanceSignalGenerator()
+    imbalance_gen = ImbalanceDetector()
     tape_reader = TapeReader()
-    flow_model = FlowPredictionModel()
-    backtester = FlowBacktester()
+    flow_model = OrderFlowPredictor()
+    backtester = OrderFlowBacktester(model=flow_model)
     MODULES_LOADED = True
 except ImportError as e:
     logger.warning(f"Microstructure modules not fully loaded: {e}")

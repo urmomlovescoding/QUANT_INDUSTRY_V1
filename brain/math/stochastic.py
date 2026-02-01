@@ -117,7 +117,7 @@ class OrnsteinUhlenbeck:
         sigma_e_sq = np.var(residuals)
         
         # Convert to OU parameters
-        # β = e^{-θΔt} → θ = -ln(β)/Δt
+        # β = e^{-θΔt} -> θ = -ln(β)/Δt
         if beta > 0 and beta < 1:
             self.kappa = -np.log(beta) / dt
             self.mu = alpha / (1 - beta)

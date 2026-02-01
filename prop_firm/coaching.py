@@ -55,7 +55,7 @@ class AICoach:
                     stats.get("consecutive_losses", 0) >= 3 and
                     stats.get("position_size_increase_after_loss", False)
                 ),
-                "message": "⚠️ Warning: You may be revenge trading. After {consecutive_losses} consecutive losses, your position sizes have increased. This is a dangerous pattern. Consider taking a break.",
+                "message": "[WARN]️ Warning: You may be revenge trading. After {consecutive_losses} consecutive losses, your position sizes have increased. This is a dangerous pattern. Consider taking a break.",
                 "recommendation": "Take at least a 30-minute break after 3 consecutive losses. Reset your mental state before the next trade."
             },
             {
@@ -63,7 +63,7 @@ class AICoach:
                 "name": "Overtrading Pattern",
                 "type": CoachingInsightType.PATTERN_DETECTED,
                 "condition": lambda stats: stats.get("trades_today", 0) > stats.get("avg_daily_trades", 5) * 2,
-                "message": "📊 You've made {trades_today} trades today, which is {multiplier}x your average. Quality over quantity!",
+                "message": "[CHART] You've made {trades_today} trades today, which is {multiplier}x your average. Quality over quantity!",
                 "recommendation": "Set a maximum daily trade limit. More trades don't equal more profits - focus on high-quality setups."
             },
             {
@@ -89,7 +89,7 @@ class AICoach:
                 "name": "Time Performance Pattern",
                 "type": CoachingInsightType.PATTERN_DETECTED,
                 "condition": lambda stats: stats.get("best_hour_pnl", 0) > stats.get("worst_hour_pnl", 0) * 3,
-                "message": "⏰ Your performance varies significantly by time. Best: {best_hour} ({best_pnl}). Worst: {worst_hour} ({worst_pnl}).",
+                "message": "[ALARM] Your performance varies significantly by time. Best: {best_hour} ({best_pnl}). Worst: {worst_hour} ({worst_pnl}).",
                 "recommendation": "Consider focusing on your peak performance hours and avoiding your worst periods."
             },
             {
@@ -107,7 +107,7 @@ class AICoach:
                 "condition": lambda stats: (
                     stats.get("recent_win_rate", 0) > stats.get("overall_win_rate", 0) + 10
                 ),
-                "message": "📈 Your recent win rate ({recent_win_rate}%) is significantly better than your overall ({overall_win_rate}%)!",
+                "message": "[UP] Your recent win rate ({recent_win_rate}%) is significantly better than your overall ({overall_win_rate}%)!",
                 "recommendation": "Great progress! Document what you're doing differently - it's clearly working."
             },
             {
@@ -134,7 +134,7 @@ class AICoach:
                 "name": "Symbol Concentration",
                 "type": CoachingInsightType.RISK_WARNING,
                 "condition": lambda stats: stats.get("top_symbol_pct", 0) > 80,
-                "message": "⚠️ {top_symbol_pct}% of your trades are in {top_symbol}. Diversification could reduce risk.",
+                "message": "[WARN]️ {top_symbol_pct}% of your trades are in {top_symbol}. Diversification could reduce risk.",
                 "recommendation": "Consider expanding to other correlated instruments. Over-concentration increases event risk."
             },
         ]
@@ -399,7 +399,7 @@ Provide specific, actionable advice based on their actual data. Be encouraging b
         if win_streak >= 5:
             return "🔥 You're on fire! Keep up the amazing work!"
         elif win_streak >= 3:
-            return "📈 Great momentum! Let's keep it going today."
+            return "[UP] Great momentum! Let's keep it going today."
         elif stats.get("consecutive_losses", 0) >= 3:
             return "💪 Fresh day, fresh start. You've got this!"
         else:
@@ -410,11 +410,11 @@ Provide specific, actionable advice based on their actual data. Be encouraging b
         risk_warnings = [i for i in insights if i["type"] == CoachingInsightType.RISK_WARNING]
         
         if risk_warnings:
-            return f"⚠️ Focus on {risk_warnings[0]['title'].lower()} - it's impacting your performance."
+            return f"[WARN]️ Focus on {risk_warnings[0]['title'].lower()} - it's impacting your performance."
         elif stats.get("recent_win_rate", 0) > 60:
-            return "✅ You're executing well. Stay disciplined and trust your process."
+            return "[OK] You're executing well. Stay disciplined and trust your process."
         else:
-            return "🎯 Focus on quality setups today. Fewer but better trades."
+            return "[TARGET] Focus on quality setups today. Fewer but better trades."
     
     def _get_motivation_quote(self) -> str:
         """Get a random trading motivation quote."""

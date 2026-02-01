@@ -927,7 +927,7 @@ class ReinforcementLoop:
     Orchestrates ML Brain, Trading Brain, and RL Engine
 
     Implements closed-loop feedback:
-    ML Brain learns → Trading Brain executes → Feedback updates ML
+    ML Brain learns -> Trading Brain executes -> Feedback updates ML
     """
 
     def __init__(self, strategies: List[str], config: Optional[RLConfig] = None):

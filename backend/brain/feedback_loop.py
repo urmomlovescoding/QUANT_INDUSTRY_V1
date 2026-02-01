@@ -518,7 +518,7 @@ class FeedbackLoop:
     5. Tracks convergence progress
 
     The feedback loop creates a closed-loop system where:
-    - Model predictions → Trade execution → Outcomes → Learning → Better predictions
+    - Model predictions -> Trade execution -> Outcomes -> Learning -> Better predictions
     """
 
     def __init__(

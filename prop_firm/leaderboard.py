@@ -18,10 +18,10 @@ class RankTier(Enum):
     """Trader rank tiers based on XP."""
     ROOKIE = ("Rookie", 0, "🌱")
     APPRENTICE = ("Apprentice", 500, "📚")
-    TRADER = ("Trader", 1500, "📊")
+    TRADER = ("Trader", 1500, "[CHART]")
     SKILLED = ("Skilled", 3500, "⭐")
     EXPERT = ("Expert", 7000, "💎")
-    MASTER = ("Master", 12000, "🏆")
+    MASTER = ("Master", 12000, "[WIN]")
     ELITE = ("Elite", 20000, "👑")
     LEGEND = ("Legend", 35000, "🔥")
 
@@ -31,7 +31,7 @@ BADGE_DEFINITIONS = [
     {
         "name": "First Trade",
         "description": "Completed your first trade",
-        "icon": "🎯",
+        "icon": "[TARGET]",
         "criteria": {"total_trades": {"gte": 1}},
         "xp_reward": 50,
         "rarity": "common"
@@ -47,7 +47,7 @@ BADGE_DEFINITIONS = [
     {
         "name": "Sharpshooter",
         "description": "Achieved 60%+ win rate over 50+ trades",
-        "icon": "🎯",
+        "icon": "[TARGET]",
         "criteria": {"win_rate": {"gte": 60}, "total_trades": {"gte": 50}},
         "xp_reward": 500,
         "rarity": "rare"
@@ -55,7 +55,7 @@ BADGE_DEFINITIONS = [
     {
         "name": "Consistent",
         "description": "Profitable for 10 consecutive trading days",
-        "icon": "📈",
+        "icon": "[UP]",
         "criteria": {"profitable_streak": {"gte": 10}},
         "xp_reward": 750,
         "rarity": "rare"
@@ -79,7 +79,7 @@ BADGE_DEFINITIONS = [
     {
         "name": "Money Maker",
         "description": "Earned $10,000+ in payouts",
-        "icon": "💰",
+        "icon": "[$]",
         "criteria": {"total_payouts": {"gte": 10000}},
         "xp_reward": 2000,
         "rarity": "epic"
@@ -103,7 +103,7 @@ BADGE_DEFINITIONS = [
     {
         "name": "Scale Master",
         "description": "Scaled your account 5 times",
-        "icon": "📈",
+        "icon": "[UP]",
         "criteria": {"scale_level": {"gte": 5}},
         "xp_reward": 3000,
         "rarity": "legendary"

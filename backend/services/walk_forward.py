@@ -148,8 +148,8 @@ Aggregate Performance:
 - Overfit Ratio: {self.aggregate_metrics.get('overfit_ratio', 0):.1%}
 - Profitable Splits: {self.aggregate_metrics.get('n_profitable_splits', 0)}/{self.n_splits}
 
-{'⚠️ WARNING: High overfit ratio detected!' if self.aggregate_metrics.get('overfit_ratio', 0) > 0.3 else ''}
-{'⚠️ WARNING: Inconsistent Sharpe across periods!' if self.aggregate_metrics.get('sharpe_consistency', 0) < 0.6 else ''}
+{'[WARN]️ WARNING: High overfit ratio detected!' if self.aggregate_metrics.get('overfit_ratio', 0) > 0.3 else ''}
+{'[WARN]️ WARNING: Inconsistent Sharpe across periods!' if self.aggregate_metrics.get('sharpe_consistency', 0) < 0.6 else ''}
 """
 
 

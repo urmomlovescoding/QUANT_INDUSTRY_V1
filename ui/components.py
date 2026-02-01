@@ -462,13 +462,13 @@ class MiniChart:
             # Determine color based on movement
             if i > 0:
                 if price > prices[i - 1]:
-                    grid[row][i] = f"{Theme.PROFIT}●{Colors.RESET}"
+                    grid[row][i] = f"{Theme.PROFIT}[*]{Colors.RESET}"
                 elif price < prices[i - 1]:
-                    grid[row][i] = f"{Theme.LOSS}●{Colors.RESET}"
+                    grid[row][i] = f"{Theme.LOSS}[*]{Colors.RESET}"
                 else:
-                    grid[row][i] = f"{Theme.NEUTRAL}●{Colors.RESET}"
+                    grid[row][i] = f"{Theme.NEUTRAL}[*]{Colors.RESET}"
             else:
-                grid[row][i] = f"{Theme.NEUTRAL}●{Colors.RESET}"
+                grid[row][i] = f"{Theme.NEUTRAL}[*]{Colors.RESET}"
 
         return ["".join(row) for row in grid]
 
@@ -477,13 +477,13 @@ class StatusIndicator:
     """Status indicator component."""
 
     ICONS = {
-        "connected": "●",
-        "disconnected": "○",
-        "warning": "◐",
-        "loading": "◌",
-        "success": "✓",
-        "error": "✗",
-        "pending": "◯",
+        "connected": "[*]",
+        "disconnected": "[ ]",
+        "warning": "[~]",
+        "loading": "[.]",
+        "success": "[OK]",
+        "error": "[FAIL]",
+        "pending": "[ ]",
     }
 
     @classmethod

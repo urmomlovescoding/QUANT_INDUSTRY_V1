@@ -22,7 +22,7 @@ from enum import Enum
 from abc import ABC, abstractmethod
 import os
 
-from .engine import Order, OrderStatus, OrderSide, OrderType, Fill
+from .engine import Order, OrderStatus, OrderSide, OrderType, TimeInForce, Fill
 
 logger = logging.getLogger(__name__)
 

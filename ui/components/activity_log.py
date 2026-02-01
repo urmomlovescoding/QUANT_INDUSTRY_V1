@@ -60,13 +60,13 @@ class ActivityLog(tk.Frame):
     """
 
     TYPE_CONFIG = {
-        ActivityType.TRADE: ("📊", "trade"),
+        ActivityType.TRADE: ("[CHART]", "trade"),
         ActivityType.SIGNAL: ("⚑", "signal"),
         ActivityType.POSITION: ("☰", "position"),
-        ActivityType.ALERT: ("⚠", "alert"),
-        ActivityType.SYSTEM: ("⚙", "system"),
-        ActivityType.ERROR: ("✕", "error"),
-        ActivityType.INFO: ("ℹ", "info"),
+        ActivityType.ALERT: ("[WARN]", "alert"),
+        ActivityType.SYSTEM: ("[CONFIG]", "system"),
+        ActivityType.ERROR: ("[FAIL]", "error"),
+        ActivityType.INFO: ("[INFO]", "info"),
     }
 
     def __init__(
@@ -310,7 +310,7 @@ class ActivityLog(tk.Frame):
         colors = self._colors
         theme = self._theme
 
-        icon, type_name = self.TYPE_CONFIG.get(entry.type, ("●", "unknown"))
+        icon, type_name = self.TYPE_CONFIG.get(entry.type, ("[*]", "unknown"))
 
         # Color by type
         type_colors = {
@@ -545,12 +545,12 @@ class CompactActivityLog(tk.Frame):
         theme = self._theme
 
         type_icons = {
-            ActivityType.TRADE: ("📊", colors.accent_primary),
+            ActivityType.TRADE: ("[CHART]", colors.accent_primary),
             ActivityType.SIGNAL: ("⚑", colors.info),
-            ActivityType.ALERT: ("⚠", colors.warning),
-            ActivityType.ERROR: ("✕", colors.bearish),
+            ActivityType.ALERT: ("[WARN]", colors.warning),
+            ActivityType.ERROR: ("[FAIL]", colors.bearish),
         }
-        icon, color = type_icons.get(entry.type, ("●", colors.fg_muted))
+        icon, color = type_icons.get(entry.type, ("[*]", colors.fg_muted))
 
         frame = tk.Frame(self._container, bg=colors.bg_elevated)
         frame.pack(fill=tk.X, padx=Spacing.SM, pady=1)

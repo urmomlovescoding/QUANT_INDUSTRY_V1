@@ -967,19 +967,19 @@ class AdaptiveExecutionAlgorithm(ExecutionAlgorithm):
     
     def _select_strategy(self, market_data: MarketMicrostructure) -> ExecutionStrategy:
         """Select best strategy based on market conditions"""
-        # High volatility → IS (minimize shortfall)
+        # High volatility -> IS (minimize shortfall)
         if market_data.volatility > 0.03:
             return ExecutionStrategy.IS
         
-        # Low liquidity → Iceberg (hide size)
+        # Low liquidity -> Iceberg (hide size)
         if not market_data.is_liquid:
             return ExecutionStrategy.ICEBERG
         
-        # Volume concentrated → VWAP
+        # Volume concentrated -> VWAP
         if market_data.volume_rate > 1.2:  # Higher than normal volume
             return ExecutionStrategy.VWAP
         
-        # Default → TWAP for simplicity
+        # Default -> TWAP for simplicity
         return ExecutionStrategy.TWAP
     
     def create_plan(

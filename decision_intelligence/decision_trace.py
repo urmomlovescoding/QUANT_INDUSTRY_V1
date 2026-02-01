@@ -258,8 +258,155 @@ class DecisionTrace:
         
         return node.node_id
     
-    def add_edge(self, edge: TraceEdge) -> str:
-        """Add an edge to the trace graph."""
+    def add_decision(
+        self,
+        context_id: str = None,
+        component: str = "unknown",
+        decision: str = "unknown",
+        inputs: Dict[str, Any] = None,
+        outputs: Dict[str, Any] = None,
+        confidence: float = None,
+        symbol: str = None,
+        regime: str = None,
+        outcome: str = None,
+        metadata: Dict[str, Any] = None,
+    ) -> str:
+        """
+        Convenience method to add a decision node.
+        
+        This creates a TraceNode internally with auto-generated ID.
+        """
+        self._node_counter += 1
+        timestamp_str = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')
+        if context_id:
+            node_id = f"{context_id}_{self._node_counter}_{timestamp_str}"
+        else:
+            node_id = f"decision_{self._node_counter}_{timestamp_str}"
+        
+        data = {}
+        if inputs:
+            data['inputs'] = inputs
+        if outputs:
+            data['outputs'] = outputs
+        if confidence is not None:
+            data['confidence'] = confidence
+        if context_id:
+            data['context_id'] = context_id
+        if metadata:
+            data.update(metadata)
+            # Extract symbol from metadata if not provided directly
+            if symbol is None and 'symbol' in metadata:
+                symbol = metadata['symbol']
+        
+        node = TraceNode(
+            node_id=node_id,
+            node_type=NodeType.SIGNAL,
+            timestamp=datetime.now(timezone.utc),
+            component=component,
+            decision=decision,
+            reason=f"Decision from {component}",
+            data=data,
+            symbol=symbol,
+            regime=regime,
+            outcome=outcome,
+        )
+        
+        return self.add_node(node)
+    
+    def _reset_for_testing(self) -> None:
+        """Reset state for testing (clears graph, database, and counters)."""
+        self._node_counter = 0
+        self._edge_counter = 0
+        if self.graph is not None:
+            self.graph.clear()
+        # Delete and recreate database for clean isolation
+        if self.db_path.exists():
+            try:
+                self.db_path.unlink()
+            except (PermissionError, OSError):
+                # File might be locked, try clearing tables instead
+                conn = sqlite3.connect(self.db_path, isolation_level=None)
+                try:
+                    conn.execute("DELETE FROM edges")
+                    conn.execute("DELETE FROM nodes")
+                finally:
+                    conn.close()
+                return
+        # Reinitialize the database
+        self._init_db()
+    
+    def add_edge(
+        self, 
+        edge_or_from: "TraceEdge | str" = None,
+        to_node: str = None,
+        relationship: str = "triggers",
+        weight: float = 1.0,
+        from_node: str = None,  # Alternative kwarg name
+    ) -> str:
+        """
+        Add an edge to the trace graph.
+        
+        Can be called as:
+        - add_edge(trace_edge_obj)
+        - add_edge(from_node, to_node, relationship)
+        - add_edge(from_node=x, to_node=y, relationship=z)
+        """
+        # Handle different calling conventions
+        if isinstance(edge_or_from, TraceEdge):
+            edge = edge_or_from
+        elif isinstance(edge_or_from, str):
+            # Called as add_edge(from_node, to_node, relationship)
+            actual_from = edge_or_from
+            actual_to = to_node
+            actual_rel = relationship
+            
+            self._edge_counter += 1
+            edge_id = f"edge_{self._edge_counter}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+            
+            # Map string relationship to EdgeType
+            edge_type_map = {
+                'triggers': EdgeType.TRIGGERS,
+                'enables': EdgeType.ENABLES,
+                'blocks': EdgeType.BLOCKS,
+                'causes': EdgeType.CAUSES,
+                'learns_from': EdgeType.LEARNS_FROM,
+            }
+            edge_type = edge_type_map.get(actual_rel, EdgeType.TRIGGERS)
+            
+            edge = TraceEdge(
+                edge_id=edge_id,
+                source_id=actual_from,
+                target_id=actual_to,
+                edge_type=edge_type,
+                timestamp=datetime.now(timezone.utc),
+                weight=weight,
+            )
+        else:
+            # Called with keyword args only
+            actual_from = from_node
+            actual_to = to_node
+            
+            self._edge_counter += 1
+            edge_id = f"edge_{self._edge_counter}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+            
+            edge_type_map = {
+                'triggers': EdgeType.TRIGGERS,
+                'enables': EdgeType.ENABLES,
+                'blocks': EdgeType.BLOCKS,
+                'causes': EdgeType.CAUSES,
+                'learns_from': EdgeType.LEARNS_FROM,
+            }
+            edge_type = edge_type_map.get(relationship, EdgeType.TRIGGERS)
+            
+            edge = TraceEdge(
+                edge_id=edge_id,
+                source_id=actual_from,
+                target_id=actual_to,
+                edge_type=edge_type,
+                timestamp=datetime.now(timezone.utc),
+                weight=weight,
+            )
+        
         # Save to database
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
@@ -295,6 +442,33 @@ class DecisionTrace:
         """Generate unique edge ID."""
         self._edge_counter += 1
         return f"e_{datetime.now().strftime('%Y%m%d%H%M%S')}_{self._edge_counter}"
+    
+    def record_outcome(
+        self,
+        node_id: str,
+        outcome: str,
+        realized_pnl: float = None,
+        notes: str = None,
+    ) -> None:
+        """
+        Record an outcome for a decision node.
+        
+        Updates both the database and in-memory graph.
+        """
+        # Update database
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE nodes SET outcome = ?, pnl = ? WHERE node_id = ?
+            """, (outcome, realized_pnl, node_id))
+        
+        # Update in-memory graph
+        if self.graph is not None and self.graph.has_node(node_id):
+            self.graph.nodes[node_id]['outcome'] = outcome
+            self.graph.nodes[node_id]['pnl'] = realized_pnl
+            if realized_pnl is not None:
+                self.graph.nodes[node_id]['realized_pnl'] = realized_pnl
+            if notes:
+                self.graph.nodes[node_id]['notes'] = notes
     
     # =========================================================================
     # CONTEXT LOGGING
@@ -575,7 +749,7 @@ class DecisionTrace:
                        AVG(COALESCE(pnl, 0)) as avg_pnl
                 FROM nodes
                 WHERE timestamp > ?
-                  AND outcome = 'win'
+                  AND outcome = 'profit'
                 GROUP BY component, decision, regime
                 HAVING COUNT(*) >= ?
                 ORDER BY avg_pnl DESC

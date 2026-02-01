@@ -45,7 +45,7 @@ try:
     from options_flow.unusual_activity import UnusualActivityDetector
     from options_flow.gamma_exposure import GammaExposureCalculator
     from options_flow.dark_pool import DarkPoolMonitor
-    from options_flow.flow_signals import FlowSignalGenerator
+    from options_flow.flow_signals import OptionsFlowSignals
     from options_flow.smart_money import SmartMoneyTracker
     OPTIONS_FLOW_AVAILABLE = True
 except ImportError as e:
@@ -629,7 +629,7 @@ async def get_flow_signals(symbol: Optional[str] = Query(None), limit: int = Que
     """Get signals derived from unusual options activity."""
     if OPTIONS_FLOW_AVAILABLE:
         try:
-            flow_signals = FlowSignalGenerator()
+            flow_signals = OptionsFlowSignals()
             signals_data = flow_signals.get_active_signals(symbol=symbol, signal_type=None)
             
             signals = []

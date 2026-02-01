@@ -210,9 +210,9 @@ class TableContextMenu(ContextMenu):
         items = []
 
         if on_copy:
-            items.append(("📋", "Copy Cell", "Ctrl+C", on_copy))
+            items.append(("[LIST]", "Copy Cell", "Ctrl+C", on_copy))
         if on_copy_row:
-            items.append(("📄", "Copy Row", "Ctrl+Shift+C", on_copy_row))
+            items.append(("[FILE]", "Copy Row", "Ctrl+Shift+C", on_copy_row))
         if on_copy_all:
             items.append(("📑", "Copy All", "", on_copy_all))
 
@@ -229,9 +229,9 @@ class TableContextMenu(ContextMenu):
             items.append(None)  # Separator
 
         if on_sort_asc:
-            items.append(("↑", "Sort Ascending", "", on_sort_asc))
+            items.append(("^", "Sort Ascending", "", on_sort_asc))
         if on_sort_desc:
-            items.append(("↓", "Sort Descending", "", on_sort_desc))
+            items.append(("v", "Sort Descending", "", on_sort_desc))
 
         if extra_items:
             items.append(None)  # Separator
@@ -263,7 +263,7 @@ class PositionContextMenu(ContextMenu):
         items = []
 
         if on_close:
-            items.append(("✕", f"Close {symbol} Position", "", on_close))
+            items.append(("[FAIL]", f"Close {symbol} Position", "", on_close))
         if on_add:
             items.append(("➕", "Add to Position", "", on_add))
         if on_reduce:
@@ -275,15 +275,15 @@ class PositionContextMenu(ContextMenu):
         if on_set_stop:
             items.append(("🛑", "Set Stop Loss", "", on_set_stop))
         if on_set_target:
-            items.append(("🎯", "Set Take Profit", "", on_set_target))
+            items.append(("[TARGET]", "Set Take Profit", "", on_set_target))
 
         if on_view_chart:
             items.append(None)  # Separator
-            items.append(("📈", f"View {symbol} Chart", "", on_view_chart))
+            items.append(("[UP]", f"View {symbol} Chart", "", on_view_chart))
 
         if on_copy:
             items.append(None)  # Separator
-            items.append(("📋", "Copy Details", "Ctrl+C", on_copy))
+            items.append(("[LIST]", "Copy Details", "Ctrl+C", on_copy))
 
         super().__init__(parent, items, **kwargs)
 
@@ -315,27 +315,27 @@ class SignalContextMenu(ContextMenu):
         if on_execute:
             items.append(("▶", exec_label, "Enter", on_execute))
         if on_execute_partial:
-            items.append(("◐", "Execute Partial (50%)", "", on_execute_partial))
+            items.append(("[~]", "Execute Partial (50%)", "", on_execute_partial))
 
         if items:
             items.append(None)  # Separator
 
         if on_dismiss:
-            items.append(("✕", "Dismiss Signal", "Delete", on_dismiss))
+            items.append(("[FAIL]", "Dismiss Signal", "Delete", on_dismiss))
 
         if on_add_watchlist:
             items.append(None)  # Separator
             items.append(("★", f"Add {symbol} to Watchlist", "", on_add_watchlist))
 
         if on_view_details:
-            items.append(("ℹ", "View Signal Details", "", on_view_details))
+            items.append(("[INFO]", "View Signal Details", "", on_view_details))
 
         if on_view_chart:
-            items.append(("📈", f"View {symbol} Chart", "", on_view_chart))
+            items.append(("[UP]", f"View {symbol} Chart", "", on_view_chart))
 
         if on_copy:
             items.append(None)  # Separator
-            items.append(("📋", "Copy Signal", "Ctrl+C", on_copy))
+            items.append(("[LIST]", "Copy Signal", "Ctrl+C", on_copy))
 
         super().__init__(parent, items, **kwargs)
 
@@ -371,13 +371,13 @@ class WatchlistContextMenu(ContextMenu):
             items.append(("🔔", "Set Price Alert", "", on_set_alert))
 
         if on_view_chart:
-            items.append(("📈", f"View {symbol} Chart", "", on_view_chart))
+            items.append(("[UP]", f"View {symbol} Chart", "", on_view_chart))
         if on_view_details:
-            items.append(("ℹ", "View Details", "", on_view_details))
+            items.append(("[INFO]", "View Details", "", on_view_details))
 
         if on_remove:
             items.append(None)  # Separator
-            items.append(("✕", f"Remove {symbol}", "Delete", on_remove))
+            items.append(("[FAIL]", f"Remove {symbol}", "Delete", on_remove))
 
         super().__init__(parent, items, **kwargs)
 

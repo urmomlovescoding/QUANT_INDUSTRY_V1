@@ -450,7 +450,7 @@ class MarkovDecisionProcess:
         """
         Bellman optimality backup for Q-values.
         
-        Q(s,a) ← R(s,a) + γ Σ_{s'} P(s'|s,a) max_{a'} Q(s',a')
+        Q(s,a) <- R(s,a) + γ Σ_{s'} P(s'|s,a) max_{a'} Q(s',a')
         """
         new_Q = np.zeros(self.action_dim)
         

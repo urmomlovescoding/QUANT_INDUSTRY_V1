@@ -469,7 +469,7 @@ class SymbolSearchPopup(tk.Toplevel):
 
         close_btn = tk.Label(
             header,
-            text="✕",
+            text="[FAIL]",
             font=theme.get_font(FontSize.LG, FontWeight.NORMAL, "ui"),
             fg=colors.fg_muted,
             bg=colors.bg_tertiary,

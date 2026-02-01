@@ -249,7 +249,7 @@ class DirectionIndicator(tk.Frame):
     ARROWS = {
         "LONG": "\u25B2",      # ▲
         "SHORT": "\u25BC",     # ▼
-        "NEUTRAL": "\u25CF",   # ●
+        "NEUTRAL": "\u25CF",   # [*]
         "BUY": "\u25B2",
         "SELL": "\u25BC",
         "HOLD": "\u25CF",

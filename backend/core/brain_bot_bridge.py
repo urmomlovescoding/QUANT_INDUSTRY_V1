@@ -157,9 +157,9 @@ class BrainToBotBridge:
         ML Brain                     Bridge                      Algo Bot
         ========                     ======                      ========
 
-        train() ──────────────────→ validate() ──────────────→ load_model()
+        train() ──────────────────-> validate() ──────────────-> load_model()
                                         │
-        retrain() ←────────────────── analyze() ←─────────────── feedback()
+        retrain() <-────────────────── analyze() <-─────────────── feedback()
 
     Features:
     - Staged deployment (shadow -> canary -> production)

@@ -1,7 +1,7 @@
 """
 Self-Improvement Orchestration
 ==============================
-P2: Automated wiring of drift detection → retraining → validation.
+P2: Automated wiring of drift detection -> retraining -> validation.
 
 Connects existing components into a self-improving loop:
 1. Drift detector detects performance decay

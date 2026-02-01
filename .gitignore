@@ -67,6 +67,10 @@ server.err
 server.log
 backend.log
 
+# Audit/log files
+*.jsonl
+audit_log.jsonl
+
 # Caches
 .ruff_cache/
 .mypy_cache/

@@ -11,7 +11,7 @@ Modules:
 - decision_trace: NetworkX-based causality graph for decisions
 - exit_value_learning: RMDP for optimal exit timing
 - shadow_mode: Unified shadow execution framework
-- self_improvement: Automated drift detection → retraining loop
+- self_improvement: Automated drift detection -> retraining loop
 
 Usage:
     from decision_intelligence import (

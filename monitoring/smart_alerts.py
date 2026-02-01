@@ -82,9 +82,9 @@ class SmartAlert:
     
     def __str__(self) -> str:
         priority_emoji = {
-            AlertPriority.LOW: "ℹ️",
+            AlertPriority.LOW: "[INFO]️",
             AlertPriority.MEDIUM: "⚡",
-            AlertPriority.HIGH: "⚠️",
+            AlertPriority.HIGH: "[WARN]️",
             AlertPriority.CRITICAL: "🔴",
             AlertPriority.EMERGENCY: "🚨"
         }[self.priority]
@@ -492,9 +492,9 @@ class TelegramChannel(AlertChannel):
             
             text = f"*{alert.title}*\n\n{alert.message}"
             if alert.symbol:
-                text += f"\n\n📊 Symbol: `{alert.symbol}`"
+                text += f"\n\n[CHART] Symbol: `{alert.symbol}`"
             if alert.anomaly_score > 0:
-                text += f"\n⚠️ Anomaly Score: {alert.anomaly_score:.2f}"
+                text += f"\n[WARN]️ Anomaly Score: {alert.anomaly_score:.2f}"
                 
             url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
             

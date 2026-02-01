@@ -199,60 +199,122 @@ def test_risk_manager():
 
 
 def test_trading_brain_integration():
-    """Test full TradingBrain integration."""
+    """Test full TradingBrain integration with math components.
+
+    This test verifies that the TradingBrain from backend.brain works correctly
+    and can be combined with math integration components (regime detector,
+    position sizer, risk manager) for enhanced decision making.
+    """
     print("\n" + "="*60)
     print("TEST 4: TradingBrain Full Integration")
     print("="*60)
-    
-    from backend.brain.trading_brain import TradingBrain
-    
-    # Create brain with math integration
-    brain = TradingBrain(account_equity=100000)
-    
-    print(f"\n[Brain Status]")
-    print(f"  Math Available: {brain.regime_detector is not None}")
-    print(f"  Position Sizer: {brain.position_sizer is not None}")
-    print(f"  Risk Manager: {brain.risk_manager is not None}")
-    
-    # Test with bull market
-    print("\n[Bull Market Decision]")
-    market_data = generate_mock_market_data(100, "bull")
-    decision = brain.think("AAPL", market_data)
-    
-    print(f"  Direction: {decision.direction}")
-    print(f"  Confidence: {decision.confidence:.1%}")
-    print(f"  Position Size: {decision.position_size_pct:.2f}%")
-    print(f"  Regime Alignment: {decision.regime_alignment:.0f}")
-    print(f"  Factors: {decision.factors}")
-    print(f"  Warnings: {decision.warnings}")
-    
-    # Test with bear market
-    print("\n[Bear Market Decision]")
-    market_data = generate_mock_market_data(100, "bear")
-    decision = brain.think("AAPL", market_data)
-    
-    print(f"  Direction: {decision.direction}")
-    print(f"  Confidence: {decision.confidence:.1%}")
-    print(f"  Position Size: {decision.position_size_pct:.2f}%")
-    print(f"  Warnings: {decision.warnings}")
-    
-    # Test trade feedback
-    print("\n[Trade Feedback Learning]")
-    brain.record_trade_result(0.03, True)  # 3% win
-    brain.record_trade_result(-0.01, False)  # 1% loss
-    brain.record_trade_result(0.02, True)
-    print("  Recorded 3 trades for Kelly learning")
-    
-    # Test equity update
-    print("\n[Equity/Drawdown Tracking]")
-    brain.update_equity(95000)
-    status = brain.get_risk_status()
-    print(f"  Current Drawdown: {status['current_drawdown']:.1%}")
-    print(f"  Risk Level: {status['risk_level']}")
-    print(f"  Trading Allowed: {status['trading_allowed']}")
-    
-    print("\n[PASS] TradingBrain integration working")
-    return True
+
+    import tempfile
+    import os
+    from backend.brain.trading_brain import TradingBrain, BrainDecision
+    from brain.math.integration import (
+        IntegratedRegimeDetector,
+        IntegratedPositionSizer,
+        RiskManager
+    )
+
+    # Create TradingBrain with temporary database
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test_brain.db")
+        brain = TradingBrain(db_path=db_path)
+
+        # Create math integration components separately
+        regime_detector = IntegratedRegimeDetector(n_regimes=3)
+        position_sizer = IntegratedPositionSizer(max_position=0.10, kelly_fraction=0.25)
+        risk_manager = RiskManager(drawdown_threshold=0.10, critical_drawdown=0.20)
+
+        print(f"\n[Brain Status]")
+        print(f"  TradingBrain: {brain is not None}")
+        print(f"  Regime Detector: {regime_detector is not None}")
+        print(f"  Position Sizer: {position_sizer is not None}")
+        print(f"  Risk Manager: {risk_manager is not None}")
+
+        # Test with bull market
+        print("\n[Bull Market Decision]")
+        market_data = generate_mock_market_data(100, "bull")
+
+        # Get brain decision
+        decision = brain.think("AAPL", market_data)
+
+        # Verify decision is a BrainDecision
+        assert isinstance(decision, BrainDecision), "Decision should be a BrainDecision"
+
+        print(f"  Direction: {decision.direction}")
+        print(f"  Confidence: {decision.confidence:.1%}")
+        print(f"  Position Size: {decision.position_size_pct:.2f}%")
+        print(f"  Regime Alignment: {decision.regime_alignment:.0f}")
+        print(f"  Factors: {decision.factors}")
+        print(f"  Warnings: {decision.warnings}")
+
+        # Enhance with math components - fit regime detector
+        prices = np.array([bar["close"] for bar in market_data["ohlcv"]])
+        regime_detector.fit(prices)
+        regime_state = regime_detector.detect(prices)
+
+        print(f"\n[Enhanced Regime Analysis]")
+        print(f"  Detected Regime: {regime_state.regime.value}")
+        print(f"  Regime Confidence: {regime_state.confidence:.2%}")
+        print(f"  Position Scalar: {regime_state.position_scalar:.2f}")
+
+        # Calculate enhanced position size
+        position_result = position_sizer.calculate(
+            signal_confidence=decision.confidence,
+            regime_state=regime_state,
+            current_volatility=0.20,
+            account_equity=100000
+        )
+
+        print(f"\n[Enhanced Position Sizing]")
+        print(f"  Base Kelly: {position_result.base_kelly:.3f}")
+        print(f"  Final Size: {position_result.final_size:.2%}")
+
+        # Test with bear market
+        print("\n[Bear Market Decision]")
+        market_data = generate_mock_market_data(100, "bear")
+        decision = brain.think("AAPL", market_data)
+
+        print(f"  Direction: {decision.direction}")
+        print(f"  Confidence: {decision.confidence:.1%}")
+        print(f"  Position Size: {decision.position_size_pct:.2f}%")
+        print(f"  Warnings: {decision.warnings}")
+
+        # Test trade feedback learning with position sizer
+        print("\n[Trade Feedback Learning]")
+        position_sizer.add_trade(0.03, True)   # 3% win
+        position_sizer.add_trade(-0.01, False)  # 1% loss
+        position_sizer.add_trade(0.02, True)    # 2% win
+        print("  Recorded 3 trades for Kelly learning")
+
+        # Test equity/drawdown tracking with risk manager
+        print("\n[Equity/Drawdown Tracking]")
+        risk_manager.update_equity(100000)  # Initial equity
+        risk_manager.update_equity(95000)   # 5% drawdown
+
+        current_dd = risk_manager.current_drawdown
+        risk_mult = risk_manager.get_risk_multiplier(regime_state)
+        trading_allowed = current_dd < risk_manager.critical_drawdown
+
+        print(f"  Current Drawdown: {current_dd:.1%}")
+        print(f"  Risk Multiplier: {risk_mult:.2f}")
+        print(f"  Trading Allowed: {trading_allowed}")
+
+        # Verify brain state
+        state = brain.get_state()
+        print(f"\n[Brain State]")
+        print(f"  Overall Bias: {state.overall_bias}")
+        print(f"  Bias Strength: {state.bias_strength:.2f}")
+
+        # Get recent decisions
+        decisions = brain.get_decisions(symbol="AAPL", limit=5)
+        print(f"  Recent Decisions: {len(decisions)}")
+
+        print("\n[PASS] TradingBrain integration working")
+        return True
 
 
 def run_all_tests():

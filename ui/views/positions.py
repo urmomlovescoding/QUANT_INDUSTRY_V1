@@ -163,7 +163,7 @@ class PositionsView(tk.Frame):
         # Close selected button
         close_btn = tk.Label(
             right,
-            text="✕ Close Selected",
+            text="[FAIL] Close Selected",
             font=theme.get_font(FontSize.SM, FontWeight.BOLD, "ui"),
             fg=colors.bg_primary,
             bg=colors.bearish,

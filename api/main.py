@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
         from api.websocket.manager import get_ws_manager
         _ws_manager = get_ws_manager()
         await _ws_manager.start()
-        logger.info("✅ WebSocket manager started")
+        logger.info("[OK] WebSocket manager started")
     except Exception as e:
         logger.warning(f"Could not start WebSocket manager: {e}")
     
@@ -61,19 +61,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Deprecation middleware for v1 → v2 migration
+# Deprecation middleware for v1 -> v2 migration
 try:
     from api.middleware.deprecation import (
         add_deprecation_middleware,
         create_metrics_routes,
     )
     add_deprecation_middleware(app, log_warnings=True, track_metrics=True)
-    logger.info("✅ Deprecation middleware enabled")
+    logger.info("[OK] Deprecation middleware enabled")
     
     # Mount deprecation metrics routes under /admin
     metrics_router = create_metrics_routes()
     app.include_router(metrics_router, prefix="/admin", tags=["admin"])
-    logger.info("✅ Deprecation metrics routes mounted at /admin/deprecation/*")
+    logger.info("[OK] Deprecation metrics routes mounted at /admin/deprecation/*")
 except Exception as e:
     logger.warning(f"Could not load deprecation middleware: {e}")
 
@@ -171,7 +171,7 @@ except Exception as e:
 try:
     from api.v2 import api_v2
     app.include_router(api_v2, prefix="/api/v2")
-    logger.info("✅ Loaded API v2 routes")
+    logger.info("[OK] Loaded API v2 routes")
 except Exception as e:
     logger.warning(f"Could not load API v2 routes: {e}")
 
@@ -179,7 +179,7 @@ except Exception as e:
 try:
     from api.middleware.deprecation import DeprecationMiddleware
     app.add_middleware(DeprecationMiddleware)
-    logger.info("✅ Deprecation middleware registered")
+    logger.info("[OK] Deprecation middleware registered")
 except Exception as e:
     logger.warning(f"Could not load deprecation middleware: {e}")
 

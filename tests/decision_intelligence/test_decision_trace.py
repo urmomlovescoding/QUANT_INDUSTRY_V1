@@ -6,6 +6,9 @@ import pytest
 from datetime import datetime, timedelta
 import sys
 import os
+import tempfile
+import uuid
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -13,7 +16,23 @@ from decision_intelligence.decision_trace import (
     DecisionTrace,
     TraceNode as DecisionNode,
     TraceEdge as DecisionEdge,
+    NodeType,
+    get_decision_trace,
 )
+
+
+@pytest.fixture(autouse=True)
+def use_test_db(tmp_path, monkeypatch):
+    """Use a temporary database for each test."""
+    import uuid
+    test_db = tmp_path / f"test_trace_{uuid.uuid4().hex[:8]}.db"
+    # Monkeypatch the default db_path
+    original_init = DecisionTrace.__init__
+    def patched_init(self, db_path=None):
+        original_init(self, db_path=test_db)
+    monkeypatch.setattr(DecisionTrace, "__init__", patched_init)
+    yield
+    # Cleanup happens automatically when tmp_path is cleaned
 
 
 class TestDecisionNode:
@@ -23,31 +42,28 @@ class TestDecisionNode:
         """Should create decision node."""
         node = DecisionNode(
             node_id="test_1",
-            context_id="ctx_123",
+            node_type=NodeType.SIGNAL,
             timestamp=datetime.now(),
             component="regime_detector",
             decision="BULL_REGIME",
-            inputs={"price": 100.0},
-            outputs={"regime": "bull"},
-            confidence=0.85,
-            execution_time_ms=15.5,
+            reason="Strong momentum detected",
+            data={"price": 100.0, "regime": "bull"},
         )
         
         assert node.node_id == "test_1"
         assert node.component == "regime_detector"
-        assert node.confidence == 0.85
+        assert node.decision == "BULL_REGIME"
     
     def test_node_to_dict(self):
         """Should convert to dictionary."""
         node = DecisionNode(
             node_id="test_2",
-            context_id="ctx_456",
+            node_type=NodeType.SIGNAL,
             timestamp=datetime.now(),
             component="signal_generator",
             decision="LONG_SIGNAL",
-            inputs={},
-            outputs={"signal": "LONG"},
-            confidence=0.72,
+            reason="ICT setup detected",
+            data={"signal": "LONG"},
         )
         
         d = node.to_dict()
@@ -60,9 +76,9 @@ class TestDecisionTraceBasics:
     """Test basic decision trace functionality."""
     
     def test_singleton(self):
-        """Should be a singleton."""
-        trace1 = DecisionTrace()
-        trace2 = DecisionTrace()
+        """Should be a singleton via get_decision_trace()."""
+        trace1 = get_decision_trace()
+        trace2 = get_decision_trace()
         assert trace1 is trace2
     
     def test_add_decision(self):

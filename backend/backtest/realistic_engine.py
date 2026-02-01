@@ -235,7 +235,7 @@ class RealisticMetrics:
     
     def summary(self) -> str:
         """Human-readable summary"""
-        status = "✅" if self.sharpe_ratio > 0.5 and self.wf_consistency > 0.6 else "⚠️"
+        status = "[OK]" if self.sharpe_ratio > 0.5 and self.wf_consistency > 0.6 else "[WARN]️"
         
         return f"""
 {status} Realistic Backtest Results

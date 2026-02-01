@@ -16,20 +16,21 @@ router = APIRouter(prefix="/api/v1/arbitrage", tags=["Cross-Exchange Arbitrage"]
 
 # Try to import backend modules
 try:
-    from cross_exchange.price_feeds import MultiExchangeFeed
+    from cross_exchange.price_feeds import MultiExchangeFeed, Exchange
     from cross_exchange.arb_detector import ArbDetector
-    from cross_exchange.execution import ArbExecutor
+    from cross_exchange.execution import CrossExchangeExecutor
     from cross_exchange.triangular_arb import TriangularArbDetector
     from cross_exchange.cex_dex_arb import CexDexArbDetector
     from cross_exchange.latency import LatencyMonitor
     
     price_feed = MultiExchangeFeed()
     arb_detector = ArbDetector(price_feed)
-    triangular = TriangularArbDetector()
+    arb_executor = CrossExchangeExecutor()
+    triangular = TriangularArbDetector(exchange=Exchange.BINANCE)
     cex_dex = CexDexArbDetector()
     latency_monitor = LatencyMonitor()
     MODULES_LOADED = True
-except ImportError as e:
+except (ImportError, Exception) as e:
     logger.warning(f"Cross-exchange modules not fully loaded: {e}")
     MODULES_LOADED = False
 

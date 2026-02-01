@@ -80,7 +80,7 @@ class CalibrationReport:
     overconfidence_ratio: float # How often confidence > accuracy
     
     def summary(self) -> str:
-        status = "✅ CALIBRATED" if self.expected_calibration_error < 0.1 else "⚠️ MISCALIBRATED"
+        status = "[OK] CALIBRATED" if self.expected_calibration_error < 0.1 else "[WARN]️ MISCALIBRATED"
         
         return f"""
 Model Calibration Report

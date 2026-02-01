@@ -15,6 +15,18 @@ from collections import deque
 import numpy as np
 import torch
 
+# Import slippage model from backend
+try:
+    from backend.execution.execution_algorithms import (
+        AlmgrenChrissSlippageModel,
+        SlippageEstimate
+    )
+    HAS_SLIPPAGE_MODEL = True
+except ImportError:
+    HAS_SLIPPAGE_MODEL = False
+    AlmgrenChrissSlippageModel = None
+    SlippageEstimate = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +35,7 @@ class OrderType(Enum):
     LIMIT = "limit"
     STOP = "stop"
     STOP_LIMIT = "stop_limit"
+    TRAILING_STOP = "trailing_stop"
 
 
 class OrderSide(Enum):
@@ -37,6 +50,14 @@ class OrderStatus(Enum):
     FILLED = "filled"
     CANCELLED = "cancelled"
     REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+class TimeInForce(Enum):
+    DAY = "day"
+    GTC = "gtc"
+    IOC = "ioc"
+    FOK = "fok"
 
 
 @dataclass
@@ -52,9 +73,61 @@ class Order:
     status: OrderStatus = OrderStatus.PENDING
     filled_quantity: float = 0.0
     filled_price: float = 0.0
+    filled_avg_price: float = 0.0  # Average fill price
+    commission: float = 0.0
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    client_order_id: Optional[str] = None
+    time_in_force: TimeInForce = TimeInForce.DAY
+
+    @property
+    def order_id(self) -> str:
+        """Alias for id for broker compatibility."""
+        return self.id
+
+    @property
+    def remaining_quantity(self) -> float:
+        """Calculate remaining quantity to fill."""
+        return self.quantity - self.filled_quantity
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if order is in a terminal state."""
+        return self.status in [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize order to dictionary."""
+        return {
+            'order_id': self.id,
+            'symbol': self.symbol,
+            'side': self.side.value,
+            'quantity': self.quantity,
+            'order_type': self.order_type.value,
+            'limit_price': self.limit_price,
+            'stop_price': self.stop_price,
+            'status': self.status.value,
+            'filled_quantity': self.filled_quantity,
+            'filled_price': self.filled_price,
+            'remaining_quantity': self.remaining_quantity,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'metadata': self.metadata,
+        }
+
+
+@dataclass
+class Fill:
+    """Order fill representation."""
+    fill_id: str
+    order_id: str
+    symbol: str
+    quantity: float
+    price: float
+    side: OrderSide
+    timestamp: datetime
+    commission: float = 0.0
+    exchange: str = ""
 
 
 @dataclass
@@ -81,10 +154,18 @@ class ExecutionConfig:
     max_open_orders: int = 10
     
     # Execution
-    slippage_estimate: float = 0.001  # 0.1% slippage
+    slippage_estimate: float = 0.001  # 0.1% slippage (legacy fallback)
     min_trade_interval: float = 60.0  # Minimum seconds between trades
     use_limit_orders: bool = True
     limit_offset_bps: float = 5.0  # Basis points from mid
+    
+    # Almgren-Chriss Slippage Model Parameters
+    use_almgren_chriss: bool = True  # Use sophisticated slippage model
+    slippage_eta: float = 0.10  # Temporary impact coefficient (0.05-0.30)
+    slippage_gamma: float = 0.10  # Permanent impact coefficient (0.05-0.20)
+    slippage_min_bps: float = 0.5  # Floor for bid-ask spread
+    default_daily_volume: float = 50000.0  # Default ADV if unknown
+    default_volatility: float = 0.02  # Default daily vol (2%)
     
     # Circuit breaker
     circuit_breaker_threshold: float = 0.05  # 5% rapid loss
@@ -240,6 +321,25 @@ class ExecutionEngine:
         # Risk management
         self.risk_guard = RiskGuard(self.config)
         
+        # Initialize Almgren-Chriss slippage model
+        self.slippage_model = None
+        if HAS_SLIPPAGE_MODEL and self.config.use_almgren_chriss:
+            self.slippage_model = AlmgrenChrissSlippageModel(
+                eta=self.config.slippage_eta,
+                gamma=self.config.slippage_gamma,
+                min_slippage_bps=self.config.slippage_min_bps
+            )
+            logger.info(
+                f"Almgren-Chriss slippage model initialized: "
+                f"eta={self.config.slippage_eta}, gamma={self.config.slippage_gamma}"
+            )
+        else:
+            logger.warning("Slippage model unavailable, using fixed estimate")
+        
+        # Market data cache for slippage calculations
+        self._volume_cache: Dict[str, float] = {}  # symbol -> daily volume
+        self._volatility_cache: Dict[str, float] = {}  # symbol -> daily vol
+        
         # State
         self.positions: Dict[str, Position] = {}
         self.pending_orders: Dict[str, Order] = {}
@@ -249,6 +349,10 @@ class ExecutionEngine:
         # Performance tracking
         self.trades: List[Dict] = []
         self.equity_curve: List[tuple[datetime, float]] = []
+        
+        # Slippage tracking for analysis
+        self.total_slippage_dollars: float = 0.0
+        self.slippage_history: List[Dict] = []
         
         # Running state
         self.running = False
@@ -347,9 +451,28 @@ class ExecutionEngine:
         return filled_order
     
     async def submit_order(self, order: Order) -> Order:
-        """Submit order to broker."""
+        """
+        Submit order to broker with slippage estimation.
+        
+        The Almgren-Chriss model estimates expected slippage BEFORE execution,
+        allowing for better decision-making and performance tracking.
+        """
         order.status = OrderStatus.SUBMITTED
         self.pending_orders[order.id] = order
+        
+        # Estimate expected slippage BEFORE execution
+        expected_slippage = await self._estimate_slippage(order)
+        order.metadata['expected_slippage_bps'] = expected_slippage.total_slippage_bps if expected_slippage else 0
+        order.metadata['expected_slippage_dollars'] = expected_slippage.total_slippage_dollars if expected_slippage else 0
+        order.metadata['participation_rate'] = expected_slippage.participation_rate if expected_slippage else 0
+        
+        # Log pre-trade analysis
+        if expected_slippage and expected_slippage.total_slippage_bps > 5.0:
+            logger.warning(
+                f"High expected slippage for {order.symbol}: "
+                f"{expected_slippage.total_slippage_bps:.1f} bps "
+                f"(${expected_slippage.total_slippage_dollars:.2f})"
+            )
         
         try:
             # Call broker API
@@ -368,10 +491,40 @@ class ExecutionEngine:
             order.status = OrderStatus.FILLED if order.filled_quantity >= order.quantity else OrderStatus.PARTIAL
             order.updated_at = datetime.now()
             
+            # Calculate realized slippage (if we have expected price)
+            expected_price = order.limit_price or order.metadata.get('expected_price', order.filled_price)
+            if expected_price > 0 and order.filled_price > 0:
+                if order.side == OrderSide.BUY:
+                    realized_slippage_bps = (order.filled_price - expected_price) / expected_price * 10000
+                else:
+                    realized_slippage_bps = (expected_price - order.filled_price) / expected_price * 10000
+                
+                order.metadata['realized_slippage_bps'] = realized_slippage_bps
+                
+                # Track total slippage
+                notional = order.filled_price * order.filled_quantity
+                realized_slippage_dollars = notional * abs(realized_slippage_bps) / 10000
+                self.total_slippage_dollars += realized_slippage_dollars
+                
+                # Log slippage history for analysis
+                self.slippage_history.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'symbol': order.symbol,
+                    'side': order.side.value,
+                    'quantity': order.filled_quantity,
+                    'expected_bps': order.metadata.get('expected_slippage_bps', 0),
+                    'realized_bps': realized_slippage_bps,
+                    'expected_dollars': order.metadata.get('expected_slippage_dollars', 0),
+                    'realized_dollars': realized_slippage_dollars,
+                })
+            
             # Update position
             self._update_position(order)
             
-            logger.info(f"Order filled: {order.side.value} {order.quantity} {order.symbol} @ {order.filled_price}")
+            logger.info(
+                f"Order filled: {order.side.value} {order.quantity} {order.symbol} @ {order.filled_price} "
+                f"(slippage: {order.metadata.get('realized_slippage_bps', 0):.1f} bps)"
+            )
             
         except Exception as e:
             order.status = OrderStatus.REJECTED
@@ -383,6 +536,87 @@ class ExecutionEngine:
             self.order_history.append(order)
         
         return order
+    
+    async def _estimate_slippage(self, order: Order) -> Optional[SlippageEstimate]:
+        """
+        Estimate expected slippage using Almgren-Chriss model.
+        
+        Uses cached volume and volatility data, falling back to defaults.
+        """
+        if not self.slippage_model:
+            return None
+        
+        # Get market data for the symbol
+        daily_volume = self._volume_cache.get(
+            order.symbol, 
+            self.config.default_daily_volume
+        )
+        volatility = self._volatility_cache.get(
+            order.symbol,
+            self.config.default_volatility
+        )
+        
+        # Get current price
+        price = order.limit_price or order.metadata.get('expected_price', 0)
+        if price <= 0:
+            # Try to get from broker or use a fallback
+            try:
+                quote = await self.broker.get_quote(order.symbol)
+                price = quote.get('mid', quote.get('last', 100.0))
+            except Exception:
+                price = 100.0  # Fallback
+        
+        # Calculate slippage
+        estimate = self.slippage_model.calculate_slippage(
+            order_size=order.quantity,
+            daily_volume=daily_volume,
+            volatility=volatility,
+            price=price
+        )
+        
+        return estimate
+    
+    def update_market_data(self, symbol: str, daily_volume: float, volatility: float):
+        """
+        Update cached market data for slippage estimation.
+        
+        Call this with real market data to improve slippage accuracy.
+        
+        Args:
+            symbol: Trading symbol
+            daily_volume: Average daily volume
+            volatility: Daily volatility (decimal, e.g., 0.02 for 2%)
+        """
+        self._volume_cache[symbol] = daily_volume
+        self._volatility_cache[symbol] = volatility
+    
+    def get_slippage_report(self) -> Dict[str, Any]:
+        """
+        Get slippage analysis report.
+        
+        Returns summary of slippage performance including:
+        - Total slippage in dollars
+        - Average slippage in bps
+        - Model accuracy (expected vs realized)
+        """
+        if not self.slippage_history:
+            return {'total_slippage_dollars': 0, 'average_slippage_bps': 0}
+        
+        total_expected_bps = sum(s['expected_bps'] for s in self.slippage_history)
+        total_realized_bps = sum(s['realized_bps'] for s in self.slippage_history)
+        n_trades = len(self.slippage_history)
+        
+        return {
+            'total_slippage_dollars': self.total_slippage_dollars,
+            'average_slippage_bps': total_realized_bps / n_trades if n_trades > 0 else 0,
+            'average_expected_bps': total_expected_bps / n_trades if n_trades > 0 else 0,
+            'model_accuracy': (
+                1 - abs(total_expected_bps - total_realized_bps) / max(total_realized_bps, 1)
+                if total_realized_bps > 0 else 1.0
+            ),
+            'n_trades': n_trades,
+            'history': self.slippage_history[-100:]  # Last 100 trades
+        }
     
     async def cancel_order(self, order_id: str) -> bool:
         """Cancel a pending order."""

@@ -74,7 +74,7 @@ class SettingsPanel(tk.Toplevel):
 
         title = tk.Label(
             header,
-            text="⚙ Settings",
+            text="[CONFIG] Settings",
             font=theme.get_font(FontSize.LG, FontWeight.BOLD, "ui"),
             fg=colors.fg_primary,
             bg=colors.bg_tertiary,

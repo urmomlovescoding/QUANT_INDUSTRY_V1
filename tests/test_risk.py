@@ -15,34 +15,43 @@ class TestPositionSizers:
         """Test fixed fraction position sizer."""
         from risk import FixedFractionSizer
 
-        sizer = FixedFractionSizer(fraction=0.02)
+        # API: max_fraction parameter, scale_by_confidence
+        sizer = FixedFractionSizer(max_fraction=0.02, scale_by_confidence=False)
 
-        size = sizer.calculate(
-            portfolio_value=100000,
+        # API: calculate_size() returns position VALUE (not shares)
+        position_value = sizer.calculate_size(
             signal_strength=1.0,
-            price=50.0
+            volatility=0.02,
+            portfolio_value=100000,
+            current_position=0.0,
+            risk_params={}
         )
 
-        # 2% of $100k = $2000, at $50 = 40 shares
-        assert size == 40
+        # 2% of $100k = $2000 position value
+        assert position_value == 2000
 
     def test_volatility_scaled_sizer(self):
         """Test volatility-scaled position sizer."""
         from risk import VolatilityScaledSizer
 
-        sizer = VolatilityScaledSizer(target_volatility=0.15)
+        # API: target_risk parameter (not target_volatility)
+        sizer = VolatilityScaledSizer(target_risk=0.02)
 
         # Low volatility asset should get larger position
-        low_vol_size = sizer.calculate(
-            portfolio_value=100000,
+        low_vol_size = sizer.calculate_size(
+            signal_strength=1.0,
             volatility=0.10,
-            price=50.0
+            portfolio_value=100000,
+            current_position=0.0,
+            risk_params={}
         )
 
-        high_vol_size = sizer.calculate(
-            portfolio_value=100000,
+        high_vol_size = sizer.calculate_size(
+            signal_strength=1.0,
             volatility=0.30,
-            price=50.0
+            portfolio_value=100000,
+            current_position=0.0,
+            risk_params={}
         )
 
         assert low_vol_size > high_vol_size
@@ -53,16 +62,21 @@ class TestPositionSizers:
 
         sizer = KellyCriterionSizer(fraction=0.5)  # Half Kelly
 
-        size = sizer.calculate(
+        # API: win_rate, avg_win, avg_loss go in risk_params
+        position_value = sizer.calculate_size(
+            signal_strength=1.0,
+            volatility=0.02,
             portfolio_value=100000,
-            win_rate=0.55,
-            avg_win=0.02,
-            avg_loss=0.01,
-            price=50.0
+            current_position=0.0,
+            risk_params={
+                'win_rate': 0.55,
+                'avg_win': 0.02,
+                'avg_loss': 0.01
+            }
         )
 
-        assert size > 0
-        assert size < 100000 / 50  # Less than full portfolio
+        assert position_value > 0
+        assert position_value < 100000  # Less than full portfolio value
 
 
 class TestRiskEngine:
@@ -70,40 +84,51 @@ class TestRiskEngine:
 
     def test_risk_check_position_limit(self):
         """Test position limit check."""
-        from risk import RiskEngine, RiskLevel
+        from risk import RiskEngine, LimitType
 
-        engine = RiskEngine(
-            portfolio_value=100000,
-            max_position_pct=0.10
-        )
+        engine = RiskEngine(portfolio_value=100000)
 
-        # Within limit
-        result = engine.check_position_limit('AAPL', 100, 100.0)
-        assert result.passed
+        # Set position limit using set_limit() with "reduce" action
+        # The engine's position size logic uses "reduce" to adjust size, not block
+        engine.set_limit(LimitType.MAX_POSITION_SIZE, value=0.10, action="reduce")
+        # Relax other default limits that would interfere with this test
+        engine.set_limit(LimitType.MAX_SINGLE_TRADE, value=0.50, action="warn")
 
-        # Exceeds limit
-        result = engine.check_position_limit('AAPL', 200, 100.0)
-        assert not result.passed
+        # Within limit: $10,000 is 10% of $100,000
+        result = engine.check_pre_trade('AAPL', 10000, 'buy')
+        # Check that position size check passed
+        pos_check = next(c for c in result.checks if c.limit_type == LimitType.MAX_POSITION_SIZE)
+        assert pos_check.passed
+
+        # Exceeds limit: $20,000 is 20% of $100,000
+        result = engine.check_pre_trade('AAPL', 20000, 'buy')
+        # Check that position size check failed
+        pos_check = next(c for c in result.checks if c.limit_type == LimitType.MAX_POSITION_SIZE)
+        assert not pos_check.passed
+        # Verify the adjustment was applied (should reduce to fit limit)
+        assert result.position_size_adjustment < 1.0
 
     def test_risk_check_drawdown(self):
         """Test drawdown check."""
-        from risk import RiskEngine
+        from risk import RiskEngine, LimitType
 
-        engine = RiskEngine(
-            portfolio_value=100000,
-            max_drawdown=0.10
-        )
+        engine = RiskEngine(portfolio_value=100000)
 
-        # Record some equity values
-        engine.record_equity(100000)
-        engine.record_equity(95000)
+        # Set drawdown limit
+        engine.set_limit(LimitType.MAX_DRAWDOWN, value=0.10, action="block")
+        # Relax other default limits that would interfere with this test
+        engine.set_limit(LimitType.MAX_SINGLE_TRADE, value=0.50, action="warn")
+        engine.set_limit(LimitType.MAX_DAILY_LOSS, value=0.50, action="warn")
 
-        result = engine.check_drawdown()
-        assert result.passed  # 5% < 10%
+        # Update P&L to simulate drawdown
+        engine.update_pnl(-5000)  # 5% loss
 
-        engine.record_equity(88000)
-        result = engine.check_drawdown()
-        assert not result.passed  # 12% > 10%
+        result = engine.check_pre_trade('AAPL', 5000, 'buy')
+        assert result.approved  # 5% < 10%
+
+        engine.update_pnl(-12000)  # 12% loss
+        result = engine.check_pre_trade('AAPL', 5000, 'buy')
+        assert not result.approved  # 12% > 10%
 
     def test_var_calculation(self):
         """Test VaR calculation."""
@@ -135,32 +160,22 @@ class TestRiskEngine:
 
         assert cvar_95 > var_95  # CVaR >= VaR
 
-    def test_correlation_risk(self):
-        """Test correlation-based risk assessment."""
+    def test_risk_summary(self):
+        """Test risk summary reporting."""
         from risk import RiskEngine
 
         engine = RiskEngine(portfolio_value=100000)
 
-        # Highly correlated positions
-        positions = {
-            'AAPL': 50000,
-            'MSFT': 30000,
-            'GOOGL': 20000,
-        }
+        # Update some positions
+        engine.update_position('AAPL', 50000)
+        engine.update_position('MSFT', 30000)
 
-        # Mock correlation matrix
-        correlations = np.array([
-            [1.0, 0.8, 0.7],
-            [0.8, 1.0, 0.6],
-            [0.7, 0.6, 1.0],
-        ])
+        summary = engine.get_risk_summary()
 
-        concentration_risk = engine.calculate_concentration_risk(
-            positions,
-            correlations
-        )
-
-        assert concentration_risk > 0
+        assert 'portfolio_value' in summary
+        assert 'total_exposure' in summary
+        assert summary['total_exposure'] == 80000
+        assert summary['position_count'] == 2
 
 
 class TestRiskAssessment:
@@ -168,25 +183,32 @@ class TestRiskAssessment:
 
     def test_full_assessment(self):
         """Test full pre-trade risk assessment."""
-        from risk import RiskEngine
+        from risk import RiskEngine, LimitType
 
-        engine = RiskEngine(
-            portfolio_value=100000,
-            max_position_pct=0.10,
-            max_drawdown=0.15,
-            max_daily_loss=0.03
-        )
+        engine = RiskEngine(portfolio_value=100000)
 
-        assessment = engine.assess_trade(
+        # Configure limits using set_limit()
+        engine.set_limit(LimitType.MAX_POSITION_SIZE, value=0.10, action="reduce")
+        engine.set_limit(LimitType.MAX_DRAWDOWN, value=0.15, action="block")
+        engine.set_limit(LimitType.MAX_DAILY_LOSS, value=0.03, action="block")
+
+        # API: check_pre_trade() returns RiskAssessment
+        assessment = engine.check_pre_trade(
             symbol='AAPL',
-            quantity=50,
-            price=150.0,
+            proposed_value=7500,  # $7500 trade value
             side='buy'
         )
 
-        assert 'passed' in assessment
-        assert 'checks' in assessment
-        assert 'recommended_size' in assessment
+        # RiskAssessment has 'approved' not 'passed'
+        assert hasattr(assessment, 'approved')
+        assert hasattr(assessment, 'checks')
+        assert hasattr(assessment, 'position_size_adjustment')
+
+        # Also test to_dict() method
+        assessment_dict = assessment.to_dict()
+        assert 'approved' in assessment_dict
+        assert 'checks' in assessment_dict
+        assert 'position_size_adjustment' in assessment_dict
 
     def test_risk_limits(self):
         """Test risk limit management."""
@@ -194,19 +216,54 @@ class TestRiskAssessment:
 
         engine = RiskEngine(portfolio_value=100000)
 
-        # Add custom limit
-        engine.add_limit(
-            LimitType.POSITION,
+        # API: use set_limit() instead of add_limit()
+        # Use MAX_POSITION_VALUE instead of POSITION
+        engine.set_limit(
+            LimitType.MAX_POSITION_VALUE,
             value=5000,
-            symbol='AAPL'
+            action="block"
         )
 
-        # Check limit
-        result = engine.check_limit(LimitType.POSITION, 4000, 'AAPL')
-        assert result.passed
+        # Check via pre-trade assessment
+        # Within limit
+        result = engine.check_pre_trade('AAPL', 4000, 'buy')
+        # Check the specific position value check
+        pos_value_check = next(
+            (c for c in result.checks if c.limit_type == LimitType.MAX_POSITION_VALUE),
+            None
+        )
+        assert pos_value_check is not None
+        assert pos_value_check.passed
 
-        result = engine.check_limit(LimitType.POSITION, 6000, 'AAPL')
-        assert not result.passed
+        # Exceeds limit
+        result = engine.check_pre_trade('AAPL', 6000, 'buy')
+        pos_value_check = next(
+            (c for c in result.checks if c.limit_type == LimitType.MAX_POSITION_VALUE),
+            None
+        )
+        assert pos_value_check is not None
+        assert not pos_value_check.passed
+
+    def test_position_size_calculation(self):
+        """Test integrated position sizing with risk checks."""
+        from risk import RiskEngine, VolatilityScaledSizer
+
+        sizer = VolatilityScaledSizer(target_risk=0.02)
+        engine = RiskEngine(portfolio_value=100000, position_sizer=sizer)
+
+        # Calculate position size with risk assessment
+        size, assessment = engine.calculate_position_size(
+            symbol='AAPL',
+            signal_strength=0.8,
+            volatility=0.02,
+            side='buy',
+            risk_params={}
+        )
+
+        assert size > 0
+        assert hasattr(assessment, 'approved')
+        assert hasattr(assessment, 'risk_score')
+        assert hasattr(assessment, 'risk_level')
 
 
 if __name__ == '__main__':

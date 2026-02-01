@@ -264,7 +264,7 @@ def init_database():
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
     
-    logger.info("✅ Database initialized")
+    logger.info("[OK] Database initialized")
 
 
 async def init_async_database():
@@ -275,4 +275,4 @@ async def init_async_database():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    logger.info("✅ Async database initialized")
+    logger.info("[OK] Async database initialized")
