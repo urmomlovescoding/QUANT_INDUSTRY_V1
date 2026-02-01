@@ -13,7 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Import config first to ensure env is loaded
-from backend.config.env import config
+from config.env import config
 
 # SQLAlchemy imports
 try:

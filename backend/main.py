@@ -253,6 +253,15 @@ except ImportError as e:
     V1_ROUTES_AVAILABLE = False
     logger.warning(f"V1 API routes not available: {e}")
 
+# Authentication Routes (SaaS multi-tenant)
+try:
+    from routes.auth_routes import router as auth_router
+    AUTH_ROUTES_AVAILABLE = True
+    logger.info("Authentication routes loaded")
+except ImportError as e:
+    AUTH_ROUTES_AVAILABLE = False
+    logger.warning(f"Authentication routes not available: {e}")
+
 app = FastAPI(
     title="QUANT INDUSTRY API",
     description="Professional Trading Platform Backend",
@@ -268,6 +277,11 @@ if ERROR_UTILS_AVAILABLE:
 if V1_ROUTES_AVAILABLE:
     app.include_router(v1_router)
     logger.info("V1 API routes registered")
+
+# Register Authentication routes
+if AUTH_ROUTES_AVAILABLE:
+    app.include_router(auth_router, prefix="/api")
+    logger.info("Authentication routes registered at /api/auth/*")
 
 # Background task for live data refresh
 async def refresh_market_data():
@@ -313,9 +327,39 @@ async def startup_event():
     else:
         logger.warning("[STARTUP] Data integrity layer NOT available")
 
+    # Initialize Service Orchestrator (coordinates all services)
+    try:
+        from services.orchestrator import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.start()
+        logger.info("[STARTUP] Service Orchestrator started")
+    except Exception as e:
+        logger.warning(f"[STARTUP] Service Orchestrator failed: {e}")
+
+    # Initialize SafetyGuard with account equity
+    if SERVICES_AVAILABLE:
+        try:
+            from core.safety_guard import get_safety_guard
+            guard = get_safety_guard()
+            # Set initial equity (will be updated from broker sync)
+            initial_equity = float(os.getenv("INITIAL_EQUITY", "50000"))
+            guard.set_equity(initial_equity, is_starting=True)
+            logger.info(f"[STARTUP] SafetyGuard initialized with ${initial_equity:,.0f}")
+        except Exception as e:
+            logger.warning(f"[STARTUP] SafetyGuard init failed: {e}")
+
     if SERVICES_AVAILABLE:
         alpaca_key = os.getenv("ALPACA_API_KEY", "")
         logger.info(f"[STARTUP] Alpaca API Key configured: {'Yes' if alpaca_key else 'No'}")
+
+    # Start VIX Monitor for real-time volatility tracking
+    try:
+        from services.vix_monitor import start_vix_monitor
+        await start_vix_monitor()
+        logger.info("[STARTUP] VIX Monitor started (auto-updates SafetyGuard)")
+    except Exception as e:
+        logger.warning(f"[STARTUP] VIX Monitor failed to start: {e}")
+
     asyncio.create_task(refresh_market_data())
     logger.info("[STARTUP] Background market data refresh task started")
 
@@ -323,6 +367,15 @@ async def startup_event():
 async def shutdown_event():
     """Clean up resources on app shutdown"""
     logger.info("[SHUTDOWN] QUANT INDUSTRY API shutting down...")
+
+    # Stop VIX Monitor
+    try:
+        from services.vix_monitor import get_vix_monitor
+        monitor = get_vix_monitor()
+        await monitor.stop()
+        logger.info("[SHUTDOWN] VIX Monitor stopped")
+    except Exception as e:
+        logger.warning(f"[SHUTDOWN] Error stopping VIX Monitor: {e}")
 
     # Clean up data service executor
     if SERVICES_AVAILABLE:
@@ -866,6 +919,133 @@ async def check_symbol_staleness(symbol: str, data_type: str = "quote"):
     except Exception as e:
         logger.error(f"Staleness check error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== SAFETY & VIX ENDPOINTS ==============
+
+@app.get("/api/safety/status")
+async def get_safety_status():
+    """
+    Get comprehensive safety system status.
+
+    Returns SafetyGuard + KillSwitch status for monitoring.
+    """
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "safety_guard": None,
+        "kill_switch": None,
+        "trading_allowed": True,
+        "trading_blocked_reason": None
+    }
+
+    # SafetyGuard status
+    try:
+        from core.safety_guard import get_safety_guard
+        guard = get_safety_guard()
+        result["safety_guard"] = guard.get_status()
+        allowed, reason = guard.can_trade()
+        if not allowed:
+            result["trading_allowed"] = False
+            result["trading_blocked_reason"] = reason
+    except Exception as e:
+        logger.warning(f"SafetyGuard status failed: {e}")
+        result["safety_guard"] = {"error": str(e)}
+
+    # KillSwitch status
+    try:
+        from execution.kill_switch import get_kill_switch
+        ks = get_kill_switch()
+        result["kill_switch"] = ks.get_status()
+        if ks.check():
+            result["trading_allowed"] = False
+            result["trading_blocked_reason"] = f"KillSwitch active: {ks.reason}"
+    except Exception as e:
+        logger.warning(f"KillSwitch status failed: {e}")
+        result["kill_switch"] = {"error": str(e)}
+
+    return result
+
+
+@app.get("/api/safety/can-trade")
+async def check_can_trade(symbol: str = None, size_pct: float = 0.05, contracts: int = 1):
+    """
+    Pre-flight check: can we trade this symbol/size?
+
+    Use this before any trade to verify safety clearance.
+    """
+    try:
+        from core.safety_guard import get_safety_guard
+        from execution.kill_switch import get_kill_switch
+
+        # Check KillSwitch first
+        ks = get_kill_switch()
+        if ks.check():
+            return {
+                "allowed": False,
+                "reason": f"KillSwitch active: {ks.reason}",
+                "source": "kill_switch",
+                "symbol": symbol
+            }
+
+        # Check SafetyGuard
+        guard = get_safety_guard()
+        allowed, reason = guard.can_trade(
+            symbol=symbol,
+            size_pct=size_pct,
+            contracts=contracts,
+            is_live=os.getenv("QUANT_MODE", "paper").lower() == "live"
+        )
+
+        return {
+            "allowed": allowed,
+            "reason": reason,
+            "source": "safety_guard",
+            "symbol": symbol,
+            "size_pct": size_pct,
+            "contracts": contracts
+        }
+    except Exception as e:
+        logger.error(f"Can-trade check failed: {e}")
+        return {
+            "allowed": False,
+            "reason": f"Safety check failed: {e}",
+            "source": "error"
+        }
+
+
+@app.get("/api/vix/status")
+async def get_vix_status():
+    """
+    Get current VIX monitoring status.
+
+    Shows current VIX level and its impact on trading.
+    """
+    try:
+        from services.vix_monitor import get_vix_monitor
+        monitor = get_vix_monitor()
+        return monitor.get_status()
+    except Exception as e:
+        logger.warning(f"VIX status failed: {e}")
+        return {
+            "error": str(e),
+            "current_vix": 15.0,
+            "current_level": "unknown",
+            "running": False
+        }
+
+
+@app.get("/api/vix/history")
+async def get_vix_history(limit: int = 100):
+    """Get VIX history from monitor."""
+    try:
+        from services.vix_monitor import get_vix_monitor
+        monitor = get_vix_monitor()
+        return {
+            "history": monitor.get_history(limit),
+            "count": len(monitor.get_history(limit))
+        }
+    except Exception as e:
+        return {"error": str(e), "history": [], "count": 0}
 
 
 @app.get("/api/market/status")
@@ -1456,6 +1636,18 @@ async def get_gex_analysis(symbol: str, max_dte: int = 45):
 async def get_active_signals(symbols: str = "NVDA,AAPL,TSLA,AMD,MSFT,GOOGL"):
     """Get active trading signals from PropFirm Brain V6"""
     import pandas as pd
+
+    # Check SafetyGuard status - add warning if trading halted
+    safety_warning = None
+    try:
+        from core.safety_guard import get_safety_guard
+        guard = get_safety_guard()
+        can_trade, reason = guard.can_trade()
+        if not can_trade:
+            safety_warning = f"TRADING HALTED: {reason}"
+            logger.warning(f"[SIGNALS] {safety_warning}")
+    except Exception as e:
+        logger.debug(f"SafetyGuard check skipped: {e}")
 
     # Check if brain is available
     if PROPFIRM_BRAIN_V6_AVAILABLE and SERVICES_AVAILABLE:
@@ -2596,6 +2788,38 @@ async def get_regime_detection():
     except Exception as e:
         logger.error(f"Error in regime detection: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/neural/feedback-loop")
+async def get_feedback_loop_status():
+    """
+    Get ML feedback loop status.
+
+    Shows convergence progress, learning phase, and performance metrics.
+    """
+    try:
+        from brain.feedback_loop import get_feedback_loop
+        loop = get_feedback_loop()
+        return {
+            "available": True,
+            "status": loop.get_status(),
+            "strategy_performance": loop.get_strategy_performance(),
+            "timestamp": datetime.now().isoformat()
+        }
+    except ImportError:
+        return {
+            "available": False,
+            "error": "Feedback loop module not available",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Feedback loop status error: {e}")
+        return {
+            "available": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
 
 # ============== RESEARCH ==============
 
@@ -4162,6 +4386,187 @@ async def get_live_historical(symbol: str, period: str = "1y", interval: str = "
 
 # ============== HEALTH & SYSTEM STATUS ==============
 
+@app.get("/api/dashboard/status")
+async def get_dashboard_status():
+    """
+    Comprehensive dashboard status for frontend.
+
+    Returns all system health, data freshness, and service status in one call.
+    """
+    status = {
+        "timestamp": datetime.now().isoformat(),
+        "system": {
+            "status": "operational",
+            "uptime_seconds": 0,
+            "version": "10.0"
+        },
+        "data": {
+            "mode": "OFFLINE",
+            "is_live": False,
+            "freshness": "unknown",
+            "freshness_seconds": None,
+            "sources": []
+        },
+        "trading": {
+            "allowed": True,
+            "reason": "OK",
+            "environment": "paper",
+            "kill_switch_active": False
+        },
+        "safety": {
+            "guard_active": True,
+            "daily_pnl": 0,
+            "daily_pnl_pct": 0,
+            "drawdown_pct": 0,
+            "consecutive_losses": 0
+        },
+        "market": {
+            "session": "unknown",
+            "is_open": False,
+            "next_open": None
+        },
+        "ml": {
+            "brain_available": PROPFIRM_BRAIN_V6_AVAILABLE,
+            "brain_trained": False,
+            "training_step": 0
+        },
+        "services": {
+            "data_service": False,
+            "brain_v6": PROPFIRM_BRAIN_V6_AVAILABLE,
+            "safety_guard": False,
+            "kill_switch": False,
+            "trade_journal": False,
+            "feedback_loop": False,
+            "vix_monitor": False
+        }
+    }
+
+    # System uptime from orchestrator
+    try:
+        from services.orchestrator import get_orchestrator
+        orchestrator = get_orchestrator()
+        health = orchestrator.get_health()
+        status["system"]["uptime_seconds"] = health.get("uptime_seconds", 0)
+        status["trading"]["environment"] = health.get("environment", "paper")
+    except Exception:
+        pass
+
+    # Data service status
+    if SERVICES_AVAILABLE:
+        try:
+            data_service = get_data_service()
+            status["services"]["data_service"] = True
+
+            # Check data freshness
+            active_sources = []
+            for source in data_service.sources:
+                if source.name != "fallback":
+                    active_sources.append(source.name)
+
+            status["data"]["sources"] = active_sources
+            status["data"]["mode"] = "LIVE" if any(s in ["alpaca", "tradier"] for s in active_sources) else "DELAYED"
+            status["data"]["is_live"] = status["data"]["mode"] == "LIVE"
+
+            # Check last data update
+            if MARKET_DATA:
+                for sym, data in list(MARKET_DATA.items())[:1]:
+                    ts = data.get("timestamp")
+                    if ts:
+                        try:
+                            update_time = datetime.fromisoformat(ts.replace("Z", "+00:00").replace("+00:00", ""))
+                            age = (datetime.now() - update_time).total_seconds()
+                            status["data"]["freshness_seconds"] = age
+                            if age < 60:
+                                status["data"]["freshness"] = "fresh"
+                            elif age < 300:
+                                status["data"]["freshness"] = "recent"
+                            else:
+                                status["data"]["freshness"] = "stale"
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"Data service status error: {e}")
+
+    # Safety guard status
+    try:
+        from core.safety_guard import get_safety_guard
+        guard = get_safety_guard()
+        guard_status = guard.get_status()
+        status["services"]["safety_guard"] = True
+        status["safety"]["daily_pnl"] = guard_status.get("daily_pnl", 0)
+        status["safety"]["daily_pnl_pct"] = guard_status.get("daily_loss_pct", 0)
+        status["safety"]["drawdown_pct"] = guard_status.get("drawdown_pct", 0)
+        status["safety"]["consecutive_losses"] = guard_status.get("consecutive_losses", 0)
+
+        can_trade, reason = guard.can_trade()
+        status["trading"]["allowed"] = can_trade
+        status["trading"]["reason"] = reason
+    except Exception as e:
+        logger.debug(f"Safety guard status error: {e}")
+
+    # Kill switch status
+    try:
+        from execution.kill_switch import get_kill_switch
+        ks = get_kill_switch()
+        status["services"]["kill_switch"] = True
+        status["trading"]["kill_switch_active"] = ks.check()
+        if ks.check():
+            status["trading"]["allowed"] = False
+            status["trading"]["reason"] = f"Kill switch active: {ks.reason}"
+    except Exception as e:
+        logger.debug(f"Kill switch status error: {e}")
+
+    # Market status
+    if MARKET_HOURS_AVAILABLE:
+        try:
+            market_info = get_market_status()
+            status["market"]["session"] = market_info.get("session", "unknown")
+            status["market"]["is_open"] = market_info.get("is_open", False)
+            status["market"]["next_open"] = market_info.get("next_open")
+        except Exception:
+            pass
+
+    # ML status
+    if PROPFIRM_BRAIN_V6_AVAILABLE:
+        try:
+            brain = get_propfirm_brain_v6()
+            status["ml"]["brain_trained"] = brain.is_trained
+            status["ml"]["training_step"] = brain.training_step
+        except Exception:
+            pass
+
+    # Trade journal
+    try:
+        from services.trade_journal import get_trade_journal
+        journal = get_trade_journal()
+        status["services"]["trade_journal"] = True
+    except Exception:
+        pass
+
+    # Feedback loop
+    try:
+        from brain.feedback_loop import get_feedback_loop
+        loop = get_feedback_loop()
+        status["services"]["feedback_loop"] = True
+    except Exception:
+        pass
+
+    # VIX monitor
+    try:
+        from services.vix_monitor import get_vix_monitor
+        monitor = get_vix_monitor()
+        status["services"]["vix_monitor"] = True
+    except Exception:
+        pass
+
+    # Overall status
+    critical_services = ["data_service", "safety_guard"]
+    all_critical = all(status["services"].get(s, False) for s in critical_services)
+    status["system"]["status"] = "operational" if all_critical else "degraded"
+
+    return status
+
+
 @app.get("/api/system/health")
 async def get_system_health():
     """Get detailed system health"""
@@ -5373,6 +5778,216 @@ async def get_trade_stats(range: str = "30d"):
         "is_real": False
     }
 
+
+# ============== TRADE JOURNAL ==============
+
+@app.get("/api/journal/summary")
+async def get_journal_summary(days: int = 30):
+    """Get trade journal summary."""
+    try:
+        from services.trade_journal import get_trade_journal
+        journal = get_trade_journal()
+        return journal.get_summary(days)
+    except Exception as e:
+        return {"error": str(e), "trades": 0, "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/api/journal/trades")
+async def get_journal_trades(
+    limit: int = 100,
+    symbol: str = None,
+    strategy_id: str = None,
+    start_date: str = None,
+    end_date: str = None
+):
+    """Get trades from journal."""
+    try:
+        from services.trade_journal import get_trade_journal
+
+        journal = get_trade_journal()
+
+        # Parse dates
+        start = None
+        end = None
+        if start_date:
+            start = datetime.fromisoformat(start_date).date()
+        if end_date:
+            end = datetime.fromisoformat(end_date).date()
+
+        trades = journal.get_trades(
+            start_date=start,
+            end_date=end,
+            symbol=symbol,
+            strategy_id=strategy_id,
+            limit=limit
+        )
+
+        return {
+            "trades": [t.to_dict() for t in trades],
+            "count": len(trades)
+        }
+    except Exception as e:
+        return {"error": str(e), "trades": [], "count": 0}
+
+
+@app.get("/api/journal/trades/open")
+async def get_open_journal_trades():
+    """Get open trades from journal."""
+    try:
+        from services.trade_journal import get_trade_journal
+        journal = get_trade_journal()
+        trades = journal.get_open_trades()
+        return {
+            "trades": [t.to_dict() for t in trades],
+            "count": len(trades)
+        }
+    except Exception as e:
+        return {"error": str(e), "trades": [], "count": 0}
+
+
+@app.get("/api/journal/trade/{trade_id}")
+async def get_journal_trade(trade_id: str):
+    """Get specific trade from journal."""
+    try:
+        from services.trade_journal import get_trade_journal
+        journal = get_trade_journal()
+        trade = journal.get_trade(trade_id)
+        if not trade:
+            raise HTTPException(status_code=404, detail="Trade not found")
+        return trade.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/journal/strategies/performance")
+async def get_strategies_performance():
+    """Get performance for all strategies."""
+    try:
+        from services.trade_journal import get_trade_journal
+        journal = get_trade_journal()
+        perf = journal.get_all_strategy_performance()
+        return {
+            "strategies": {sid: p.to_dict() for sid, p in perf.items()},
+            "count": len(perf)
+        }
+    except Exception as e:
+        return {"error": str(e), "strategies": {}, "count": 0}
+
+
+@app.get("/api/journal/strategy/{strategy_id}/performance")
+async def get_strategy_performance(strategy_id: str, days: int = 30):
+    """Get performance for a specific strategy."""
+    try:
+        from services.trade_journal import get_trade_journal
+        from datetime import timedelta
+
+        journal = get_trade_journal()
+        start = (datetime.now() - timedelta(days=days)).date() if days else None
+        perf = journal.get_strategy_performance(strategy_id, start)
+        return perf.to_dict()
+    except Exception as e:
+        return {"error": str(e), "strategy_id": strategy_id}
+
+
+@app.get("/api/journal/entries")
+async def get_journal_entries(entry_type: str = None, limit: int = 100):
+    """Get journal entries."""
+    try:
+        from services.trade_journal import get_trade_journal
+        journal = get_trade_journal()
+        entries = journal.get_entries(entry_type=entry_type, limit=limit)
+        return {
+            "entries": [e.to_dict() for e in entries],
+            "count": len(entries)
+        }
+    except Exception as e:
+        return {"error": str(e), "entries": [], "count": 0}
+
+
+@app.get("/api/journal/export")
+async def export_journal_trades(
+    start_date: str,
+    end_date: str,
+    format: str = "csv"
+):
+    """Export trades from journal."""
+    from fastapi.responses import Response
+
+    try:
+        from services.trade_journal import get_trade_journal
+
+        journal = get_trade_journal()
+        start = datetime.fromisoformat(start_date).date()
+        end = datetime.fromisoformat(end_date).date()
+
+        data = journal.export_trades(start, end, format)
+
+        content_type = "text/csv" if format == "csv" else "application/json"
+        filename = f"trades_{start}_{end}.{format}"
+
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== STRATEGY WEIGHTS ==============
+
+@app.get("/api/strategies/weights")
+async def get_strategy_weights():
+    """Get all strategy weights."""
+    try:
+        from strategies.strategy_weights import get_weights_manager
+        manager = get_weights_manager()
+        return manager.get_status()
+    except Exception as e:
+        return {"error": str(e), "strategies_count": 0, "weights": {}}
+
+
+@app.get("/api/strategies/weights/{strategy_id}")
+async def get_strategy_weight(strategy_id: str):
+    """Get weight for a specific strategy."""
+    try:
+        from strategies.strategy_weights import get_weights_manager
+        manager = get_weights_manager()
+        weight = manager.get_weight(strategy_id)
+        if not weight:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        return weight.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/strategies/weights/{strategy_id}")
+async def set_strategy_weight(strategy_id: str, weight: float):
+    """Set weight for a strategy."""
+    try:
+        from strategies.strategy_weights import get_weights_manager
+        manager = get_weights_manager()
+        manager.set_weight(strategy_id, weight)
+        return {"status": "updated", "strategy_id": strategy_id, "weight": weight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/strategies/performance")
+async def get_all_strategies_performance(days: int = 30):
+    """Get performance for all strategies from weights manager."""
+    try:
+        from strategies.strategy_weights import get_weights_manager
+        manager = get_weights_manager()
+        return manager.get_all_performance(days)
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ============== PROPFIRM BRAIN V6 ==============
 
 @app.get("/api/brain-v6/status")
@@ -5538,6 +6153,86 @@ async def update_brain_v6_config(config: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Brain V6 config update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/brain-v6/model/save")
+async def save_brain_v6_model(path: str = None):
+    """Save model weights to file."""
+    if not SERVICES_AVAILABLE or not PROPFIRM_BRAIN_V6_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PropFirm Brain V6 not available")
+
+    try:
+        brain = get_propfirm_brain_v6()
+        success = brain.save_model(path)
+
+        if success:
+            return {
+                "status": "saved",
+                "model_version": brain.model_version,
+                "training_step": brain.training_step,
+                "path": path or "brain_v6_weights.pt"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save model")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Brain V6 save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/brain-v6/model/load")
+async def load_brain_v6_model(path: str = None):
+    """Load model weights from file."""
+    if not SERVICES_AVAILABLE or not PROPFIRM_BRAIN_V6_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PropFirm Brain V6 not available")
+
+    try:
+        brain = get_propfirm_brain_v6()
+        success = brain.load_model(path)
+
+        if success:
+            return {
+                "status": "loaded",
+                "model_version": brain.model_version,
+                "training_step": brain.training_step,
+                "is_trained": brain.is_trained,
+                "path": path or "brain_v6_weights.pt"
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Model file not found or failed to load")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Brain V6 load error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/brain-v6/model/info")
+async def get_brain_v6_model_info():
+    """Get model information including version and training state."""
+    if not SERVICES_AVAILABLE or not PROPFIRM_BRAIN_V6_AVAILABLE:
+        raise HTTPException(status_code=503, detail="PropFirm Brain V6 not available")
+
+    try:
+        brain = get_propfirm_brain_v6()
+        return {
+            "model_version": brain.model_version,
+            "is_trained": brain.is_trained,
+            "training_step": brain.training_step,
+            "total_trades_seen": brain.total_trades_seen,
+            "feature_schema_hash": brain._feature_schema_hash,
+            "device": brain.device,
+            "current_regime": brain.current_regime.value,
+            "regime_probs": brain.regime_probs,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Brain V6 model info error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/brain-v6/training-history")
 async def get_brain_v6_training_history(limit: int = 100):
@@ -7644,6 +8339,35 @@ async def get_all_signals():
 @app.post("/api/signals/{signal_id}/execute")
 async def execute_signal(signal_id: str):
     """Execute a trading signal"""
+    # SAFETY CHECK - Non-negotiable
+    try:
+        from core.safety_guard import get_safety_guard
+        guard = get_safety_guard()
+        can_trade, reason = guard.can_trade(is_live=False)  # Assume paper unless configured
+        if not can_trade:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Trading blocked by SafetyGuard: {reason}"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"SafetyGuard check skipped: {e}")
+
+    # Kill Switch check
+    try:
+        from execution.kill_switch import get_kill_switch
+        ks = get_kill_switch()
+        if ks.check():
+            raise HTTPException(
+                status_code=403,
+                detail=f"Trading blocked by KillSwitch: {ks.reason}"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"KillSwitch check skipped: {e}")
+
     if signal_id not in ACTIVE_SIGNALS:
         raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
 

@@ -45,6 +45,15 @@ from .safety_guard import (
     require_safe_trading,
 )
 
+from .logging_config import (
+    setup_logging,
+    get_trade_logger,
+    get_safety_logger,
+    get_ml_logger,
+    log_trade,
+    log_safety_event,
+)
+
 __all__ = [
     # Deployment
     "DeploymentStage",
@@ -73,4 +82,11 @@ __all__ = [
     "SafetyError",
     "get_safety_guard",
     "require_safe_trading",
+    # Logging
+    "setup_logging",
+    "get_trade_logger",
+    "get_safety_logger",
+    "get_ml_logger",
+    "log_trade",
+    "log_safety_event",
 ]
