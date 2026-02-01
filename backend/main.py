@@ -638,6 +638,20 @@ _init_market_data()
 async def root():
     return {"message": "QUANT INDUSTRY API v10.0", "status": "operational"}
 
+@app.get("/api/ping")
+async def ping():
+    """Fast ping endpoint for connectivity check - no heavy processing"""
+    return {"status": "ok", "ts": datetime.now().isoformat()}
+
+@app.get("/api/health/quick")
+async def health_quick():
+    """Quick health check - minimal processing"""
+    return {
+        "status": "healthy",
+        "version": "10.0",
+        "timestamp": datetime.now().isoformat()
+    }
+
 @app.get("/api/health")
 async def health_check():
     """Health check with market status, data source info, and system state"""

@@ -12,7 +12,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
 /** Default request timeout in milliseconds */
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = 60_000
 
 export interface ApiError {
   status: number

@@ -26,12 +26,15 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
+// Auth requests get longer timeout due to password hashing
+const AUTH_TIMEOUT = 90_000
+
 export const authApi = {
   login: (data: LoginRequest): Promise<ApiResponse<AuthResponse>> =>
-    api.post<AuthResponse>('/api/auth/login', data),
+    api.post<AuthResponse>('/api/auth/login', data, { timeout: AUTH_TIMEOUT }),
 
   register: (data: RegisterRequest): Promise<ApiResponse<AuthResponse>> =>
-    api.post<AuthResponse>('/api/auth/register', data),
+    api.post<AuthResponse>('/api/auth/register', data, { timeout: AUTH_TIMEOUT }),
 
   logout: (token: string): Promise<ApiResponse<{ message: string }>> =>
     api.post<{ message: string }>('/api/auth/logout', undefined, {
