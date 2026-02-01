@@ -1,6 +1,11 @@
-import { CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+/**
+ * AI Trade Confirmation
+ * Uses real backend AI analysis to confirm trade setups
+ */
 import { useState } from 'react'
+import { CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { tradingApi } from '@/api/client'
 
 export function TradeConfirm() {
   const [ticker, setTicker] = useState('AAPL')
@@ -10,34 +15,53 @@ export function TradeConfirm() {
   const [stopLoss, setStopLoss] = useState(225)
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     setAnalyzing(true)
-    setTimeout(() => {
-      const technical = 65 + Math.floor(Math.random() * 30)
-      const momentum = 55 + Math.floor(Math.random() * 35)
-      const volume = 50 + Math.floor(Math.random() * 40)
-      const riskReward = Math.abs((targetPrice - entryPrice) / (entryPrice - stopLoss))
-      const risk = Math.min(95, Math.floor(riskReward * 30))
-      const regime = 60 + Math.floor(Math.random() * 30)
+    setError(null)
 
-      const score = Math.floor(
-        technical * 0.25 +
-        momentum * 0.2 +
-        volume * 0.15 +
-        risk * 0.25 +
-        regime * 0.15
-      )
-
-      setResult({
-        approved: score >= 70,
-        score,
-        confidence: score,
-        components: { technical, momentum, volume, risk, regime },
-        riskReward: riskReward.toFixed(2)
+    try {
+      const response = await tradingApi.confirmTrade({
+        ticker,
+        direction,
+        entry_price: entryPrice,
+        target: targetPrice,
+        stop_loss: stopLoss
       })
+
+      if (response.ok && response.data) {
+        const data = response.data
+        // Map API response to component format
+        setResult({
+          approved: data.approved,
+          score: data.score,
+          confidence: data.confidence,
+          components: data.components || {},
+          riskReward: ((targetPrice - entryPrice) / Math.abs(entryPrice - stopLoss)).toFixed(2),
+          recommendation: data.recommendation,
+          analysis: data.analysis
+        })
+      } else {
+        setError(response.error?.message || 'Failed to analyze trade')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to analyze trade')
+    } finally {
       setAnalyzing(false)
-    }, 1000)
+    }
+  }
+
+  const getScoreColor = (score: number) => {
+    if (score >= 75) return 'text-bullish'
+    if (score >= 50) return 'text-accent-primary'
+    return 'text-bearish'
+  }
+
+  const getBarColor = (score: number) => {
+    if (score >= 75) return 'bg-bullish'
+    if (score >= 50) return 'bg-accent-primary'
+    return 'bg-bearish'
   }
 
   return (
@@ -52,6 +76,12 @@ export function TradeConfirm() {
           <p className="text-xs text-foreground-muted">Blended Signal Analysis + AI Verification</p>
         </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-bearish/10 border border-bearish/30 rounded-lg text-bearish text-sm">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-4">
         {/* Trade Input */}
@@ -130,9 +160,16 @@ export function TradeConfirm() {
             <button
               onClick={handleAnalyze}
               disabled={analyzing}
-              className="btn-primary w-full"
+              className="btn-primary w-full flex items-center justify-center gap-2"
             >
-              {analyzing ? 'Analyzing...' : 'ANALYZE TRADE'}
+              {analyzing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                'ANALYZE TRADE'
+              )}
             </button>
           </div>
         </div>
@@ -141,7 +178,14 @@ export function TradeConfirm() {
         <div className="col-span-4 card p-4">
           <h3 className="text-xs font-bold text-foreground-muted mb-4">AI DECISION</h3>
 
-          {result ? (
+          {analyzing ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-accent-primary mx-auto mb-2" />
+                <p className="text-sm text-foreground-muted">Analyzing trade setup...</p>
+              </div>
+            </div>
+          ) : result ? (
             <div className="space-y-4">
               {/* Approval Status */}
               <div className={cn(
@@ -149,125 +193,158 @@ export function TradeConfirm() {
                 result.approved ? 'bg-bullish/10' : 'bg-bearish/10'
               )}>
                 {result.approved ? (
-                  <CheckCircle2 className="w-10 h-10 text-bullish" />
+                  <CheckCircle2 className="w-8 h-8 text-bullish" />
                 ) : (
-                  <XCircle className="w-10 h-10 text-bearish" />
+                  <XCircle className="w-8 h-8 text-bearish" />
                 )}
                 <div>
                   <div className={cn(
-                    'text-2xl font-bold',
+                    'text-xl font-bold',
                     result.approved ? 'text-bullish' : 'text-bearish'
                   )}>
                     {result.approved ? 'APPROVED' : 'REJECTED'}
                   </div>
-                  <div className="text-sm text-foreground-muted">
-                    Score: {result.score}/100 | Confidence: {result.confidence}%
+                  <div className="text-xs text-foreground-muted">
+                    AI Score: {result.score}/100
                   </div>
                 </div>
               </div>
 
-              {/* Score Breakdown */}
+              {/* Confidence Meter */}
               <div>
-                <h4 className="text-xs font-bold text-foreground-muted mb-2">SCORE BREAKDOWN</h4>
-                <div className="space-y-2">
-                  {Object.entries(result.components).map(([key, value]) => (
-                    <div key={key}>
-                      <div className="flex justify-between mb-1">
-                        <span className="text-xs capitalize">{key}</span>
-                        <span className="text-xs font-mono">{value as number}</span>
-                      </div>
-                      <div className="h-2 bg-background-tertiary rounded-full overflow-hidden">
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            (value as number) >= 70 ? 'bg-bullish' : (value as number) >= 50 ? 'bg-accent-primary' : 'bg-bearish'
-                          )}
-                          style={{ width: `${value}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-foreground-muted">Confidence</span>
+                  <span className={cn('font-mono font-bold', getScoreColor(result.confidence))}>
+                    {result.confidence}%
+                  </span>
+                </div>
+                <div className="h-3 bg-background-tertiary rounded-full overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-full transition-all', getBarColor(result.confidence))}
+                    style={{ width: `${result.confidence}%` }}
+                  />
                 </div>
               </div>
 
               {/* Risk/Reward */}
-              <div className="bg-background-tertiary p-3 rounded">
+              <div className="p-3 bg-background-tertiary rounded-lg">
                 <div className="flex justify-between">
-                  <span className="text-xs text-foreground-muted">Risk/Reward Ratio</span>
+                  <span className="text-xs text-foreground-muted">Risk/Reward</span>
                   <span className={cn(
                     'text-sm font-mono font-bold',
-                    parseFloat(result.riskReward) >= 2 ? 'text-bullish' : 'text-warning'
+                    parseFloat(result.riskReward) >= 2 ? 'text-bullish' :
+                    parseFloat(result.riskReward) >= 1 ? 'text-warning' : 'text-bearish'
                   )}>
                     1:{result.riskReward}
                   </span>
                 </div>
               </div>
+
+              {/* Analysis Summary */}
+              {result.analysis && (
+                <div className="p-3 bg-background-tertiary rounded-lg">
+                  <div className="text-xs text-foreground-muted mb-1">Analysis</div>
+                  <p className="text-xs text-foreground-secondary">{result.analysis}</p>
+                </div>
+              )}
+
+              {/* Recommendation */}
+              {result.recommendation && (
+                <div className={cn(
+                  'p-3 rounded-lg border',
+                  result.approved
+                    ? 'bg-bullish/5 border-bullish/30'
+                    : 'bg-bearish/5 border-bearish/30'
+                )}>
+                  <div className="text-xs text-foreground-muted mb-1">Recommendation</div>
+                  <p className="text-sm">{result.recommendation}</p>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-foreground-muted">
-              <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
-              <p>Enter trade details and click Analyze</p>
+            <div className="flex items-center justify-center h-64 text-center">
+              <div>
+                <AlertCircle className="w-12 h-12 text-foreground-muted mx-auto mb-3" />
+                <p className="text-sm text-foreground-muted">
+                  Enter trade details and click<br />Analyze to get AI confirmation
+                </p>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Analysis & Recommendation */}
+        {/* Signal Components */}
         <div className="col-span-4 card p-4">
-          <h3 className="text-xs font-bold text-foreground-muted mb-4">ANALYSIS & RECOMMENDATION</h3>
+          <h3 className="text-xs font-bold text-foreground-muted mb-4">SIGNAL COMPONENTS</h3>
 
-          {result ? (
-            <div className="space-y-4 text-xs">
-              <div>
-                <h4 className="font-bold text-accent-primary mb-1">TECHNICAL ANALYSIS</h4>
-                <p className="text-foreground-secondary">
-                  {result.components.technical >= 70 ? 'Strong' : 'Moderate'} technical setup detected.
-                  RSI: {35 + Math.floor(Math.random() * 25)} (neutral zone).
-                  MACD: {result.components.momentum >= 65 ? 'Bullish crossover' : 'Converging'}.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-accent-primary mb-1">MOMENTUM</h4>
-                <p className="text-foreground-secondary">
-                  {result.components.momentum}% confidence.
-                  Price action shows {result.components.momentum >= 70 ? 'strong' : 'moderate'} momentum.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-accent-primary mb-1">VOLUME ANALYSIS</h4>
-                <p className="text-foreground-secondary">
-                  {result.components.volume >= 70 ? 'Above' : 'Near'} average volume.
-                  Institutional activity: {result.components.volume >= 80 ? 'Detected' : 'Normal'}.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-bold text-accent-primary mb-1">REGIME</h4>
-                <p className="text-foreground-secondary">
-                  {result.components.regime >= 75 ? 'Trending' : 'Ranging'} market.
-                  Current regime supports {result.components.regime >= 80 ? 'aggressive' : 'standard'} positioning.
-                </p>
-              </div>
-
-              <div className={cn(
-                'p-3 rounded',
-                result.approved ? 'bg-bullish/10' : 'bg-warning/10'
-              )}>
-                <h4 className="font-bold mb-1">RECOMMENDATION</h4>
-                <p className={cn(
-                  'font-medium',
-                  result.approved ? 'text-bullish' : 'text-warning'
-                )}>
-                  {result.approved
-                    ? 'APPROVED - Proceed with trade as planned.'
-                    : 'REVIEW - Consider adjusting entry or risk parameters.'}
-                </p>
-              </div>
+          {result && result.components ? (
+            <div className="space-y-3">
+              {Object.entries(result.components).map(([key, value]) => (
+                <div key={key}>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-xs capitalize">{key.replace(/_/g, ' ')}</span>
+                    <span className={cn('text-xs font-mono font-bold', getScoreColor(value as number))}>
+                      {(value as number).toFixed ? (value as number).toFixed(0) : value}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-background-tertiary rounded-full overflow-hidden">
+                    <div
+                      className={cn('h-full rounded-full transition-all', getBarColor(value as number))}
+                      style={{ width: `${Math.min(100, value as number)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="text-center py-12 text-foreground-muted">
-              Analysis will appear here
+            <div className="flex items-center justify-center h-48 text-center">
+              <p className="text-sm text-foreground-muted">
+                Signal components will appear<br />after analysis
+              </p>
+            </div>
+          )}
+
+          {/* Trade Summary */}
+          {result && (
+            <div className="mt-6 pt-4 border-t border-border">
+              <h4 className="text-xs font-bold text-foreground-muted mb-3">TRADE SUMMARY</h4>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Symbol</span>
+                  <span className="font-mono font-bold">{ticker}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Direction</span>
+                  <span className={cn(
+                    'font-bold',
+                    direction === 'LONG' ? 'text-bullish' : 'text-bearish'
+                  )}>{direction}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Entry</span>
+                  <span className="font-mono">${entryPrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Target</span>
+                  <span className="font-mono text-bullish">${targetPrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Stop Loss</span>
+                  <span className="font-mono text-bearish">${stopLoss.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Potential Gain</span>
+                  <span className="font-mono text-bullish">
+                    +{((targetPrice - entryPrice) / entryPrice * 100).toFixed(2)}%
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-foreground-muted">Risk</span>
+                  <span className="font-mono text-bearish">
+                    -{(Math.abs(entryPrice - stopLoss) / entryPrice * 100).toFixed(2)}%
+                  </span>
+                </div>
+              </div>
             </div>
           )}
         </div>

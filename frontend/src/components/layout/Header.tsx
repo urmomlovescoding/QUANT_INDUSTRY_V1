@@ -8,6 +8,7 @@ import { NotificationBell } from '../NotificationSystem'
 import { MarketRegimeIndicator } from '../MarketRegimeIndicator'
 import { MarketStatusBadge } from '../MarketStatus'
 import { KillSwitch } from '../KillSwitch'
+import { UserMenu } from '../auth'
 import { marketApi, healthApi, MarketTicker as MarketTickerType } from '@/api/client'
 
 // Fallback data when API is not available
@@ -164,6 +165,9 @@ export function Header() {
 
         {/* Kill switch */}
         <KillSwitch compact />
+
+        {/* User Menu */}
+        <UserMenu />
       </div>
     </header>
   )

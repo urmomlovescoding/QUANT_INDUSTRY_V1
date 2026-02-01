@@ -7,6 +7,12 @@ import { CommandPalette, useCommandPalette } from './components/CommandPalette'
 import { NotificationProvider } from './components/NotificationSystem'
 import { QuickTrade, useQuickTrade } from './components/QuickTrade'
 import { AlertProvider, AlertManager } from './components/AlertSystem'
+import { ProtectedRoute } from './components/auth'
+import { useAuthStore } from './store/authStore'
+
+// Auth views
+import { Login } from './views/Login'
+import { Register } from './views/Register'
 
 // Market views
 import { Dashboard } from './views/Dashboard'
@@ -74,6 +80,12 @@ function AppContent() {
   const commandPalette = useCommandPalette()
   const quickTrade = useQuickTrade()
   const [alertManagerOpen, setAlertManagerOpen] = useState(false)
+  const { isAuthenticated, setLoading } = useAuthStore()
+
+  // Initialize auth state on mount
+  useEffect(() => {
+    setLoading(false)
+  }, [setLoading])
 
   // Listen for alert manager open events (from command palette or keyboard shortcut)
   useEffect(() => {
@@ -91,73 +103,84 @@ function AppContent() {
 
   return (
     <>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Routes>
+        {/* Public auth routes */}
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
+        <Route path="/register" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />} />
 
-          {/* Markets */}
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/command-center" element={<CommandCenter />} />
-          <Route path="/screener" element={<Screener />} />
-          <Route path="/charts" element={<Charts />} />
+        {/* Protected routes wrapped in Layout */}
+        <Route path="/*" element={
+          <ProtectedRoute>
+            <Layout>
+              <Routes>
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-          {/* Options */}
-          <Route path="/options-lab" element={<OptionsLab />} />
-          <Route path="/gex-analysis" element={<GEXAnalysis />} />
-          <Route path="/flow-scanner" element={<FlowScanner />} />
-          <Route path="/strategies" element={<Strategies />} />
+                {/* Markets */}
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/command-center" element={<CommandCenter />} />
+                <Route path="/screener" element={<Screener />} />
+                <Route path="/charts" element={<Charts />} />
 
-          {/* Quant */}
-          <Route path="/quant-platform" element={<QuantPlatform />} />
-          <Route path="/trade-confirm" element={<TradeConfirm />} />
-          <Route path="/benchmark" element={<Benchmark />} />
-          <Route path="/risk-engine" element={<RiskEngine />} />
-          <Route path="/slide-doctrine" element={<SlideDoctrine />} />
+                {/* Options */}
+                <Route path="/options-lab" element={<OptionsLab />} />
+                <Route path="/gex-analysis" element={<GEXAnalysis />} />
+                <Route path="/flow-scanner" element={<FlowScanner />} />
+                <Route path="/strategies" element={<Strategies />} />
 
-          {/* Analytics */}
-          <Route path="/backtesting" element={<Backtesting />} />
-          <Route path="/monte-carlo" element={<MonteCarlo />} />
-          <Route path="/correlation" element={<Correlation />} />
-          <Route path="/risk-decomposition" element={<RiskDecomposition />} />
-          <Route path="/scenario-analysis" element={<ScenarioAnalysis />} />
+                {/* Quant */}
+                <Route path="/quant-platform" element={<QuantPlatform />} />
+                <Route path="/trade-confirm" element={<TradeConfirm />} />
+                <Route path="/benchmark" element={<Benchmark />} />
+                <Route path="/risk-engine" element={<RiskEngine />} />
+                <Route path="/slide-doctrine" element={<SlideDoctrine />} />
 
-          {/* Neural AI */}
-          <Route path="/neural-analysis" element={<NeuralAnalysis />} />
-          <Route path="/ml-predictions" element={<MLPredictions />} />
-          <Route path="/regime-detect" element={<RegimeDetect />} />
-          <Route path="/trading-brain" element={<TradingBrain />} />
-          <Route path="/algo-bot" element={<AlgoBot />} />
-          <Route path="/unified-brain" element={<UnifiedBrain />} />
-          <Route path="/ml-training" element={<MLTraining />} />
-          <Route path="/market-microstructure" element={<MarketMicrostructure />} />
+                {/* Analytics */}
+                <Route path="/backtesting" element={<Backtesting />} />
+                <Route path="/monte-carlo" element={<MonteCarlo />} />
+                <Route path="/correlation" element={<Correlation />} />
+                <Route path="/risk-decomposition" element={<RiskDecomposition />} />
+                <Route path="/scenario-analysis" element={<ScenarioAnalysis />} />
 
-          {/* Prop Firm */}
-          <Route path="/tpt-dashboard" element={<TPTDashboard />} />
-          <Route path="/futures-brain" element={<FuturesBrain />} />
+                {/* Neural AI */}
+                <Route path="/neural-analysis" element={<NeuralAnalysis />} />
+                <Route path="/ml-predictions" element={<MLPredictions />} />
+                <Route path="/regime-detect" element={<RegimeDetect />} />
+                <Route path="/trading-brain" element={<TradingBrain />} />
+                <Route path="/algo-bot" element={<AlgoBot />} />
+                <Route path="/unified-brain" element={<UnifiedBrain />} />
+                <Route path="/ml-training" element={<MLTraining />} />
+                <Route path="/market-microstructure" element={<MarketMicrostructure />} />
 
-          {/* Research */}
-          <Route path="/13f-holdings" element={<Holdings13F />} />
-          <Route path="/sec-filings" element={<SECFilings />} />
-          <Route path="/dark-pool" element={<DarkPool />} />
-          <Route path="/earnings" element={<Earnings />} />
-          <Route path="/news" element={<News />} />
+                {/* Prop Firm */}
+                <Route path="/tpt-dashboard" element={<TPTDashboard />} />
+                <Route path="/futures-brain" element={<FuturesBrain />} />
 
-          {/* Portfolio */}
-          <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/pairs-trading" element={<PairsTrading />} />
-          <Route path="/reports" element={<Reports />} />
+                {/* Research */}
+                <Route path="/13f-holdings" element={<Holdings13F />} />
+                <Route path="/sec-filings" element={<SECFilings />} />
+                <Route path="/dark-pool" element={<DarkPool />} />
+                <Route path="/earnings" element={<Earnings />} />
+                <Route path="/news" element={<News />} />
 
-          {/* System */}
-          <Route path="/api-connector" element={<APIConnector />} />
-          <Route path="/settings" element={<Settings />} />
+                {/* Portfolio */}
+                <Route path="/portfolio" element={<Portfolio />} />
+                <Route path="/pairs-trading" element={<PairsTrading />} />
+                <Route path="/reports" element={<Reports />} />
 
-          {/* Legacy routes */}
-          <Route path="/signals" element={<Signals />} />
-          <Route path="/positions" element={<Positions />} />
-          <Route path="/performance" element={<Performance />} />
-          <Route path="/analytics" element={<Analytics />} />
-        </Routes>
-      </Layout>
+                {/* System */}
+                <Route path="/api-connector" element={<APIConnector />} />
+                <Route path="/settings" element={<Settings />} />
+
+                {/* Legacy routes */}
+                <Route path="/signals" element={<Signals />} />
+                <Route path="/positions" element={<Positions />} />
+                <Route path="/performance" element={<Performance />} />
+                <Route path="/analytics" element={<Analytics />} />
+              </Routes>
+            </Layout>
+          </ProtectedRoute>
+        } />
+      </Routes>
       <Toaster />
       <CommandPalette isOpen={commandPalette.isOpen} onClose={commandPalette.close} />
       <QuickTrade
