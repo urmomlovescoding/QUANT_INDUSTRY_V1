@@ -432,7 +432,7 @@ function ConnectionCard({
               </div>
             )}
             <div className="text-foreground-muted">
-              <span className="font-mono">{connection.requestsToday.toLocaleString()}</span> requests today
+              <span className="font-mono">{(connection.requestsToday ?? 0).toLocaleString()}</span> requests today
             </div>
           </div>
 

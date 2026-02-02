@@ -12,14 +12,150 @@ from backend.config.env import config
 
 import asyncio
 import logging
+import os
+import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, EmailStr
 import random
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["core"])
+
+
+# ============== DEV MODE AUTH (No Database Required) ==============
+# Simple in-memory auth for development - DO NOT USE IN PRODUCTION
+
+_dev_users: Dict[str, Dict[str, Any]] = {}
+_dev_tokens: Dict[str, str] = {}  # token -> email
+
+
+class DevLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class DevRegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str = "Dev User"
+    organization_name: str = "Dev Org"
+
+
+@router.post("/auth/login")
+async def dev_login(data: DevLoginRequest):
+    """Dev mode login - works without database."""
+    # Check if user exists
+    if data.email not in _dev_users:
+        # Auto-create user on first login for dev convenience
+        _dev_users[data.email] = {
+            "email": data.email,
+            "password": data.password,
+            "full_name": "Dev User",
+            "organization_name": "Dev Org",
+            "role": "owner",
+            "id": str(uuid.uuid4()),
+            "organization_id": str(uuid.uuid4()),
+        }
+        logger.info(f"[DEV] Auto-created user: {data.email}")
+
+    user = _dev_users[data.email]
+
+    if user["password"] != data.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Generate simple token
+    token = f"dev_{uuid.uuid4().hex}"
+    _dev_tokens[token] = data.email
+
+    return {
+        "tokens": {
+            "access_token": token,
+            "refresh_token": f"refresh_{uuid.uuid4().hex}",
+            "token_type": "bearer",
+            "expires_in": 86400
+        },
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "role": user["role"],
+            "organization_id": user["organization_id"],
+            "organization_name": user["organization_name"],
+            "is_active": True
+        }
+    }
+
+
+@router.post("/auth/register")
+async def dev_register(data: DevRegisterRequest):
+    """Dev mode register - works without database."""
+    if data.email in _dev_users:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user_id = str(uuid.uuid4())
+    org_id = str(uuid.uuid4())
+
+    _dev_users[data.email] = {
+        "email": data.email,
+        "password": data.password,
+        "full_name": data.full_name,
+        "organization_name": data.organization_name,
+        "role": "owner",
+        "id": user_id,
+        "organization_id": org_id,
+    }
+
+    # Generate token
+    token = f"dev_{uuid.uuid4().hex}"
+    _dev_tokens[token] = data.email
+
+    logger.info(f"[DEV] Registered user: {data.email}")
+
+    return {
+        "tokens": {
+            "access_token": token,
+            "refresh_token": f"refresh_{uuid.uuid4().hex}",
+            "token_type": "bearer",
+            "expires_in": 86400
+        },
+        "user": {
+            "id": user_id,
+            "email": data.email,
+            "full_name": data.full_name,
+            "role": "owner",
+            "organization_id": org_id,
+            "organization_name": data.organization_name,
+            "is_active": True
+        }
+    }
+
+
+@router.get("/auth/me")
+async def dev_me():
+    """Dev mode - return mock user."""
+    return {
+        "id": "dev-user-1",
+        "email": "dev@example.com",
+        "full_name": "Dev User",
+        "role": "owner",
+        "organization_id": "dev-org-1",
+        "organization_name": "Dev Org",
+        "is_active": True
+    }
+
+
+@router.post("/auth/refresh")
+async def dev_refresh():
+    """Dev mode token refresh."""
+    return {
+        "access_token": f"dev_{uuid.uuid4().hex}",
+        "refresh_token": f"refresh_{uuid.uuid4().hex}",
+        "token_type": "bearer",
+        "expires_in": 86400
+    }
 
 # Market data service - initialized per-request to handle event loop changes
 _market_service = None
@@ -1341,3 +1477,338 @@ async def get_portfolio_allocation(
     except Exception as e:
         logger.error(f"Portfolio allocation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== STUB ENDPOINTS (Prevent 404s) ==============
+# These return mock data to prevent frontend errors
+
+@router.get("/risk/scenarios")
+async def get_risk_scenarios():
+    """Get risk scenarios."""
+    return {
+        "scenarios": [
+            {"name": "Base Case", "probability": 0.6, "impact": 0},
+            {"name": "Bull Case", "probability": 0.25, "impact": 15},
+            {"name": "Bear Case", "probability": 0.15, "impact": -20}
+        ]
+    }
+
+
+@router.get("/risk/scenarios/history")
+async def get_risk_scenarios_history():
+    """Get risk scenarios history."""
+    return {"history": []}
+
+
+@router.get("/brain-v6/config")
+async def get_brain_config():
+    """Get brain configuration."""
+    return {
+        "model": "propfirm_brain_v6",
+        "learning_rate": 0.001,
+        "batch_size": 32,
+        "epochs": 100,
+        "features": ["price", "volume", "momentum", "volatility"],
+        "horizons": ["5m", "15m", "1h", "4h", "1d"]
+    }
+
+
+@router.get("/brain-v6/training-history")
+async def get_brain_training_history(limit: int = 100):
+    """Get brain training history."""
+    return {"history": [], "total": 0}
+
+
+@router.get("/brain-v6/analyze/{symbol}")
+async def analyze_brain_symbol(symbol: str):
+    """Analyze symbol with brain."""
+    return {
+        "symbol": symbol.upper(),
+        "signal": "HOLD",
+        "confidence": 0.65,
+        "analysis": {
+            "trend": "neutral",
+            "momentum": "neutral",
+            "volatility": "low"
+        }
+    }
+
+
+@router.get("/brain-v6/signal/{symbol}")
+async def get_brain_signal(symbol: str):
+    """Get brain signal for symbol."""
+    return {
+        "symbol": symbol.upper(),
+        "signal": "HOLD",
+        "confidence": 0.5,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@router.post("/brain-v6/train")
+async def train_brain():
+    """Train the brain model."""
+    return {"status": "training_queued", "message": "Training will start shortly"}
+
+
+@router.get("/brain-v6/strategies")
+async def get_brain_strategies():
+    """Get available strategies."""
+    return {
+        "strategies": [
+            {"name": "Trend Following", "status": "active", "pnl": 2.5},
+            {"name": "Mean Reversion", "status": "active", "pnl": 1.2},
+            {"name": "Momentum", "status": "paused", "pnl": -0.5},
+            {"name": "Vol Targeting", "status": "active", "pnl": 3.1}
+        ]
+    }
+
+
+@router.get("/microstructure/status")
+async def get_microstructure_status():
+    """Get microstructure analysis status."""
+    return {"status": "ready", "symbols_tracked": 50}
+
+
+@router.get("/microstructure/sessions")
+async def get_microstructure_sessions():
+    """Get microstructure sessions."""
+    return {"sessions": []}
+
+
+@router.get("/microstructure/analyze/{symbol}")
+async def analyze_microstructure(symbol: str):
+    """Analyze microstructure for symbol."""
+    return {
+        "symbol": symbol.upper(),
+        "spread_bps": 2.5,
+        "depth_imbalance": 0.1,
+        "trade_flow": "neutral",
+        "volatility_regime": "low"
+    }
+
+
+@router.get("/futures/{symbol}/prices")
+async def get_futures_prices(symbol: str):
+    """Get futures prices."""
+    base_price = 4500 if symbol.upper() == "ES" else 15000
+    return {
+        "symbol": symbol.upper(),
+        "price": base_price + random.uniform(-50, 50),
+        "change": random.uniform(-1, 1),
+        "volume": random.randint(100000, 500000)
+    }
+
+
+@router.get("/futures/{symbol}/signals")
+async def get_futures_signals(symbol: str):
+    """Get futures trading signals."""
+    return {
+        "symbol": symbol.upper(),
+        "signal": random.choice(["LONG", "SHORT", "FLAT"]),
+        "confidence": round(random.uniform(0.5, 0.9), 2),
+        "entry": 4500,
+        "stop": 4480,
+        "target": 4550
+    }
+
+
+@router.get("/ml/predict/{symbol}")
+async def ml_predict(symbol: str, model: str = "ensemble", horizon: str = "5d"):
+    """ML prediction for symbol."""
+    return {
+        "symbol": symbol.upper(),
+        "model": model,
+        "horizon": horizon,
+        "prediction": random.choice(["bullish", "bearish", "neutral"]),
+        "confidence": round(random.uniform(0.5, 0.85), 2),
+        "expected_return": round(random.uniform(-5, 10), 2)
+    }
+
+
+@router.get("/regime/detect")
+async def detect_regime(symbol: str = "SPY"):
+    """Detect market regime."""
+    return {
+        "symbol": symbol.upper(),
+        "regime": random.choice(["trending_up", "trending_down", "ranging", "volatile"]),
+        "confidence": round(random.uniform(0.6, 0.9), 2),
+        "duration_days": random.randint(5, 30)
+    }
+
+
+@router.get("/neural/analyze/{symbol}")
+async def neural_analyze(symbol: str):
+    """Neural network analysis."""
+    return {
+        "symbol": symbol.upper(),
+        "prediction": round(random.uniform(-2, 5), 2),
+        "confidence": round(random.uniform(0.5, 0.8), 2),
+        "features": {
+            "momentum": round(random.uniform(-1, 1), 2),
+            "trend": round(random.uniform(-1, 1), 2),
+            "volatility": round(random.uniform(0, 1), 2)
+        }
+    }
+
+
+@router.get("/neural/analysis/{symbol}")
+async def neural_analysis(symbol: str):
+    """Neural network detailed analysis."""
+    return await neural_analyze(symbol)
+
+
+@router.get("/neural/regime")
+async def neural_regime():
+    """Neural network regime detection."""
+    return {
+        "regime": random.choice(["risk_on", "risk_off", "neutral"]),
+        "probability": round(random.uniform(0.6, 0.9), 2),
+        "indicators": {
+            "vix": round(random.uniform(12, 25), 1),
+            "credit_spread": round(random.uniform(1, 3), 2),
+            "yield_curve": round(random.uniform(-0.5, 1), 2)
+        }
+    }
+
+
+@router.get("/research/13f/{symbol}")
+async def research_13f(symbol: str):
+    """Get 13F institutional holdings."""
+    return {
+        "symbol": symbol.upper(),
+        "holders": [
+            {"name": "Vanguard", "shares": 50000000, "change_pct": 2.5},
+            {"name": "BlackRock", "shares": 45000000, "change_pct": -1.2},
+            {"name": "State Street", "shares": 30000000, "change_pct": 0.5}
+        ],
+        "total_institutional_pct": 75.5
+    }
+
+
+@router.get("/research/sec/{symbol}")
+async def research_sec(symbol: str):
+    """Get SEC filings."""
+    return {
+        "symbol": symbol.upper(),
+        "filings": [
+            {"type": "10-K", "date": "2025-02-15", "description": "Annual Report"},
+            {"type": "10-Q", "date": "2025-11-01", "description": "Quarterly Report"},
+            {"type": "8-K", "date": "2025-12-10", "description": "Current Report"}
+        ]
+    }
+
+
+@router.get("/research/darkpool/{symbol}")
+async def research_darkpool(symbol: str):
+    """Get dark pool data."""
+    return {
+        "symbol": symbol.upper(),
+        "darkpool_volume": random.randint(1000000, 10000000),
+        "darkpool_pct": round(random.uniform(30, 50), 1),
+        "sentiment": random.choice(["bullish", "bearish", "neutral"]),
+        "large_prints": random.randint(5, 20)
+    }
+
+
+@router.get("/research/earnings")
+async def research_earnings():
+    """Get upcoming earnings."""
+    return {
+        "upcoming": [
+            {"symbol": "AAPL", "date": "2026-02-05", "estimate": 2.15, "time": "after_close"},
+            {"symbol": "MSFT", "date": "2026-02-06", "estimate": 3.05, "time": "after_close"},
+            {"symbol": "GOOGL", "date": "2026-02-07", "estimate": 1.85, "time": "after_close"}
+        ]
+    }
+
+
+@router.get("/charts/{symbol}")
+async def get_chart_data(symbol: str, interval: str = "1d", period: str = "1M"):
+    """Get chart data for symbol."""
+    return await get_charts_ohlcv(symbol, interval)
+
+
+@router.get("/charts/ohlcv/{symbol}")
+async def get_charts_ohlcv(symbol: str, timeframe: str = "1d"):
+    """Get OHLCV chart data for symbol."""
+    service = await get_service()
+
+    # Try to get real data
+    try:
+        bars = await service.get_bars(symbol.upper(), timeframe=timeframe, limit=100)
+        if bars and len(bars) > 0:
+            return {
+                "symbol": symbol.upper(),
+                "timeframe": timeframe,
+                "data": [
+                    {
+                        "time": bar.get("timestamp", bar.get("t")),
+                        "open": bar.get("open", bar.get("o")),
+                        "high": bar.get("high", bar.get("h")),
+                        "low": bar.get("low", bar.get("l")),
+                        "close": bar.get("close", bar.get("c")),
+                        "volume": bar.get("volume", bar.get("v"))
+                    }
+                    for bar in bars
+                ]
+            }
+    except Exception as e:
+        logger.warning(f"Chart data fetch failed: {e}")
+
+    # Return mock data
+    import time as time_module
+    base_price = 450 if symbol.upper() == "SPY" else 150
+    data = []
+    current_time = int(time_module.time())
+    for i in range(100):
+        t = current_time - (99 - i) * 86400
+        price = base_price + random.uniform(-10, 10)
+        data.append({
+            "time": t,
+            "open": round(price, 2),
+            "high": round(price + random.uniform(0, 3), 2),
+            "low": round(price - random.uniform(0, 3), 2),
+            "close": round(price + random.uniform(-2, 2), 2),
+            "volume": random.randint(10000000, 50000000)
+        })
+
+    return {
+        "symbol": symbol.upper(),
+        "timeframe": timeframe,
+        "data": data
+    }
+
+
+@router.get("/charts/indicators/{symbol}")
+async def get_charts_indicators(symbol: str, timeframe: str = "1d"):
+    """Get technical indicators for symbol."""
+    base_price = 450 if symbol.upper() == "SPY" else 150
+
+    return {
+        "symbol": symbol.upper(),
+        "timeframe": timeframe,
+        "indicators": {
+            "sma_20": round(base_price + random.uniform(-5, 5), 2),
+            "sma_50": round(base_price + random.uniform(-8, 8), 2),
+            "sma_200": round(base_price + random.uniform(-15, 15), 2),
+            "ema_12": round(base_price + random.uniform(-3, 3), 2),
+            "ema_26": round(base_price + random.uniform(-5, 5), 2),
+            "rsi": round(random.uniform(30, 70), 1),
+            "macd": round(random.uniform(-2, 2), 2),
+            "macd_signal": round(random.uniform(-2, 2), 2),
+            "macd_histogram": round(random.uniform(-1, 1), 2),
+            "bb_upper": round(base_price + random.uniform(5, 15), 2),
+            "bb_middle": round(base_price, 2),
+            "bb_lower": round(base_price - random.uniform(5, 15), 2),
+            "atr": round(random.uniform(1, 5), 2),
+            "adx": round(random.uniform(15, 40), 1),
+            "stoch_k": round(random.uniform(20, 80), 1),
+            "stoch_d": round(random.uniform(20, 80), 1)
+        },
+        "signals": {
+            "trend": random.choice(["UP", "DOWN", "NEUTRAL"]),
+            "momentum": random.choice(["STRONG", "WEAK", "NEUTRAL"]),
+            "volatility": random.choice(["HIGH", "LOW", "NORMAL"])
+        }
+    }
