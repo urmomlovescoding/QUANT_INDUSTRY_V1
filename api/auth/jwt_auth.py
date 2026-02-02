@@ -17,11 +17,18 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
+# Configuration - SECURITY: JWT_SECRET_KEY must be set in environment
+_jwt_secret = os.getenv("JWT_SECRET_KEY")
+if not _jwt_secret:
+    logger.warning(
+        "JWT_SECRET_KEY not set! Using development-only fallback. "
+        "Set JWT_SECRET_KEY environment variable for production."
+    )
+    _jwt_secret = "dev-only-insecure-key-not-for-production"
+SECRET_KEY = _jwt_secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

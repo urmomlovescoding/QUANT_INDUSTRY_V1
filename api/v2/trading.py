@@ -460,8 +460,8 @@ async def generate_signal(request: GenerateSignalRequest) -> Signal:
             quote = ds.get_quote(symbol)
             if quote:
                 current_price = quote.price
-        except:
-            pass
+        except Exception:
+            pass  # Use fallback price if quote fails
     
     return Signal(
         symbol=symbol,

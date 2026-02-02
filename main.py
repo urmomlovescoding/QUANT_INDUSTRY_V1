@@ -98,10 +98,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# CORS middleware - SECURITY: Use environment-specific origins
+try:
+    from backend.middleware.security import get_cors_origins
+    cors_origins = get_cors_origins()
+except ImportError:
+    # Fallback for development (without wildcard)
+    cors_origins = [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3002",
@@ -111,11 +114,14 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3004",
         "http://127.0.0.1:5173",
-        "*"  # Allow all for development
-    ],
+    ]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Try to add security middleware
