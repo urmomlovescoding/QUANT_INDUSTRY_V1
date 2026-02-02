@@ -14,10 +14,49 @@ import numpy as np
 
 router = APIRouter(prefix="/brain", tags=["ML Brain"])
 
-# Global state (in production, use proper state management)
+# Global state with thread-safe access
+# SECURITY: Use asyncio.Lock to prevent race conditions in concurrent requests
 _brain_instance = None
-_bot_instances = {}
+_bot_instances: Dict[str, Any] = {}
 _pipeline_instance = None
+_state_lock = asyncio.Lock()
+
+
+async def _get_brain():
+    """Thread-safe getter for brain instance."""
+    async with _state_lock:
+        return _brain_instance
+
+
+async def _set_brain(instance):
+    """Thread-safe setter for brain instance."""
+    global _brain_instance
+    async with _state_lock:
+        _brain_instance = instance
+
+
+async def _get_bot(bot_id: str):
+    """Thread-safe getter for a bot instance."""
+    async with _state_lock:
+        return _bot_instances.get(bot_id)
+
+
+async def _set_bot(bot_id: str, instance):
+    """Thread-safe setter for a bot instance."""
+    async with _state_lock:
+        _bot_instances[bot_id] = instance
+
+
+async def _remove_bot(bot_id: str):
+    """Thread-safe removal of a bot instance."""
+    async with _state_lock:
+        return _bot_instances.pop(bot_id, None)
+
+
+async def _get_all_bots():
+    """Thread-safe getter for all bot instances."""
+    async with _state_lock:
+        return dict(_bot_instances)
 
 
 class BrainStatus(BaseModel):
@@ -86,9 +125,9 @@ class PerformanceMetrics(BaseModel):
 @router.get("/status", response_model=BrainStatus)
 async def get_brain_status():
     """Get ML Brain status and state."""
-    global _brain_instance
-    
-    if _brain_instance is None:
+    brain = await _get_brain()
+
+    if brain is None:
         return BrainStatus(
             initialized=False,
             multi_timeframe=False,
@@ -99,12 +138,12 @@ async def get_brain_status():
             learning_rate=0.001,
             top_features=[]
         )
-    
-    state = _brain_instance.get_brain_state()
-    
+
+    state = brain.get_brain_state()
+
     return BrainStatus(
         initialized=True,
-        multi_timeframe=getattr(_brain_instance, 'multi_timeframe', False),
+        multi_timeframe=getattr(brain, 'multi_timeframe', False),
         signals_generated=state['signals_generated'],
         performance_received=state['performance_received'],
         active_strategies=state['active_strategies'],
@@ -120,13 +159,12 @@ async def get_brain_status():
 @router.post("/initialize")
 async def initialize_brain(multi_timeframe: bool = True):
     """Initialize the ML Brain."""
-    global _brain_instance
-    
     from brain.orchestrator import MLBrain
-    
-    _brain_instance = MLBrain()
-    await _brain_instance.initialize(multi_timeframe=multi_timeframe)
-    
+
+    brain = MLBrain()
+    await brain.initialize(multi_timeframe=multi_timeframe)
+    await _set_brain(brain)
+
     return {"status": "initialized", "multi_timeframe": multi_timeframe}
 
 
@@ -136,20 +174,20 @@ async def generate_signal(
     timeframe: str = "1h"
 ) -> SignalResponse:
     """Generate a single trading signal."""
-    global _brain_instance
-    
-    if _brain_instance is None:
+    brain = await _get_brain()
+
+    if brain is None:
         raise HTTPException(status_code=400, detail="Brain not initialized")
-    
+
     # Create dummy data (in production, fetch real data)
     market_data = torch.randn(1, 60, 32)
     current_price = 50000.0  # Would come from data feed
-    
-    signal = await _brain_instance.generate_signal(symbol, market_data, current_price)
-    
+
+    signal = await brain.generate_signal(symbol, market_data, current_price)
+
     if signal is None:
         raise HTTPException(status_code=500, detail="Failed to generate signal")
-    
+
     return SignalResponse(
         signal_id=signal.signal_id,
         timestamp=signal.timestamp.isoformat(),
@@ -169,9 +207,9 @@ async def generate_signal(
 @router.post("/signal/multi-timeframe")
 async def generate_multi_timeframe_signals(symbol: str) -> MultiTimeframeSignals:
     """Generate signals for all trading horizons."""
-    global _brain_instance
-    
-    if _brain_instance is None:
+    brain = await _get_brain()
+
+    if brain is None:
         raise HTTPException(status_code=400, detail="Brain not initialized")
     
     if not getattr(_brain_instance, 'multi_timeframe', False):
@@ -222,12 +260,16 @@ async def generate_multi_timeframe_signals(symbol: str) -> MultiTimeframeSignals
 @router.get("/signals/history")
 async def get_signal_history(limit: int = 100) -> List[SignalResponse]:
     """Get recent signal history."""
-    global _brain_instance
-    
-    if _brain_instance is None:
+    # SECURITY: Validate limit to prevent DoS
+    if limit < 1 or limit > 1000:
+        limit = 100
+
+    brain = await _get_brain()
+
+    if brain is None:
         return []
-    
-    signals = _brain_instance.signal_history[-limit:]
+
+    signals = brain.signal_history[-limit:]
     
     return [
         SignalResponse(
@@ -251,11 +293,11 @@ async def get_signal_history(limit: int = 100) -> List[SignalResponse]:
 @router.get("/features/importance")
 async def get_feature_importance() -> List[Dict[str, Any]]:
     """Get feature importance rankings."""
-    global _brain_instance
-    
-    if _brain_instance is None:
+    brain = await _get_brain()
+
+    if brain is None:
         return []
-    
+
     return [
         {
             'name': name,
@@ -264,7 +306,7 @@ async def get_feature_importance() -> List[Dict[str, Any]]:
             'regime_dependency': fi.regime_dependency
         }
         for name, fi in sorted(
-            _brain_instance.feature_importance.items(),
+            brain.feature_importance.items(),
             key=lambda x: x[1].importance_score,
             reverse=True
         )
@@ -276,7 +318,7 @@ async def get_feature_importance() -> List[Dict[str, Any]]:
 @router.get("/bots", response_model=List[BotStatus])
 async def get_all_bots():
     """Get status of all trading bots."""
-    global _bot_instances
+    bots = await _get_all_bots()
     
     return [
         BotStatus(
@@ -287,37 +329,34 @@ async def get_all_bots():
             closed_trades=len(bot.closed_trades),
             open_pnl_pct=sum(t.pnl_pct for t in bot.open_trades.values()),
             closed_pnl_pct=sum(t.pnl_pct for t in bot.closed_trades),
-            total_pnl_pct=sum(t.pnl_pct for t in bot.open_trades.values()) + 
+            total_pnl_pct=sum(t.pnl_pct for t in bot.open_trades.values()) +
                          sum(t.pnl_pct for t in bot.closed_trades),
             win_rate=bot._calculate_win_rate()
         )
-        for bot in _bot_instances.values()
+        for bot in bots.values()
     ]
 
 
 @router.get("/bots/{bot_id}", response_model=BotStatus)
 async def get_bot_status(bot_id: str):
     """Get status of a specific bot."""
-    global _bot_instances
-    
-    if bot_id not in _bot_instances:
+    bot = await _get_bot(bot_id)
+
+    if bot is None:
         raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
-    
-    bot = _bot_instances[bot_id]
+
     status = bot.get_status()
-    
+
     return BotStatus(**status)
 
 
 @router.get("/bots/{bot_id}/trades")
 async def get_bot_trades(bot_id: str, status: str = "all"):
     """Get trades for a specific bot."""
-    global _bot_instances
-    
-    if bot_id not in _bot_instances:
+    bot = await _get_bot(bot_id)
+
+    if bot is None:
         raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
-    
-    bot = _bot_instances[bot_id]
     
     trades = []
     
