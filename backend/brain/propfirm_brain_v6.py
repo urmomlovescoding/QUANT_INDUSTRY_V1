@@ -2295,6 +2295,9 @@ class PropFirmBrainV6:
                 return False
 
             epoch, weights_blob = row
+            # SECURITY WARNING: pickle.loads can execute arbitrary code if data is tampered with.
+            # This is acceptable here because weights come from our own database.
+            # TODO: Migrate to torch.load(weights_only=True) or safetensors format for production.
             state_dict = pickle.loads(weights_blob)
             self.model.load_state_dict(state_dict)
             self.training_step = epoch
