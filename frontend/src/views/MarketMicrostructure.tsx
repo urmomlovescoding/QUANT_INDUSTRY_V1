@@ -1,5 +1,6 @@
 import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, Brain, Clock, Layers, RefreshCw, Settings, Shield, TrendingUp, Waves, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import { cn } from '@/utils/cn'
 
 interface ModuleStatus {
@@ -130,25 +131,6 @@ export function MarketMicrostructure() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-border overflow-x-auto">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors',
-              activeTab === tab.id
-                ? 'border-accent-primary text-accent-primary'
-                : 'border-transparent text-foreground-muted hover:text-foreground'
-            )}
-          >
-            <tab.icon className="w-3.5 h-3.5" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       {error && (
         <div className="card p-4 bg-bearish/10 border border-bearish/30">
           <p className="text-bearish text-sm">{error}</p>
@@ -173,16 +155,55 @@ export function MarketMicrostructure() {
         </div>
       )}
 
-      {/* Content */}
-      {activeTab === 'overview' && <OverviewTab analysis={analysis} getStateColor={getStateColor} getScoreColor={getScoreColor} sessions={sessions} />}
-      {activeTab === 'flow' && <OrderFlowTab analysis={analysis} getStateColor={getStateColor} />}
-      {activeTab === 'volatility' && <VolatilityTab analysis={analysis} getStateColor={getStateColor} />}
-      {activeTab === 'liquidity' && <LiquidityTab analysis={analysis} getStateColor={getStateColor} />}
-      {activeTab === 'signals' && <SignalsTab analysis={analysis} />}
-      {activeTab === 'sizing' && <SizingTab analysis={analysis} />}
-      {activeTab === 'sessions' && <SessionsTab sessions={sessions} />}
-      {activeTab === 'cross-asset' && <CrossAssetTab analysis={analysis} getStateColor={getStateColor} />}
-      {activeTab === 'config' && <ConfigTab status={status} onRefresh={fetchStatus} />}
+      {/* Tabs - Using Radix UI */}
+      <Tabs.Root defaultValue="overview">
+        <Tabs.List className="flex gap-1 border-b border-border overflow-x-auto" aria-label="Microstructure analysis">
+          {tabs.map(tab => (
+            <Tabs.Trigger
+              key={tab.id}
+              value={tab.id}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 transition-colors',
+                'border-transparent text-foreground-muted hover:text-foreground',
+                'data-[state=active]:border-accent-primary data-[state=active]:text-accent-primary',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50'
+              )}
+            >
+              <tab.icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+
+        {/* Content */}
+        <Tabs.Content value="overview" className="focus:outline-none mt-4">
+          <OverviewTab analysis={analysis} getStateColor={getStateColor} getScoreColor={getScoreColor} sessions={sessions} />
+        </Tabs.Content>
+        <Tabs.Content value="flow" className="focus:outline-none mt-4">
+          <OrderFlowTab analysis={analysis} getStateColor={getStateColor} />
+        </Tabs.Content>
+        <Tabs.Content value="volatility" className="focus:outline-none mt-4">
+          <VolatilityTab analysis={analysis} getStateColor={getStateColor} />
+        </Tabs.Content>
+        <Tabs.Content value="liquidity" className="focus:outline-none mt-4">
+          <LiquidityTab analysis={analysis} getStateColor={getStateColor} />
+        </Tabs.Content>
+        <Tabs.Content value="signals" className="focus:outline-none mt-4">
+          <SignalsTab analysis={analysis} />
+        </Tabs.Content>
+        <Tabs.Content value="sizing" className="focus:outline-none mt-4">
+          <SizingTab analysis={analysis} />
+        </Tabs.Content>
+        <Tabs.Content value="sessions" className="focus:outline-none mt-4">
+          <SessionsTab sessions={sessions} />
+        </Tabs.Content>
+        <Tabs.Content value="cross-asset" className="focus:outline-none mt-4">
+          <CrossAssetTab analysis={analysis} getStateColor={getStateColor} />
+        </Tabs.Content>
+        <Tabs.Content value="config" className="focus:outline-none mt-4">
+          <ConfigTab status={status} onRefresh={fetchStatus} />
+        </Tabs.Content>
+      </Tabs.Root>
     </div>
   )
 }

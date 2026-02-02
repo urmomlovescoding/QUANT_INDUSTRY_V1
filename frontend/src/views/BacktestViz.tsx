@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import { BacktestVisualization } from '../components/BacktestVisualization';
 import { PnLAttribution } from '../components/PnLAttribution';
 import {
@@ -533,37 +534,39 @@ export function BacktestViz() {
                   </div>
                 )}
 
-                {/* Tab Navigation */}
-                <div className="flex gap-2 border-b border-gray-700">
-                  <TabButton
-                    active={activeTab === 'visualization'}
-                    onClick={() => setActiveTab('visualization')}
-                  >
-                    <TrendingUp className="w-4 h-4" />
-                    Performance
-                  </TabButton>
-                  <TabButton
-                    active={activeTab === 'pnl'}
-                    onClick={() => setActiveTab('pnl')}
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                    P&L Attribution
-                  </TabButton>
-                </div>
+                {/* Tab Navigation - Using Radix UI */}
+                <Tabs.Root defaultValue="visualization">
+                  <Tabs.List className="flex gap-2 border-b border-gray-700" aria-label="Backtest analysis">
+                    <Tabs.Trigger
+                      value="visualization"
+                      className="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors border-transparent text-gray-400 hover:text-white data-[state=active]:border-blue-500 data-[state=active]:text-blue-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      Performance
+                    </Tabs.Trigger>
+                    <Tabs.Trigger
+                      value="pnl"
+                      className="flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors border-transparent text-gray-400 hover:text-white data-[state=active]:border-blue-500 data-[state=active]:text-blue-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                      P&L Attribution
+                    </Tabs.Trigger>
+                  </Tabs.List>
 
-                {/* Tab Content */}
-                {activeTab === 'visualization' && (
-                  <BacktestVisualization
-                    equity={visualizationData.equity}
-                    trades={visualizationData.trades}
-                    rollingMetrics={visualizationData.rollingMetrics}
-                    factorExposures={visualizationData.factorExposures}
-                  />
-                )}
+                  {/* Tab Content */}
+                  <Tabs.Content value="visualization" className="focus:outline-none mt-4">
+                    <BacktestVisualization
+                      equity={visualizationData.equity}
+                      trades={visualizationData.trades}
+                      rollingMetrics={visualizationData.rollingMetrics}
+                      factorExposures={visualizationData.factorExposures}
+                    />
+                  </Tabs.Content>
 
-                {activeTab === 'pnl' && (
-                  <PnLAttribution autoRefresh={false} />
-                )}
+                  <Tabs.Content value="pnl" className="focus:outline-none mt-4">
+                    <PnLAttribution autoRefresh={false} />
+                  </Tabs.Content>
+                </Tabs.Root>
               </div>
             ) : (
               /* Empty State */

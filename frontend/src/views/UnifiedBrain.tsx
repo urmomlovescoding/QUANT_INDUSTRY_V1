@@ -489,11 +489,11 @@ export function UnifiedBrain() {
                 </p>
               </div>
 
-              {regime?.recommended_strategies && (
+              {(regime as any)?.recommended_strategies && (
                 <div className="mt-3">
                   <p className="text-xs text-foreground-muted mb-2">Recommended:</p>
                   <div className="flex flex-wrap gap-1">
-                    {regime.recommended_strategies.slice(0, 3).map((s: string, i: number) => (
+                    {((regime as any).recommended_strategies as string[]).slice(0, 3).map((s: string, i: number) => (
                       <span key={i} className="px-2 py-0.5 rounded bg-background-tertiary text-xs text-foreground-secondary">
                         {s}
                       </span>

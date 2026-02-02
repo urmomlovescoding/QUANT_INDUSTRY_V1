@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import { Zap, Play, RefreshCw, AlertCircle, TrendingDown, Clock, History, FlaskConical } from 'lucide-react'
 import { cn } from '@/utils/cn'
 

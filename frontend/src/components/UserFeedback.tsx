@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import {
   Star,
   MessageSquare,
@@ -502,91 +503,95 @@ const UserFeedback: React.FC = () => {
       {/* Stats */}
       {showStats && <FeedbackStatsCard stats={stats} />}
 
-      {/* Tabs */}
-      <div className="flex border-b">
-        {(['signals', 'annotations', 'history'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      {activeTab === 'signals' && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">Pending Signals</h3>
-          {pendingSignals.map((signal) => (
-            <div
-              key={signal.id}
-              className="bg-white rounded-lg shadow p-4 flex justify-between items-center hover:shadow-md transition-shadow"
+      {/* Tabs - Using Radix UI */}
+      <Tabs.Root defaultValue="signals">
+        <Tabs.List className="flex border-b" aria-label="Feedback sections">
+          {(['signals', 'annotations', 'history'] as const).map((tab) => (
+            <Tabs.Trigger
+              key={tab}
+              value={tab}
+              className="px-4 py-2 text-sm font-medium border-b-2 transition-colors border-transparent text-gray-500 hover:text-gray-700 data-[state=active]:border-blue-600 data-[state=active]:text-blue-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
             >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">{signal.symbol}</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    signal.signalType === 'buy' ? 'bg-green-100 text-green-800' :
-                    signal.signalType === 'sell' ? 'bg-red-100 text-red-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {signal.signalType.toUpperCase()}
-                  </span>
-                </div>
-                <div className="text-sm text-gray-500">
-                  {signal.modelName} • Confidence: {(signal.confidence * 100).toFixed(0)}%
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedSignal(signal)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
-              >
-                <Star className="w-4 h-4" />
-                Rate
-              </button>
-            </div>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </Tabs.Trigger>
           ))}
-        </div>
-      )}
+        </Tabs.List>
 
-      {activeTab === 'history' && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-gray-700">Recent Feedback</h3>
-          {feedbackHistory.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No feedback recorded yet
-            </div>
-          ) : (
-            feedbackHistory.map((feedback, index) => (
-              <div key={index} className="bg-white rounded-lg shadow p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{feedback.signalId}</span>
-                      <OutcomeBadge outcome={feedback.outcome} />
-                    </div>
-                    <div className="mt-1">
-                      <StarRating rating={feedback.rating} onRatingChange={() => {}} readonly size="sm" />
-                    </div>
-                    {feedback.comment && (
-                      <p className="text-sm text-gray-600 mt-2">{feedback.comment}</p>
-                    )}
+        {/* Content */}
+        <Tabs.Content value="signals" className="focus:outline-none mt-3">
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-gray-700">Pending Signals</h3>
+            {pendingSignals.map((signal) => (
+              <div
+                key={signal.id}
+                className="bg-white rounded-lg shadow p-4 flex justify-between items-center hover:shadow-md transition-shadow"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{signal.symbol}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      signal.signalType === 'buy' ? 'bg-green-100 text-green-800' :
+                      signal.signalType === 'sell' ? 'bg-red-100 text-red-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {signal.signalType.toUpperCase()}
+                    </span>
                   </div>
-                  <span className="text-xs text-gray-400">
-                    {new Date(feedback.timestamp).toLocaleString()}
-                  </span>
+                  <div className="text-sm text-gray-500">
+                    {signal.modelName} • Confidence: {(signal.confidence * 100).toFixed(0)}%
+                  </div>
                 </div>
+                <button
+                  onClick={() => setSelectedSignal(signal)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
+                >
+                  <Star className="w-4 h-4" />
+                  Rate
+                </button>
               </div>
-            ))
-          )}
-        </div>
-      )}
+            ))}
+          </div>
+        </Tabs.Content>
+
+        <Tabs.Content value="annotations" className="focus:outline-none mt-3">
+          <div className="text-center py-8 text-gray-500">
+            Trade annotations coming soon
+          </div>
+        </Tabs.Content>
+
+        <Tabs.Content value="history" className="focus:outline-none mt-3">
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-gray-700">Recent Feedback</h3>
+            {feedbackHistory.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No feedback recorded yet
+              </div>
+            ) : (
+              feedbackHistory.map((feedback, index) => (
+                <div key={index} className="bg-white rounded-lg shadow p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{feedback.signalId}</span>
+                        <OutcomeBadge outcome={feedback.outcome} />
+                      </div>
+                      <div className="mt-1">
+                        <StarRating rating={feedback.rating} onRatingChange={() => {}} readonly size="sm" />
+                      </div>
+                      {feedback.comment && (
+                        <p className="text-sm text-gray-600 mt-2">{feedback.comment}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400">
+                      {new Date(feedback.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Tabs.Content>
+      </Tabs.Root>
 
       {/* Signal Feedback Modal */}
       {selectedSignal && (

@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import * as Tabs from '@radix-ui/react-tabs'
 import {
   Receipt,
   TrendingUp,
@@ -183,46 +184,48 @@ export function TaxLots() {
         />
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-background-secondary rounded-xl w-fit">
-        {[
-          { id: 'positions', label: 'Open Positions', icon: PieChart },
-          { id: 'harvesting', label: 'Tax-Loss Harvesting', icon: Leaf },
-          { id: 'realized', label: 'Realized Gains', icon: Scale },
-          { id: 'form8949', label: 'Form 8949', icon: FileText },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-              activeTab === tab.id
-                ? 'bg-accent-primary text-white shadow-lg'
-                : 'text-foreground-muted hover:text-foreground-primary hover:bg-background-tertiary'
-            )}
-          >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Tabs - Using Radix UI */}
+      <Tabs.Root defaultValue="positions">
+        <Tabs.List className="flex gap-1 p-1 bg-background-secondary rounded-xl w-fit" aria-label="Tax lot management">
+          {[
+            { id: 'positions', label: 'Open Positions', icon: PieChart },
+            { id: 'harvesting', label: 'Tax-Loss Harvesting', icon: Leaf },
+            { id: 'realized', label: 'Realized Gains', icon: Scale },
+            { id: 'form8949', label: 'Form 8949', icon: FileText },
+          ].map((tab) => (
+            <Tabs.Trigger
+              key={tab.id}
+              value={tab.id}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                'text-foreground-muted hover:text-foreground-primary hover:bg-background-tertiary',
+                'data-[state=active]:bg-accent-primary data-[state=active]:text-white data-[state=active]:shadow-lg',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50'
+              )}
+            >
+              <tab.icon className="w-4 h-4" />
+              {tab.label}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
 
-      {/* Content */}
-      {activeTab === 'positions' && (
-        <PositionsTable positions={positions || []} loading={loadingPositions} />
-      )}
+        {/* Content */}
+        <Tabs.Content value="positions" className="focus:outline-none mt-4">
+          <PositionsTable positions={positions || []} loading={loadingPositions} />
+        </Tabs.Content>
 
-      {activeTab === 'harvesting' && (
-        <HarvestingTable opportunities={harvestingOpps || []} />
-      )}
+        <Tabs.Content value="harvesting" className="focus:outline-none mt-4">
+          <HarvestingTable opportunities={harvestingOpps || []} />
+        </Tabs.Content>
 
-      {activeTab === 'realized' && (
-        <RealizedGainsPanel gains={realizedGains} />
-      )}
+        <Tabs.Content value="realized" className="focus:outline-none mt-4">
+          <RealizedGainsPanel gains={realizedGains} />
+        </Tabs.Content>
 
-      {activeTab === 'form8949' && (
-        <Form8949Panel />
-      )}
+        <Tabs.Content value="form8949" className="focus:outline-none mt-4">
+          <Form8949Panel />
+        </Tabs.Content>
+      </Tabs.Root>
     </div>
   )
 }

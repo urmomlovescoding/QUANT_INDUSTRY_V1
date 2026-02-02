@@ -284,7 +284,7 @@ export function TradeConfirm() {
                   <div className="flex justify-between mb-1">
                     <span className="text-xs capitalize">{key.replace(/_/g, ' ')}</span>
                     <span className={cn('text-xs font-mono font-bold', getScoreColor(value as number))}>
-                      {(value as number).toFixed ? (value as number).toFixed(0) : value}
+                      {typeof value === 'number' ? value.toFixed(0) : String(value)}
                     </span>
                   </div>
                   <div className="h-2 bg-background-tertiary rounded-full overflow-hidden">
