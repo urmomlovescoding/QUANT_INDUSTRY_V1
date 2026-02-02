@@ -99,8 +99,8 @@ export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide 
               }
             }))
           }
-        } catch (e) {
-          console.error(`Failed to fetch price for ${s.symbol}`)
+        } catch {
+          // Silent fail - price will show as 0
         }
       }
     }

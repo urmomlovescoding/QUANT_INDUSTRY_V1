@@ -714,11 +714,9 @@ function BacktestEngine({ strategies }: { strategies: Strategy[] }) {
           exposure: 0
         })
       } else {
-        console.error('Backtest failed:', data.detail)
         setResults(null)
       }
-    } catch (error) {
-      console.error('Backtest error:', error)
+    } catch {
       setResults(null)
     } finally {
       setRunning(false)

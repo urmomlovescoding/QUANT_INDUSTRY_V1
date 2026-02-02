@@ -469,8 +469,8 @@ const MLTraining: React.FC = () => {
         trainingStep: data.training_step || 0,
         autoTrainEnabled: data.auto_train_enabled || false,
       }));
-    } catch (error) {
-      console.error('Error fetching brain status:', error);
+    } catch {
+      // Silent fail - status will show as not loaded
     }
   }, []);
 
@@ -491,8 +491,8 @@ const MLTraining: React.FC = () => {
           }))
         );
       }
-    } catch (error) {
-      console.error('Error fetching strategies:', error);
+    } catch {
+      // Silent fail - strategies will show as empty
     }
   }, []);
 
@@ -513,8 +513,8 @@ const MLTraining: React.FC = () => {
           autoTrainInterval: data.autoTrainInterval,
         });
       }
-    } catch (error) {
-      console.error('Error fetching config:', error);
+    } catch {
+      // Silent fail - will use default config
     }
   }, []);
 
@@ -534,8 +534,8 @@ const MLTraining: React.FC = () => {
         }));
         setMetrics(formattedMetrics);
       }
-    } catch (error) {
-      console.error('Error fetching training history:', error);
+    } catch {
+      // Silent fail - history will show as empty
     }
   }, [config.learningRate]);
 
@@ -605,8 +605,8 @@ const MLTraining: React.FC = () => {
         await fetchStrategies();
         await fetchTrainingHistory();
       }
-    } catch (error) {
-      console.error('Training error:', error);
+    } catch {
+      // Training failed - status will reset
     }
 
     setStatus((prev) => ({ ...prev, isTraining: false }));
@@ -625,8 +625,9 @@ const MLTraining: React.FC = () => {
     try {
       const endpoint = newState ? '/api/brain-v6/auto-train/start' : '/api/brain-v6/auto-train/stop';
       await fetch(endpoint, { method: 'POST' });
-    } catch (error) {
-      console.error('Auto-train toggle error:', error);
+    } catch {
+      // Revert on failure
+      setStatus((prev) => ({ ...prev, autoTrainEnabled: !newState }));
     }
   };
 
@@ -862,8 +863,8 @@ const MLTraining: React.FC = () => {
                         body: JSON.stringify(config)
                       });
                       alert('Configuration saved!');
-                    } catch (error) {
-                      console.error('Save config error:', error);
+                    } catch {
+                      alert('Failed to save configuration');
                     }
                   }}
                   className="w-full flex items-center justify-center gap-2 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg hover:bg-cyan-500/30 transition-colors font-medium"

@@ -419,8 +419,8 @@ function DataSettings() {
           status: (data as any)[p.id] ? 'connected' : 'disconnected'
         })))
       }
-    } catch (error) {
-      console.error('Failed to load API keys:', error)
+    } catch {
+      // Silent fail - providers will show as disconnected
     }
   }
 

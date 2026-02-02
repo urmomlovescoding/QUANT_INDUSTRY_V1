@@ -179,8 +179,8 @@ export function APIConnector() {
             setConnections(data)
           }
         }
-      } catch (error) {
-        console.error('Failed to fetch connections:', error)
+      } catch {
+        // Silent fail - will use mock data
       }
     }
     fetchConnections()

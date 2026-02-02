@@ -80,8 +80,8 @@ export function BacktestViz() {
       try {
         const status = await getQueueStatus();
         setQueueStatus(status);
-      } catch (e) {
-        console.warn('Could not load queue status:', e);
+      } catch {
+        // Silent fail - queue status will show as empty
       }
     };
     loadQueueStatus();

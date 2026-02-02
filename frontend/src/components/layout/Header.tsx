@@ -75,7 +75,6 @@ export function Header() {
     })
 
     const unsubBot = electronAPI.onBotControl((action) => {
-      console.log('Bot control action:', action)
       window.dispatchEvent(new CustomEvent('bot-control', { detail: action }))
     })
 

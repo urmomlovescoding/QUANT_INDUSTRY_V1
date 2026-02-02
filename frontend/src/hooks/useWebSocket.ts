@@ -172,7 +172,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsRef.current = new WebSocket(url);
 
       wsRef.current.onopen = () => {
-        console.log('[WebSocket] Connected');
         setConnectionState('connected');
         reconnectAttemptsRef.current = 0;
         setReconnectAttempt(0);
@@ -188,7 +187,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       };
 
       wsRef.current.onclose = (event) => {
-        console.log('[WebSocket] Disconnected', event.code, event.reason);
         setConnectionState('disconnected');
         setClientId(null);
         clearTimeouts();
@@ -210,18 +208,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             30000
           );
           
-          console.log(`[WebSocket] Reconnecting in ${delay}ms... (attempt ${reconnectAttemptsRef.current})`);
           onReconnecting?.(reconnectAttemptsRef.current);
           
           reconnectTimeoutRef.current = setTimeout(connect, delay);
         } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          console.error('[WebSocket] Max reconnection attempts reached');
           onReconnectFailed?.();
         }
       };
 
       wsRef.current.onerror = (event) => {
-        console.error('[WebSocket] Error:', event);
         onError?.(event);
       };
 
@@ -247,12 +242,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
           }
 
           onMessage?.(message);
-        } catch (error) {
-          console.error('[WebSocket] Failed to parse message:', error);
+        } catch {
+          // Failed to parse WebSocket message
         }
       };
-    } catch (error) {
-      console.error('[WebSocket] Connection error:', error);
+    } catch {
       setConnectionState('disconnected');
     }
   }, [url, reconnect, reconnectInterval, maxReconnectAttempts, onOpen, onClose, onError, onMessage, onReconnecting, onReconnectFailed, startHeartbeat, clearTimeouts, processPendingSubscriptions, resubscribeAll]);
@@ -277,7 +271,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsRef.current.send(JSON.stringify(message));
       return true;
     } else {
-      console.warn('[WebSocket] Cannot send - not connected');
       return false;
     }
   }, []);

@@ -476,13 +476,11 @@ const UserFeedback: React.FC = () => {
     };
     setFeedbackHistory((prev) => [newFeedback, ...prev]);
     setSelectedSignal(null);
-    // In production, would call API to save feedback
-    console.log('Signal feedback submitted:', newFeedback);
+    // TODO: Call API to save feedback in production
   };
 
   const handleTradeAnnotation = (annotation: TradeAnnotation) => {
-    // In production, would call API to save annotation
-    console.log('Trade annotation submitted:', annotation);
+    // TODO: Call API to save annotation in production
     setSelectedTradeId(null);
   };
 

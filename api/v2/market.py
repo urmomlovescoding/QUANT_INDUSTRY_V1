@@ -402,13 +402,20 @@ async def get_quote(
             # Get quote
             q = await service.get_quote(symbol)
             
+            # Validate data quality - check for suspicious bid/ask spread
+            price = q.last or q.mid
+            if q.bid and q.ask and price:
+                spread_pct = abs(q.ask - q.bid) / price * 100
+                if spread_pct > 3:  # More than 3% spread is suspicious
+                    logger.warning(f"Suspicious spread for {symbol}: {spread_pct:.1f}% - falling back to yfinance")
+                    raise ValueError(f"Bad data quality: spread={spread_pct:.1f}%")
+            
             # Get snapshot for daily data (prev close, change, etc.)
             snapshot = await service.get_snapshot(symbol)
             
             daily_bar = snapshot.get("daily_bar", {})
             prev_bar = snapshot.get("prev_daily_bar", {})
             
-            price = q.last or q.mid
             prev_close = prev_bar.get("c", price) if prev_bar else price
             change = price - prev_close
             change_pct = (change / prev_close * 100) if prev_close else 0
@@ -430,20 +437,47 @@ async def get_quote(
         except Exception as e:
             logger.warning(f"Quote fetch failed for {symbol}: {e}")
     
-    # Fallback
+    # Fallback to yfinance
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        price = info.get('regularMarketPrice') or info.get('currentPrice') or info.get('previousClose', 0)
+        prev_close = info.get('previousClose', price)
+        change = price - prev_close if prev_close else 0
+        change_pct = (change / prev_close * 100) if prev_close else 0
+        
+        return Quote(
+            symbol=symbol,
+            bid=info.get('bid', price * 0.999),
+            ask=info.get('ask', price * 1.001),
+            last=price,
+            volume=info.get('volume', 0),
+            change=round(change, 2),
+            change_percent=round(change_pct, 2),
+            high=info.get('dayHigh', price),
+            low=info.get('dayLow', price),
+            open=info.get('open', price),
+            prev_close=prev_close,
+            source="yfinance"
+        )
+    except Exception as yf_error:
+        logger.warning(f"yfinance fallback failed for {symbol}: {yf_error}")
+    
+    # Last resort fallback
     return Quote(
         symbol=symbol,
-        bid=150.00,
-        ask=150.05,
-        last=150.02,
-        volume=50000000,
-        change=2.50,
-        change_percent=1.69,
-        high=152.00,
-        low=148.00,
-        open=149.00,
-        prev_close=147.52,
-        source="fallback"
+        bid=0,
+        ask=0,
+        last=0,
+        volume=0,
+        change=0,
+        change_percent=0,
+        high=0,
+        low=0,
+        open=0,
+        prev_close=0,
+        source="unavailable"
     )
 
 

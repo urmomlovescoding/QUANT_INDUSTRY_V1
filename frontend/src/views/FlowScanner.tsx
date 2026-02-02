@@ -104,8 +104,7 @@ const fetchInitialFlows = async (): Promise<Flow[]> => {
         isSweep: f.is_sweep || f.isSweep || false,
       }
     })
-  } catch (error) {
-    console.error('Failed to fetch initial flows:', error)
+  } catch {
     return []
   }
 }
@@ -128,7 +127,6 @@ export function FlowScanner() {
   // WebSocket connection
   const { isConnected, lastMessage, subscribe } = useWebSocket({
     autoConnect: true,
-    onOpen: () => console.log('FlowScanner WebSocket connected'),
   })
 
   // Notifications

@@ -88,8 +88,8 @@ export function Reports() {
         a.download = `trading_report_${dateRange}.${format}`
         a.click()
       }
-    } catch (error) {
-      console.error('Failed to generate report:', error)
+    } catch {
+      // Silent fail - download didn't complete
     } finally {
       setIsGenerating(false)
     }

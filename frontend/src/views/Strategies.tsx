@@ -142,10 +142,35 @@ export function Strategies() {
   }, [strategies, filter, categoryFilter])
 
   const toggleStrategy = async (id: string) => {
+    const strategy = strategies.find(s => s.id === id)
+    if (!strategy) return
+
+    const newActive = !strategy.active
+
+    // Optimistic update
     setStrategies(prev => prev.map(s =>
-      s.id === id ? { ...s, active: !s.active } : s
+      s.id === id ? { ...s, active: newActive } : s
     ))
-    // TODO: Call API to persist change
+
+    // Persist to backend
+    try {
+      const response = await fetch(`/api/strategies/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: newActive }),
+      })
+      if (!response.ok) {
+        // Revert on failure
+        setStrategies(prev => prev.map(s =>
+          s.id === id ? { ...s, active: !newActive } : s
+        ))
+      }
+    } catch {
+      // Revert on error
+      setStrategies(prev => prev.map(s =>
+        s.id === id ? { ...s, active: !newActive } : s
+      ))
+    }
   }
 
   const aggregateStats = useMemo(() => {
@@ -174,12 +199,13 @@ export function Strategies() {
       const response = await fetch(`/api/backtest/run?strategy=${strategyId}&symbol=SPY`, {
         method: 'POST',
       })
-      if (response.ok) {
-        const result = await response.json()
-        console.log('Backtest result:', result)
+      if (!response.ok) {
+        throw new Error(`Backtest failed: ${response.status}`)
       }
-    } catch (error) {
-      console.error('Backtest failed:', error)
+      // Result available for future use
+      await response.json()
+    } catch {
+      // Error handling - could show toast notification
     } finally {
       setIsLoading(false)
     }

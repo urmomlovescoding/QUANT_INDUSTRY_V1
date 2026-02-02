@@ -40,8 +40,8 @@ export function OrderBookWidget({ symbol = 'SPY', maxLevels = 8 }: OrderBookWidg
           const data = await res.json()
           setBookData(data)
         }
-      } catch (error) {
-        console.error('Failed to fetch order book:', error)
+      } catch {
+        // Silent fail - book will show as empty
       } finally {
         setIsLoading(false)
       }

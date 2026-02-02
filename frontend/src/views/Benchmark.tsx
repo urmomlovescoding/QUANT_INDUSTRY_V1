@@ -68,8 +68,8 @@ export function Benchmark() {
         const result = await response.json()
         setData(result)
       }
-    } catch (error) {
-      console.error('Failed to fetch benchmarks:', error)
+    } catch {
+      // Silent fail - data will show as null
     } finally {
       setIsLoading(false)
     }
@@ -82,8 +82,8 @@ export function Benchmark() {
         const result = await response.json()
         setComparison(result.benchmarks || [])
       }
-    } catch (error) {
-      console.error('Failed to fetch comparison:', error)
+    } catch {
+      // Silent fail - comparison will show as empty
     }
   }
 
@@ -96,8 +96,8 @@ export function Benchmark() {
       setNewWeight(10)
       fetchBenchmarks()
       fetchComparison()
-    } catch (error) {
-      console.error('Failed to add benchmark:', error)
+    } catch {
+      // Silent fail - modal will close without adding
     }
   }
 
@@ -105,8 +105,8 @@ export function Benchmark() {
     try {
       await fetch(`/api/benchmark/update?symbol=${symbol}&enabled=${!enabled}`, { method: 'POST' })
       fetchBenchmarks()
-    } catch (error) {
-      console.error('Failed to toggle benchmark:', error)
+    } catch {
+      // Silent fail - state will refresh on next poll
     }
   }
 
@@ -115,8 +115,8 @@ export function Benchmark() {
       await fetch(`/api/benchmark/${symbol}`, { method: 'DELETE' })
       fetchBenchmarks()
       fetchComparison()
-    } catch (error) {
-      console.error('Failed to remove benchmark:', error)
+    } catch {
+      // Silent fail - list will refresh on next poll
     }
   }
 
