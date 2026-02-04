@@ -45,10 +45,14 @@ frontend/build/
 .DS_Store
 Thumbs.db
 
-# Secrets/Keys
+# Secrets/Keys - NEVER commit these!
 *.pem
 *.key
 credentials.json
+api_keys.json
+**/api_keys.json
+secrets.json
+.secrets/
 
 # Cache
 .cache/

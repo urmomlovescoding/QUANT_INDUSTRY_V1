@@ -4,8 +4,13 @@ Execution Engine
 P0 Critical Feature: Signal processing and order execution with risk integration.
 
 Implements exact parity with quant-platform/execution/executor.py
+
+THREAD SAFETY: All order tracking operations are protected by RLock to prevent
+race conditions during concurrent order updates (e.g., from WebSocket callbacks
+and manual API calls).
 """
 import logging
+import threading
 import uuid
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -141,10 +146,14 @@ class ExecutionEngine:
         self.risk_engine = risk_engine
         self.broker_adapter = broker_adapter
 
+        # Thread lock for order state - CRITICAL for concurrent access safety
+        # Use RLock to allow recursive acquisition (e.g., cancel_all_orders -> update_order_status)
+        self._order_lock = threading.RLock()
+
         # Decision history (audit trail)
         self.decisions: List[ExecutionDecision] = []
 
-        # Active orders
+        # Active orders - ALWAYS access with self._order_lock held
         self.pending_orders: Dict[str, OrderTracker] = {}
         self.filled_orders: Dict[str, OrderTracker] = {}
 
@@ -283,7 +292,11 @@ class ExecutionEngine:
         return decision
 
     def _execute_decision(self, decision: ExecutionDecision) -> ExecutionDecision:
-        """Execute an approved decision."""
+        """
+        Execute an approved decision.
+
+        THREAD-SAFE: Order tracking is protected by RLock.
+        """
         if self.mode == ExecutionMode.SIGNAL_ONLY:
             return decision
 
@@ -302,7 +315,7 @@ class ExecutionEngine:
             decision.was_executed = True
             decision.order_id = order_id
 
-            # Track order
+            # Track order - thread-safe
             tracker = OrderTracker(
                 order_id=order_id,
                 ticker=decision.ticker,
@@ -312,7 +325,10 @@ class ExecutionEngine:
                 submitted_at=datetime.now(),
                 decision_id=decision.decision_id,
             )
-            self.pending_orders[order_id] = tracker
+
+            with self._order_lock:
+                self.pending_orders[order_id] = tracker
+
             self._notify("order_submitted", tracker)
 
         except Exception as e:
@@ -328,35 +344,54 @@ class ExecutionEngine:
         filled_qty: int = 0,
         filled_price: float = 0.0,
     ) -> None:
-        """Update order status from broker."""
-        if order_id not in self.pending_orders:
-            logger.warning(f"Unknown order ID: {order_id}")
-            return
+        """
+        Update order status from broker.
 
-        tracker = self.pending_orders[order_id]
-        tracker.status = status
-        tracker.filled_qty = filled_qty
-        tracker.filled_price = filled_price
+        THREAD-SAFE: Protected by RLock to prevent race conditions
+        when multiple threads update order state concurrently.
+        """
+        with self._order_lock:
+            if order_id not in self.pending_orders:
+                logger.warning(f"Unknown order ID: {order_id}")
+                return
 
-        if status == "FILLED":
-            tracker.filled_at = datetime.now()
-            self.filled_orders[order_id] = tracker
-            del self.pending_orders[order_id]
-            self._notify("order_filled", tracker)
-            logger.info(f"Order filled: {order_id} @ {filled_price}")
+            tracker = self.pending_orders[order_id]
+            tracker.status = status
+            tracker.filled_qty = filled_qty
+            tracker.filled_price = filled_price
 
-        elif status == "CANCELLED":
-            del self.pending_orders[order_id]
-            self._notify("order_cancelled", tracker)
-            logger.info(f"Order cancelled: {order_id}")
+            if status == "FILLED":
+                tracker.filled_at = datetime.now()
+                self.filled_orders[order_id] = tracker
+                del self.pending_orders[order_id]
+                # Notify outside lock to prevent deadlocks in callbacks
+                self._notify("order_filled", tracker)
+                logger.info(f"Order filled: {order_id} @ {filled_price}")
+
+            elif status == "CANCELLED":
+                del self.pending_orders[order_id]
+                # Notify outside lock to prevent deadlocks in callbacks
+                self._notify("order_cancelled", tracker)
+                logger.info(f"Order cancelled: {order_id}")
 
     def cancel_all_orders(self, reason: str = "Manual cancellation") -> int:
-        """Cancel all pending orders."""
+        """
+        Cancel all pending orders.
+
+        THREAD-SAFE: Uses RLock which allows recursive acquisition
+        (this method calls update_order_status which also acquires the lock).
+        """
         cancelled = 0
-        for order_id in list(self.pending_orders.keys()):
+
+        # Get snapshot of order IDs under lock
+        with self._order_lock:
+            order_ids = list(self.pending_orders.keys())
+
+        for order_id in order_ids:
             try:
                 if self.broker_adapter:
                     self.broker_adapter.cancel_order(order_id)
+                # update_order_status will acquire the lock (RLock allows this)
                 self.update_order_status(order_id, "CANCELLED")
                 cancelled += 1
             except Exception as e:
@@ -370,18 +405,22 @@ class ExecutionEngine:
         return self.decisions[-limit:]
 
     def get_statistics(self) -> Dict[str, Any]:
-        """Get execution statistics."""
+        """Get execution statistics (thread-safe)."""
         total_decisions = len(self.decisions)
         executed = sum(1 for d in self.decisions if d.was_executed)
         approved = sum(1 for d in self.decisions if d.risk_approved)
+
+        with self._order_lock:
+            pending_count = len(self.pending_orders)
+            filled_count = len(self.filled_orders)
 
         return {
             "mode": self.mode.value,
             "total_decisions": total_decisions,
             "executed": executed,
             "approved": approved,
-            "pending_orders": len(self.pending_orders),
-            "filled_orders": len(self.filled_orders),
+            "pending_orders": pending_count,
+            "filled_orders": filled_count,
             "execution_rate": executed / total_decisions if total_decisions > 0 else 0,
             "approval_rate": approved / total_decisions if total_decisions > 0 else 0,
         }
