@@ -4,6 +4,29 @@
 
 ---
 
+## Session: 2026-02-07 (continued) — Auth & VIX Critical Fixes
+
+### 13. AUTHENTICATION FIX (CRITICAL)
+
+**Problem**: `api/main.py` (the actual running entry point) had NO auth routes registered. Login returned 404 — users could never authenticate, making ALL protected routes inaccessible.
+
+**api/routes/auth_routes.py** (NEW)
+- Lightweight JWT auth with auto-register on first login
+- No database dependency — in-memory user store for local dev
+- Endpoints: `/api/auth/login`, `/api/auth/register`, `/api/auth/logout`, `/api/auth/me`, `/api/auth/refresh`, `/api/auth/ping`
+
+**api/main.py**
+- Added auth router registration: `app.include_router(auth_router, prefix="/api")`
+
+### 14. VIX SYMBOL NORMALIZATION
+
+**backend/services/market_data_service.py**
+- `_yfinance_quote()`: Added `VIX → ^VIX` normalization before calling `yf.Ticker()`
+- `_yfinance_bars()`: Same normalization for historical data
+- `_mock_quote()`: Added `"VIX": 18.50, "^VIX": 18.50` to base_prices (was `hash("VIX") % 400 ≈ $184`)
+
+---
+
 ## Session: 2026-02-07 — Full Platform Audit & Production Hardening
 
 ### Status: COMPLETED
