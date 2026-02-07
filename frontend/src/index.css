@@ -266,25 +266,55 @@
   }
 
   .data-table th {
-    @apply px-5 py-4 text-left text-xs font-semibold uppercase tracking-wider;
+    @apply px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider;
     color: var(--foreground-muted);
     background: rgba(255, 255, 255, 0.02);
     border-bottom: 1px solid var(--border);
+    cursor: default;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .data-table th.sortable {
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .data-table th.sortable:hover {
+    color: var(--foreground-primary);
+  }
+
+  .data-table th.text-right,
+  .data-table td.text-right {
+    text-align: right;
   }
 
   .data-table td {
-    @apply px-5 py-4;
+    @apply px-5 py-3.5;
     color: var(--foreground-primary);
     border-bottom: 1px solid var(--border);
     transition: background-color 0.15s ease;
   }
 
+  /* Alternating row colors */
+  .data-table tbody tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.015);
+  }
+
   .data-table tr:hover td {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .data-table tr:last-child td {
     border-bottom: none;
+  }
+
+  /* Numeric columns right-aligned */
+  .data-table td.numeric,
+  .data-table th.numeric {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: 'JetBrains Mono', monospace;
   }
 
   /* ====== NAVIGATION ====== */
@@ -322,20 +352,43 @@
 
   /* ====== SKELETON LOADING ====== */
   .skeleton {
-    @apply rounded-lg animate-pulse;
+    @apply rounded-lg;
     background: linear-gradient(
       90deg,
       rgba(255, 255, 255, 0.03) 25%,
-      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0.08) 50%,
       rgba(255, 255, 255, 0.03) 75%
     );
     background-size: 200% 100%;
-    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    animation: skeleton-shimmer 1.8s ease-in-out infinite;
   }
 
   @keyframes skeleton-shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+  }
+
+  /* ====== RECHARTS CUSTOM TOOLTIP ====== */
+  .recharts-custom-tooltip {
+    @apply rounded-lg text-xs;
+    background: var(--background-elevated) !important;
+    border: 1px solid var(--border-light) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+    padding: 10px 14px !important;
+  }
+
+  .recharts-custom-tooltip .label {
+    @apply text-foreground-primary font-semibold mb-1.5;
+  }
+
+  .recharts-custom-tooltip .value {
+    @apply font-mono tabular-nums;
+  }
+
+  /* Override recharts default grid */
+  .recharts-cartesian-grid-horizontal line,
+  .recharts-cartesian-grid-vertical line {
+    stroke: rgba(255, 255, 255, 0.04) !important;
   }
 
   /* ====== TAB SYSTEM ====== */

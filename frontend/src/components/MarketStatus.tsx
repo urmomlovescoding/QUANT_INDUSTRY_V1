@@ -119,7 +119,7 @@ export function MarketStatus() {
   )
 }
 
-// Compact version for headers
+// Compact version for headers - styled as a badge with color coding
 export function MarketStatusBadge() {
   const [status, setStatus] = useState<MarketStatusData | null>(null)
 
@@ -154,23 +154,47 @@ export function MarketStatusBadge() {
 
   if (!status) return null
 
-  const getDotColor = () => {
-    if (status.is_open) return 'bg-green-400'
-    if (status.is_pre_market || status.is_after_hours) return 'bg-amber-400'
-    return 'bg-slate-500'
+  const getConfig = () => {
+    if (status.is_open) return {
+      dot: 'bg-bullish',
+      dotGlow: 'shadow-[0_0_6px_rgba(16,185,129,0.5)]',
+      text: 'text-bullish',
+      bg: 'bg-bullish/10',
+      label: 'OPEN',
+      pulse: true,
+    }
+    if (status.is_pre_market) return {
+      dot: 'bg-amber-400',
+      dotGlow: 'shadow-[0_0_6px_rgba(251,191,36,0.4)]',
+      text: 'text-amber-400',
+      bg: 'bg-amber-400/10',
+      label: 'PRE-MKT',
+      pulse: true,
+    }
+    if (status.is_after_hours) return {
+      dot: 'bg-purple-400',
+      dotGlow: 'shadow-[0_0_6px_rgba(192,132,252,0.4)]',
+      text: 'text-purple-400',
+      bg: 'bg-purple-400/10',
+      label: 'AFTER-HRS',
+      pulse: false,
+    }
+    return {
+      dot: 'bg-foreground-muted/50',
+      dotGlow: '',
+      text: 'text-foreground-muted',
+      bg: 'bg-background-tertiary/40',
+      label: 'CLOSED',
+      pulse: false,
+    }
   }
 
-  const getLabel = () => {
-    if (status.is_open) return 'Open'
-    if (status.is_pre_market) return 'Pre-Mkt'
-    if (status.is_after_hours) return 'After-Hrs'
-    return 'Closed'
-  }
+  const config = getConfig()
 
   return (
-    <div className="flex items-center gap-1.5">
-      <span className={`w-2 h-2 rounded-full ${getDotColor()} ${status.is_open ? 'animate-pulse' : ''}`} />
-      <span className="text-xs text-foreground-muted">{getLabel()}</span>
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md ${config.bg}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dot} ${config.dotGlow} ${config.pulse ? 'animate-pulse' : ''}`} />
+      <span className={`text-[10px] font-bold tracking-wider ${config.text}`}>{config.label}</span>
     </div>
   )
 }

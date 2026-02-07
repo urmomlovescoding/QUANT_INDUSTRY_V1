@@ -262,7 +262,7 @@ class BlackScholes:
                 return BlackScholes.price(S, K, T, r, vol, option_type) - price
 
             return brentq(objective, 0.01, 5.0, xtol=precision)
-        except:
+        except (ValueError, RuntimeError):
             return sigma
 
 

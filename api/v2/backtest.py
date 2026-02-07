@@ -37,6 +37,8 @@ class StrategyType(str, Enum):
     BREAKOUT = "breakout"
     TREND_FOLLOWING = "trend_following"
     PAIRS = "pairs"
+    ML_ENSEMBLE = "ml_ensemble"
+    SVM = "svm"
     CUSTOM = "custom"
 
 
@@ -211,7 +213,22 @@ STRATEGY_TYPE_MAP = {
     StrategyType.BREAKOUT: "breakout",
     StrategyType.TREND_FOLLOWING: "trend_following",
     StrategyType.PAIRS: "ma_crossover",
+    StrategyType.ML_ENSEMBLE: "ml_ensemble",
+    StrategyType.SVM: "svm",
 }
+
+
+def _get_beast_engine():
+    """Get the BEAST ML engine for ML-based backtesting."""
+    try:
+        from brain.beast_ml import get_beast_engine
+        return get_beast_engine()
+    except ImportError:
+        try:
+            from backend.brain.beast_ml import get_beast_engine
+            return get_beast_engine()
+        except ImportError:
+            return None
 
 
 def _get_data_service():
@@ -319,6 +336,162 @@ def _calculate_period(start_date: date, end_date: date) -> str:
         return "5y"
 
 
+def _run_ml_backtest(
+    strategy_name: str,
+    data: dict,
+    initial_capital: float,
+    commission: float,
+    slippage: float,
+    parameters: dict
+) -> tuple[list, list, float]:
+    """
+    Run ML-based backtest using BEAST ML engine (including SVM).
+    Uses walk-forward training on historical data to generate signals.
+    """
+    import pandas as pd
+
+    beast = _get_beast_engine()
+    if beast is None:
+        raise HTTPException(status_code=500, detail="BEAST ML engine not available")
+
+    symbol = list(data.keys())[0]
+    symbol_data = data[symbol]
+
+    # Build DataFrame from data
+    df = pd.DataFrame({
+        'open': symbol_data.get('open', symbol_data['close']),
+        'high': symbol_data.get('high', symbol_data['close']),
+        'low': symbol_data.get('low', symbol_data['close']),
+        'close': symbol_data['close'],
+        'volume': symbol_data.get('volume', [0] * len(symbol_data['close']))
+    })
+
+    if len(df) < 100:
+        raise HTTPException(status_code=400, detail="Insufficient data for ML backtest (need 100+ bars)")
+
+    # Walk-forward: train on first 70%, test on last 30%
+    train_size = int(len(df) * 0.7)
+    train_df = df.iloc[:train_size]
+    test_df = df.iloc[train_size:]
+
+    # Train all models (including SVM)
+    try:
+        beast.walk_forward_train(train_df)
+    except Exception as e:
+        logger.warning(f"ML training failed, using untrained signals: {e}")
+
+    # Generate signals on test period using sliding window
+    timestamps = symbol_data.get('timestamp', [])
+    closes = np.array(symbol_data['close'])
+    equity = initial_capital
+    cash = initial_capital
+    shares = 0
+    in_position = False
+    entry_price = 0.0
+    entry_idx = 0
+    trades = []
+    equity_curve = []
+
+    confidence_threshold = parameters.get('confidence_threshold', 0.65)
+    lookback = 200  # Lookback window for feature calculation
+
+    for i in range(train_size, len(df)):
+        current_price = closes[i]
+
+        # Generate prediction using sliding window
+        try:
+            window_start = max(0, i - lookback)
+            window_df = df.iloc[window_start:i + 1]
+
+            if beast.is_trained and len(window_df) >= 50:
+                prediction = beast.predict(window_df)
+                signal = prediction.get('signal')
+                confidence = prediction.get('confidence', 0)
+
+                # Generate buy/sell signals from ML prediction
+                if hasattr(signal, 'value'):
+                    signal_val = signal.value
+                else:
+                    signal_val = 0
+
+                if signal_val > 0 and confidence >= confidence_threshold and not in_position:
+                    # Buy
+                    trade_value = cash * 0.95
+                    shares = int(trade_value / current_price)
+                    if shares > 0:
+                        cost = shares * current_price * (1 + slippage)
+                        commission_cost = cost * commission
+                        cash -= (cost + commission_cost)
+                        in_position = True
+                        entry_price = current_price * (1 + slippage)
+                        entry_idx = i
+
+                elif signal_val < 0 and in_position:
+                    # Sell
+                    proceeds = shares * current_price * (1 - slippage)
+                    commission_cost = proceeds * commission
+                    cash += (proceeds - commission_cost)
+
+                    pnl = proceeds - commission_cost - (shares * entry_price)
+                    pnl_pct = (current_price / entry_price - 1) * 100 if entry_price > 0 else 0
+
+                    trade_record = {
+                        'symbol': symbol,
+                        'entry_date': timestamps[entry_idx] if entry_idx < len(timestamps) else datetime.now(),
+                        'exit_date': timestamps[i] if i < len(timestamps) else datetime.now(),
+                        'side': 'long',
+                        'quantity': shares,
+                        'entry_price': entry_price,
+                        'exit_price': current_price * (1 - slippage),
+                        'pnl': pnl,
+                        'pnl_percent': pnl_pct,
+                        'holding_period_days': i - entry_idx
+                    }
+                    trades.append(trade_record)
+                    shares = 0
+                    in_position = False
+        except Exception as e:
+            logger.debug(f"ML prediction error at bar {i}: {e}")
+
+        # Calculate equity
+        equity = cash + (shares * current_price if in_position else 0)
+        peak = max(initial_capital, max([e['equity'] for e in equity_curve]) if equity_curve else initial_capital)
+        drawdown = peak - equity
+        drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0
+
+        equity_curve.append({
+            'date': timestamps[i].date() if i < len(timestamps) and hasattr(timestamps[i], 'date') else date.today(),
+            'equity': equity,
+            'drawdown': drawdown,
+            'drawdown_percent': drawdown_pct
+        })
+
+    # Close remaining position
+    if in_position and len(closes) > 0:
+        final_price = closes[-1]
+        proceeds = shares * final_price * (1 - slippage)
+        commission_cost = proceeds * commission
+        cash += (proceeds - commission_cost)
+        pnl = proceeds - commission_cost - (shares * entry_price)
+        pnl_pct = (final_price / entry_price - 1) * 100 if entry_price > 0 else 0
+
+        trades.append({
+            'symbol': symbol,
+            'entry_date': timestamps[entry_idx] if entry_idx < len(timestamps) else datetime.now(),
+            'exit_date': timestamps[-1] if timestamps else datetime.now(),
+            'side': 'long',
+            'quantity': shares,
+            'entry_price': entry_price,
+            'exit_price': final_price * (1 - slippage),
+            'pnl': pnl,
+            'pnl_percent': pnl_pct,
+            'holding_period_days': len(closes) - 1 - entry_idx
+        })
+        equity = cash
+
+    return trades, equity_curve, equity
+
+
 def _run_strategy_backtest(
     strategy_name: str,
     data: dict,
@@ -328,8 +501,15 @@ def _run_strategy_backtest(
     parameters: dict
 ) -> tuple[list, list, float]:
     """Run strategy backtest and return trades, equity curve, final value."""
+    # Route ML/SVM strategies to the ML backtest engine
+    if strategy_name in ('ml_ensemble', 'svm'):
+        return _run_ml_backtest(
+            strategy_name, data, initial_capital,
+            commission, slippage, parameters
+        )
+
     bt_strategies = _get_backtest_strategies()
-    
+
     if not bt_strategies:
         raise HTTPException(status_code=500, detail="Backtest strategies module not available")
     
@@ -804,6 +984,33 @@ async def list_strategies(
                 },
                 default_symbols=["SPY", "QQQ", "IWM"],
                 created_at=datetime(2024, 7, 1)
+            ),
+            Strategy(
+                id="strat-ml-ensemble-001",
+                name="ML Ensemble (XGB + LGB + NN + SVM)",
+                description="BEAST ML ensemble combining XGBoost, LightGBM, Neural Network, and SVM for signal generation",
+                strategy_type=StrategyType.ML_ENSEMBLE,
+                parameters={"target_horizon": 5, "confidence_threshold": 0.65},
+                parameter_schema={
+                    "target_horizon": {"type": "int", "min": 1, "max": 20},
+                    "confidence_threshold": {"type": "float", "min": 0.5, "max": 0.9},
+                },
+                default_symbols=["SPY", "QQQ"],
+                created_at=datetime(2024, 8, 1)
+            ),
+            Strategy(
+                id="strat-svm-001",
+                name="SVM Signal Classifier",
+                description="Support Vector Machine with RBF kernel for BUY/SELL/HOLD classification using 100+ technical features",
+                strategy_type=StrategyType.SVM,
+                parameters={"C": 10.0, "kernel": "rbf", "top_k_features": 40},
+                parameter_schema={
+                    "C": {"type": "float", "min": 0.1, "max": 100.0},
+                    "kernel": {"type": "str", "values": ["rbf", "poly", "linear"]},
+                    "top_k_features": {"type": "int", "min": 10, "max": 100},
+                },
+                default_symbols=["SPY"],
+                created_at=datetime(2024, 8, 15)
             ),
         ]
     

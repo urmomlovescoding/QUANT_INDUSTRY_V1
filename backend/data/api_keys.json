@@ -1,13 +1,13 @@
 {
   "alpaca": {
-    "api_key": "AKFXWR05RECAQKA2EC5U",
-    "secret_key": "r0k16iNgUdA6kMOuw7ULGJ8J9lhcjraLtwgYs4f4",
+    "api_key": "",
+    "secret_key": "",
     "base_url": "https://paper-api.alpaca.markets",
     "data_url": "https://data.alpaca.markets"
   },
   "tradier": {
-    "api_key": "e4Z0NUVJhCrTRrNnia7KiiOGeERp",
-    "account_id": "VA87218417",
+    "api_key": "",
+    "account_id": "",
     "base_url": "https://sandbox.tradier.com",
     "is_sandbox": true
   },
@@ -20,11 +20,11 @@
     "base_url": "https://finnhub.io/api/v1"
   },
   "finra": {
-    "api_key": "a34d69c7c7754cc38082",
+    "api_key": "",
     "base_url": "https://api.finra.org"
   },
   "news_api": {
-    "api_key": "e2ed8879fb2a45d9997734f3f30997e1",
+    "api_key": "",
     "base_url": "https://newsapi.org/v2"
   },
   "alpha_vantage": {
@@ -35,5 +35,5 @@
     "api_key": "",
     "base_url": "https://financialmodelingprep.com/api/v3"
   },
-  "last_updated": "2026-01-23T06:35:52.735606"
+  "last_updated": ""
 }

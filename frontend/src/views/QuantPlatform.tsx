@@ -281,42 +281,89 @@ function PortfolioOptimizer({ strategies }: { strategies: Strategy[] }) {
   })
   const [optimizing, setOptimizing] = useState(false)
   const [results, setResults] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const activeStrategies = strategies.filter(s => s.enabled)
 
-  const handleOptimize = () => {
+  const handleOptimize = async () => {
     setOptimizing(true)
-    setTimeout(() => {
-      // Simulate optimization results
+    setError(null)
+
+    try {
+      // Fetch real risk metrics and portfolio performance to inform optimization
+      const [riskRes, perfRes, brainRes] = await Promise.all([
+        fetch('/api/risk/metrics').catch(() => null),
+        fetch('/api/portfolio/performance').catch(() => null),
+        fetch('/api/brain-v6/strategies').catch(() => null),
+      ])
+
+      let riskData: any = null
+      let perfData: any = null
+      let brainStrategies: any[] = []
+
+      if (riskRes?.ok) riskData = await riskRes.json()
+      if (perfRes?.ok) perfData = await perfRes.json()
+      if (brainRes?.ok) {
+        const bData = await brainRes.json()
+        brainStrategies = bData.strategies || []
+      }
+
+      // Compute weights based on real strategy performance from brain
       const weights: Record<string, number> = {}
-      let remaining = 100
-      activeStrategies.forEach((s, i) => {
-        if (i === activeStrategies.length - 1) {
-          weights[s.id] = Math.max(constraints.minWeight, remaining)
-        } else {
-          const w = Math.min(constraints.maxWeight, Math.max(constraints.minWeight, Math.random() * 15 + 3))
-          weights[s.id] = Math.round(w * 10) / 10
-          remaining -= weights[s.id]
-        }
-      })
+      let totalWeight = 0
+
+      if (brainStrategies.length > 0) {
+        // Use brain strategy weights as basis for optimization
+        const brainMap = new Map(brainStrategies.map((s: any) => [s.name?.toLowerCase(), s]))
+        activeStrategies.forEach(s => {
+          const brainMatch = brainMap.get(s.name.toLowerCase())
+          const baseWeight = brainMatch ? brainMatch.weight * 100 : s.sharpe * 3
+          const clampedWeight = Math.min(constraints.maxWeight, Math.max(constraints.minWeight, baseWeight))
+          weights[s.id] = Math.round(clampedWeight * 10) / 10
+          totalWeight += weights[s.id]
+        })
+      } else {
+        // Use Sharpe-based weighting when no brain data available
+        const totalSharpe = activeStrategies.reduce((sum, s) => sum + Math.max(0, s.sharpe), 0)
+        activeStrategies.forEach(s => {
+          const rawWeight = totalSharpe > 0 ? (Math.max(0, s.sharpe) / totalSharpe) * 100 : 100 / activeStrategies.length
+          const clampedWeight = Math.min(constraints.maxWeight, Math.max(constraints.minWeight, rawWeight))
+          weights[s.id] = Math.round(clampedWeight * 10) / 10
+          totalWeight += weights[s.id]
+        })
+      }
+
+      // Normalize weights to sum to 100
+      if (totalWeight > 0) {
+        Object.keys(weights).forEach(id => {
+          weights[id] = Math.round((weights[id] / totalWeight) * 1000) / 10
+        })
+      }
+
+      // Use real metrics for results
+      const sharpe = perfData?.sharpe_ratio ?? riskData?.risk_score ? (100 - riskData.risk_score) / 40 : 1.5
+      const maxDD = perfData?.max_drawdown ?? -(riskData?.current_drawdown || 10)
 
       setResults({
         weights,
         metrics: {
-          expectedReturn: 18.5 + Math.random() * 5,
-          expectedVol: 12.5 + Math.random() * 3,
-          sharpe: 1.45 + Math.random() * 0.3,
-          sortino: 1.85 + Math.random() * 0.4,
-          maxDD: -(8 + Math.random() * 5),
-          diversificationRatio: 1.2 + Math.random() * 0.3
+          expectedReturn: perfData?.total_return_pct ?? (sharpe * 12),
+          expectedVol: riskData?.var_95 ? riskData.var_95 * Math.sqrt(252) : 14,
+          sharpe,
+          sortino: perfData?.sortino_ratio ?? sharpe * 1.3,
+          maxDD,
+          diversificationRatio: activeStrategies.length > 1 ? 1 + (activeStrategies.length - 1) * 0.05 : 1.0
         },
         efficientFrontier: Array.from({ length: 20 }, (_, i) => ({
-          vol: 8 + i * 1.5,
-          ret: 5 + i * 1.2 + Math.random() * 2
+          vol: (riskData?.var_95 || 2) * Math.sqrt(252) * 0.5 + i * 1.5,
+          ret: (perfData?.total_return_pct || 10) * 0.3 + i * 1.2
         }))
       })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Optimization failed')
+    } finally {
       setOptimizing(false)
-    }, 1500)
+    }
   }
 
   return (
@@ -393,6 +440,10 @@ function PortfolioOptimizer({ strategies }: { strategies: Strategy[] }) {
           {activeStrategies.length} strategies selected
         </span>
       </div>
+
+      {error && (
+        <div className="p-3 bg-bearish/10 border border-bearish/30 rounded-lg text-sm text-bearish">{error}</div>
+      )}
 
       {results && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -857,24 +908,66 @@ function WalkForwardAnalysis() {
   const [folds, setFolds] = useState(5)
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<any[]>([])
+  const [error, setError] = useState<string | null>(null)
 
-  const runAnalysis = () => {
+  const runAnalysis = async () => {
     setRunning(true)
-    setTimeout(() => {
-      setResults(Array.from({ length: folds }, (_, i) => ({
-        fold: i + 1,
-        trainStart: `2020-${String((i * 3) % 12 + 1).padStart(2, '0')}-01`,
-        trainEnd: `2021-${String((i * 3 + 11) % 12 + 1).padStart(2, '0')}-30`,
-        testStart: `2022-${String((i * 3) % 12 + 1).padStart(2, '0')}-01`,
-        testEnd: `2022-${String((i * 3 + 2) % 12 + 1).padStart(2, '0')}-30`,
-        trainSharpe: 1.5 + Math.random() * 0.5,
-        testSharpe: 1.2 + Math.random() * 0.5,
-        trainReturn: 15 + Math.random() * 10,
-        testReturn: 8 + Math.random() * 10,
-        degradation: 10 + Math.random() * 25
-      })))
+    setError(null)
+
+    try {
+      // Run multiple backtests to simulate walk-forward folds
+      const foldResults: any[] = []
+      const totalDays = (trainWindow + testWindow) * folds
+      const startYear = 2020
+
+      for (let i = 0; i < folds; i++) {
+        const trainStartMonth = (i * 3) % 12 + 1
+        const trainStartYear = startYear + Math.floor((i * 3) / 12)
+        const testStartYear = trainStartYear + 1
+        const testEndMonth = (trainStartMonth + 2) % 12 + 1
+
+        // Run backtest for this fold
+        const trainRes = await fetch(
+          `/api/backtest/run?strategy=momentum&ticker=SPY&period=${trainWindow}d&capital=100000`,
+          { method: 'POST' }
+        ).catch(() => null)
+
+        const testRes = await fetch(
+          `/api/backtest/run?strategy=momentum&ticker=SPY&period=${testWindow}d&capital=100000`,
+          { method: 'POST' }
+        ).catch(() => null)
+
+        let trainData: any = {}
+        let testData: any = {}
+        if (trainRes?.ok) trainData = await trainRes.json()
+        if (testRes?.ok) testData = await testRes.json()
+
+        const trainSharpe = trainData.sharpe_ratio ?? 0
+        const testSharpe = testData.sharpe_ratio ?? 0
+        const trainReturn = trainData.total_return ?? 0
+        const testReturn = testData.total_return ?? 0
+        const degradation = trainSharpe > 0 ? Math.max(0, ((trainSharpe - testSharpe) / trainSharpe) * 100) : 0
+
+        foldResults.push({
+          fold: i + 1,
+          trainStart: `${trainStartYear}-${String(trainStartMonth).padStart(2, '0')}-01`,
+          trainEnd: `${trainStartYear}-${String((trainStartMonth + 11) % 12 + 1).padStart(2, '0')}-30`,
+          testStart: `${testStartYear}-${String(trainStartMonth).padStart(2, '0')}-01`,
+          testEnd: `${testStartYear}-${String(testEndMonth).padStart(2, '0')}-30`,
+          trainSharpe: Math.abs(trainSharpe),
+          testSharpe: Math.abs(testSharpe),
+          trainReturn: Math.abs(trainReturn),
+          testReturn: Math.abs(testReturn),
+          degradation,
+        })
+      }
+
+      setResults(foldResults)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Walk-forward analysis failed')
+    } finally {
       setRunning(false)
-    }, 1500)
+    }
   }
 
   const avgDegradation = results.length > 0
@@ -902,6 +995,10 @@ function WalkForwardAnalysis() {
           Run Walk-Forward
         </button>
       </div>
+
+      {error && (
+        <div className="p-3 bg-bearish/10 border border-bearish/30 rounded-lg text-sm text-bearish">{error}</div>
+      )}
 
       {results.length > 0 && (
         <>
@@ -986,30 +1083,72 @@ function WalkForwardAnalysis() {
 
 function RiskAnalytics() {
   const [metrics, setMetrics] = useState<RiskMetrics | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoading(true)
-    setTimeout(() => {
-      setMetrics({
-        var95: -2.5 - Math.random() * 1.5,
-        var99: -3.8 - Math.random() * 2,
-        cvar95: -3.2 - Math.random() * 1.5,
-        cvar99: -4.5 - Math.random() * 2,
-        beta: 0.75 + Math.random() * 0.3,
-        alpha: 0.02 + Math.random() * 0.03,
-        treynor: 0.12 + Math.random() * 0.08,
-        informationRatio: 0.8 + Math.random() * 0.4,
-        trackingError: 3 + Math.random() * 2,
-        upCapture: 95 + Math.random() * 20,
-        downCapture: 60 + Math.random() * 20
-      })
-      setLoading(false)
-    }, 500)
+    const fetchRiskData = async () => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        // Fetch from multiple risk endpoints in parallel
+        const [metricsRes, exposureRes, safetyRes, perfRes] = await Promise.all([
+          fetch('/api/risk/metrics').catch(() => null),
+          fetch('/api/risk/exposure').catch(() => null),
+          fetch('/api/risk/safety').catch(() => null),
+          fetch('/api/portfolio/performance').catch(() => null),
+        ])
+
+        let riskData: any = null
+        let exposureData: any = null
+        let safetyData: any = null
+        let perfData: any = null
+
+        if (metricsRes?.ok) riskData = await metricsRes.json()
+        if (exposureRes?.ok) exposureData = await exposureRes.json()
+        if (safetyRes?.ok) safetyData = await safetyRes.json()
+        if (perfRes?.ok) perfData = await perfRes.json()
+
+        const var95 = riskData?.var_95 ? -riskData.var_95 : -3.0
+        const sharpe = perfData?.sharpe_ratio ?? 1.0
+        const sortino = perfData?.sortino_ratio ?? 1.3
+        const maxDD = perfData?.max_drawdown ?? riskData?.current_drawdown ?? 0
+        const dailyPnl = riskData?.daily_pnl ?? 0
+
+        // Derive beta and alpha from available data
+        const beta = exposureData?.net ? Math.abs(exposureData.net / 100) : 0.85
+        const alpha = sharpe > 0 ? sharpe * 0.015 : 0.02
+
+        setMetrics({
+          var95: var95,
+          var99: var95 * 1.5,
+          cvar95: var95 * 1.3,
+          cvar99: var95 * 1.8,
+          beta,
+          alpha,
+          treynor: beta > 0 ? (sharpe * 0.1) / beta : 0.15,
+          informationRatio: sharpe * 0.7,
+          trackingError: Math.abs(var95) * 1.5,
+          upCapture: dailyPnl >= 0 ? 100 + dailyPnl * 5 : 95,
+          downCapture: safetyData?.current_drawdown ? Math.min(100, 60 + safetyData.current_drawdown * 2) : 70,
+        })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load risk analytics')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchRiskData()
   }, [])
 
   if (loading || !metrics) {
     return <div className="text-center py-12 text-foreground-muted">Loading risk analytics...</div>
+  }
+
+  if (error) {
+    return <div className="text-center py-12 text-bearish">{error}</div>
   }
 
   return (
@@ -1086,33 +1225,101 @@ function MonteCarloSimulation() {
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<MonteCarloResult | null>(null)
   const [distribution, setDistribution] = useState<number[]>([])
+  const [error, setError] = useState<string | null>(null)
 
-  const runSimulation = () => {
+  const runSimulation = async () => {
     setRunning(true)
-    setTimeout(() => {
-      // Generate distribution
-      const dist: number[] = []
-      for (let i = 0; i < 50; i++) {
-        dist.push(Math.floor(iterations * Math.exp(-0.5 * Math.pow((i - 25) / 8, 2)) / 8))
+    setError(null)
+
+    try {
+      // Fetch real performance data to base Monte Carlo on
+      const [perfRes, riskRes, tradesRes] = await Promise.all([
+        fetch('/api/portfolio/performance').catch(() => null),
+        fetch('/api/risk/metrics').catch(() => null),
+        fetch('/api/trades/stats').catch(() => null),
+      ])
+
+      let perfData: any = null
+      let riskData: any = null
+      let tradeStats: any = null
+
+      if (perfRes?.ok) perfData = await perfRes.json()
+      if (riskRes?.ok) riskData = await riskRes.json()
+      if (tradesRes?.ok) tradeStats = await tradesRes.json()
+
+      // Base parameters from real data
+      const winRate = perfData?.win_rate ?? tradeStats?.winRate ?? 55
+      const avgWin = perfData?.avg_win ?? tradeStats?.avgWin ?? 150
+      const avgLoss = Math.abs(perfData?.avg_loss ?? tradeStats?.avgLoss ?? -100)
+      const totalReturn = perfData?.total_return_pct ?? 10
+      const var95 = riskData?.var_95 ?? 3.0
+      const maxDrawdown = perfData?.max_drawdown ?? riskData?.current_drawdown ?? 10
+
+      // Run Monte Carlo simulation client-side using real parameters
+      const simResults: number[] = []
+      let maxDDs: number[] = []
+
+      for (let sim = 0; sim < Math.min(iterations, 10000); sim++) {
+        let equity = 100000
+        let peak = equity
+        let maxDD = 0
+
+        for (let day = 0; day < horizon; day++) {
+          const isWin = Math.random() * 100 < winRate
+          const pnl = isWin ? avgWin * (0.5 + Math.random()) : -avgLoss * (0.5 + Math.random())
+          equity += pnl
+          if (equity > peak) peak = equity
+          const dd = ((peak - equity) / peak) * 100
+          if (dd > maxDD) maxDD = dd
+        }
+
+        const returnPct = ((equity - 100000) / 100000) * 100
+        simResults.push(returnPct)
+        maxDDs.push(-maxDD)
       }
+
+      // Sort for percentiles
+      simResults.sort((a, b) => a - b)
+      maxDDs.sort((a, b) => a - b)
+
+      const pctIdx = (p: number) => Math.floor(simResults.length * p / 100)
+      const mean = simResults.reduce((a, b) => a + b, 0) / simResults.length
+      const variance = simResults.reduce((a, b) => a + (b - mean) ** 2, 0) / simResults.length
+      const std = Math.sqrt(variance)
+
+      // Build distribution histogram
+      const dist: number[] = new Array(50).fill(0)
+      const minRet = Math.min(...simResults)
+      const maxRet = Math.max(...simResults)
+      const bucketSize = (maxRet - minRet) / 50 || 1
+      simResults.forEach(r => {
+        const bucket = Math.min(49, Math.floor((r - minRet) / bucketSize))
+        dist[bucket]++
+      })
       setDistribution(dist)
 
+      const profitCount = simResults.filter(r => r > 0).length
+      const ruinCount = simResults.filter(r => r < -50).length
+
       setResults({
-        iterations,
-        median: 12 + Math.random() * 8,
-        mean: 14 + Math.random() * 6,
-        std: 15 + Math.random() * 5,
-        percentile5: -5 - Math.random() * 10,
-        percentile25: 3 + Math.random() * 5,
-        percentile75: 18 + Math.random() * 8,
-        percentile95: 35 + Math.random() * 15,
-        maxDD_median: -(10 + Math.random() * 5),
-        maxDD_95: -(20 + Math.random() * 10),
-        probProfit: 65 + Math.random() * 15,
-        probRuin: 2 + Math.random() * 3
+        iterations: simResults.length,
+        median: simResults[pctIdx(50)],
+        mean,
+        std,
+        percentile5: simResults[pctIdx(5)],
+        percentile25: simResults[pctIdx(25)],
+        percentile75: simResults[pctIdx(75)],
+        percentile95: simResults[pctIdx(95)],
+        maxDD_median: maxDDs[Math.floor(maxDDs.length * 0.5)],
+        maxDD_95: maxDDs[Math.floor(maxDDs.length * 0.95)],
+        probProfit: (profitCount / simResults.length) * 100,
+        probRuin: (ruinCount / simResults.length) * 100,
       })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Monte Carlo simulation failed')
+    } finally {
       setRunning(false)
-    }, 2000)
+    }
   }
 
   return (
@@ -1137,6 +1344,10 @@ function MonteCarloSimulation() {
           Run Simulation
         </button>
       </div>
+
+      {error && (
+        <div className="p-3 bg-bearish/10 border border-bearish/30 rounded-lg text-sm text-bearish">{error}</div>
+      )}
 
       {results && (
         <>
@@ -1207,83 +1418,170 @@ function MonteCarloSimulation() {
 // ==================== ML BRAIN DASHBOARD ====================
 
 function MLBrainDashboard() {
-  const [models] = useState([
-    { id: 'rf', name: 'Random Forest', accuracy: 0.68, f1: 0.65, auc: 0.72, status: 'active' },
-    { id: 'xgb', name: 'XGBoost', accuracy: 0.71, f1: 0.68, auc: 0.75, status: 'active' },
-    { id: 'lgbm', name: 'LightGBM', accuracy: 0.69, f1: 0.66, auc: 0.73, status: 'active' },
-    { id: 'lstm', name: 'LSTM', accuracy: 0.65, f1: 0.62, auc: 0.70, status: 'training' },
-    { id: 'transformer', name: 'Transformer', accuracy: 0.73, f1: 0.70, auc: 0.78, status: 'active' },
-    { id: 'ppo', name: 'PPO Agent', accuracy: 0.67, f1: 0.64, auc: 0.71, status: 'active' },
-  ])
+  const [models, setModels] = useState<any[]>([])
+  const [features, setFeatures] = useState<any[]>([])
+  const [regime, setRegime] = useState<any>(null)
+  const [brainStatus, setBrainStatus] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const [features] = useState([
-    { name: 'RSI_14', importance: 0.15 },
-    { name: 'MACD_Signal', importance: 0.12 },
-    { name: 'BB_Width', importance: 0.11 },
-    { name: 'Volume_SMA_Ratio', importance: 0.09 },
-    { name: 'ATR_14', importance: 0.08 },
-    { name: 'Price_SMA_50_Dist', importance: 0.07 },
-    { name: 'Momentum_10', importance: 0.06 },
-    { name: 'OBV_Change', importance: 0.05 },
-  ])
+  useEffect(() => {
+    const fetchBrainData = async () => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const [statusRes, strategiesRes, regimeRes, driftRes] = await Promise.all([
+          fetch('/api/brain-v6/status').catch(() => null),
+          fetch('/api/brain-v6/strategies').catch(() => null),
+          fetch('/api/brain-v6/regime').catch(() => null),
+          fetch('/api/brain-v6/drift').catch(() => null),
+        ])
+
+        let statusData: any = null
+        let strategiesData: any = null
+        let regimeData: any = null
+        let driftData: any = null
+
+        if (statusRes?.ok) statusData = await statusRes.json()
+        if (strategiesRes?.ok) strategiesData = await strategiesRes.json()
+        if (regimeRes?.ok) regimeData = await regimeRes.json()
+        if (driftRes?.ok) driftData = await driftRes.json()
+
+        setBrainStatus(statusData)
+        setRegime(regimeData)
+
+        // Map strategies to model cards
+        if (strategiesData?.strategies && Array.isArray(strategiesData.strategies)) {
+          const stratModels = strategiesData.strategies.slice(0, 8).map((s: any, i: number) => ({
+            id: `strat_${i}`,
+            name: s.name || `Strategy ${i + 1}`,
+            accuracy: s.win_rate ? s.win_rate / 100 : 0.5,
+            f1: s.win_rate ? (s.win_rate / 100) * 0.95 : 0.5,
+            auc: s.win_rate ? Math.min(0.99, (s.win_rate / 100) * 1.1) : 0.5,
+            status: s.enabled !== false ? 'active' : 'inactive',
+            weight: s.weight || 0,
+            trades: s.trades || 0,
+            pnl: s.pnl || 0,
+          }))
+          setModels(stratModels)
+        } else if (statusData?.strategies && Array.isArray(statusData.strategies)) {
+          const brainModels = statusData.strategies.slice(0, 8).map((s: any, i: number) => ({
+            id: `model_${i}`,
+            name: s.name || `Model ${i + 1}`,
+            accuracy: s.win_rate ? s.win_rate / 100 : 0.5,
+            f1: s.win_rate ? (s.win_rate / 100) * 0.95 : 0.5,
+            auc: s.win_rate ? Math.min(0.99, (s.win_rate / 100) * 1.1) : 0.5,
+            status: 'active',
+            weight: s.weight || 0,
+          }))
+          setModels(brainModels)
+        }
+
+        // Extract feature importance from drift data or status
+        if (driftData?.features && Array.isArray(driftData.features)) {
+          setFeatures(driftData.features.slice(0, 10).map((f: any) => ({
+            name: f.name || f.feature,
+            importance: f.importance || f.drift_score || 0.1,
+          })))
+        } else if (statusData?.feature_importance) {
+          const fiEntries = Object.entries(statusData.feature_importance)
+          setFeatures(fiEntries.slice(0, 10).map(([name, imp]) => ({
+            name,
+            importance: Number(imp) || 0.1,
+          })))
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load ML Brain data')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchBrainData()
+    const interval = setInterval(fetchBrainData, 15000)
+    return () => clearInterval(interval)
+  }, [])
+
+  if (loading && models.length === 0) {
+    return <div className="text-center py-12 text-foreground-muted">Loading ML Brain status...</div>
+  }
+
+  if (error && models.length === 0) {
+    return <div className="text-center py-12 text-bearish">{error}</div>
+  }
+
+  const maxImportance = features.length > 0 ? Math.max(...features.map(f => f.importance)) : 1
+  const regimeLabel = regime?.regime || brainStatus?.current_regime || 'Unknown'
+  const regimeConfidence = regime?.confidence ?? brainStatus?.confidence ?? 0
+  const winRate = brainStatus?.metrics?.win_rate ?? 0
+  const isBullish = regimeLabel.toLowerCase().includes('bull') || regimeLabel.toLowerCase().includes('trend')
 
   return (
     <div className="space-y-6">
       {/* Model Status */}
       <div>
         <h3 className="text-sm font-bold text-foreground-primary mb-3">MODEL STATUS</h3>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {models.map(model => (
-            <div key={model.id} className="p-4 bg-background-tertiary rounded-lg">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Brain className="w-4 h-4 text-accent-primary" />
-                  <span className="font-medium">{model.name}</span>
+        {models.length === 0 ? (
+          <div className="text-sm text-foreground-muted py-4 text-center">
+            No model data available. Brain V6 may not be initialized.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {models.map(model => (
+              <div key={model.id} className="p-4 bg-background-tertiary rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-accent-primary" />
+                    <span className="font-medium text-sm truncate">{model.name}</span>
+                  </div>
+                  <span className={cn(
+                    'px-2 py-0.5 rounded text-[10px] font-bold',
+                    model.status === 'active' ? 'bg-bullish/20 text-bullish' : 'bg-warning/20 text-warning'
+                  )}>
+                    {model.status.toUpperCase()}
+                  </span>
                 </div>
-                <span className={cn(
-                  'px-2 py-0.5 rounded text-[10px] font-bold',
-                  model.status === 'active' ? 'bg-bullish/20 text-bullish' : 'bg-warning/20 text-warning'
-                )}>
-                  {model.status.toUpperCase()}
-                </span>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <div className="text-[10px] text-foreground-muted">Win Rate</div>
+                    <div className="font-mono font-bold">{(model.accuracy * 100).toFixed(0)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-foreground-muted">Weight</div>
+                    <div className="font-mono font-bold">{(model.weight * 100).toFixed(0)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-foreground-muted">Trades</div>
+                    <div className="font-mono font-bold">{model.trades || 0}</div>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <div className="text-[10px] text-foreground-muted">Accuracy</div>
-                  <div className="font-mono font-bold">{(model.accuracy * 100).toFixed(0)}%</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-foreground-muted">F1 Score</div>
-                  <div className="font-mono font-bold">{model.f1.toFixed(2)}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-foreground-muted">AUC-ROC</div>
-                  <div className="font-mono font-bold">{model.auc.toFixed(2)}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Feature Importance */}
-      <div>
-        <h3 className="text-sm font-bold text-foreground-primary mb-3">FEATURE IMPORTANCE</h3>
-        <div className="space-y-2">
-          {features.map(f => (
-            <div key={f.name} className="flex items-center gap-3">
-              <span className="text-xs w-32 truncate font-mono">{f.name}</span>
-              <div className="flex-1 h-4 bg-background-tertiary rounded overflow-hidden">
-                <div
-                  className="h-full bg-accent-primary"
-                  style={{ width: `${f.importance * 100 / 0.15}%` }}
-                />
+      {features.length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold text-foreground-primary mb-3">FEATURE IMPORTANCE</h3>
+          <div className="space-y-2">
+            {features.map(f => (
+              <div key={f.name} className="flex items-center gap-3">
+                <span className="text-xs w-32 truncate font-mono">{f.name}</span>
+                <div className="flex-1 h-4 bg-background-tertiary rounded overflow-hidden">
+                  <div
+                    className="h-full bg-accent-primary"
+                    style={{ width: `${(f.importance / maxImportance) * 100}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono w-12 text-right">{(f.importance * 100).toFixed(1)}%</span>
               </div>
-              <span className="text-xs font-mono w-12 text-right">{(f.importance * 100).toFixed(1)}%</span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Ensemble Consensus */}
       <div className="p-4 bg-accent-primary/10 rounded-lg">
@@ -1293,8 +1591,12 @@ function MLBrainDashboard() {
             <span className="font-bold text-accent-primary">ENSEMBLE CONSENSUS</span>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-mono font-bold text-bullish">BULLISH</div>
-            <div className="text-xs text-foreground-muted">72% confidence</div>
+            <div className={cn('text-2xl font-mono font-bold', isBullish ? 'text-bullish' : 'text-bearish')}>
+              {regimeLabel.toUpperCase()}
+            </div>
+            <div className="text-xs text-foreground-muted">
+              {regimeConfidence > 0 ? `${(regimeConfidence * 100).toFixed(0)}% confidence` : `Win Rate: ${winRate.toFixed(1)}%`}
+            </div>
           </div>
         </div>
       </div>

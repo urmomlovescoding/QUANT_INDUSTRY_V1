@@ -632,8 +632,8 @@ class TradingOrchestrator:
                 quote = self.data_provider.get_quote(symbol)
                 if quote:
                     return quote.last
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not fetch price for {symbol}: {e}")
         
         # Fallback to position avg cost
         if symbol in self.positions:
@@ -693,8 +693,8 @@ class TradingOrchestrator:
         for callback in self._on_error_callbacks:
             try:
                 callback(source, error)
-            except:
-                pass
+            except Exception as cb_err:
+                logger.warning(f"Error callback failed for {source}: {cb_err}")
     
     def on_signal(self, callback: Callable[[TradingSignal], None]):
         """Register signal callback"""

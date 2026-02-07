@@ -384,7 +384,7 @@ class ConfidenceCalibrator:
         # AUC of reliability diagram
         try:
             auc = np.trapz(bin_accs, bin_confs) if len(bin_confs) > 1 else 0.5
-        except:
+        except (ValueError, TypeError):
             auc = 0.5
         
         # Overconfidence ratio

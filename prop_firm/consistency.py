@@ -256,7 +256,7 @@ class ConsistencyMonitor:
             from scipy import stats
             try:
                 probability = 1 - stats.norm.cdf(z_score)
-            except:
+            except (ValueError, OverflowError):
                 probability = 0.5
         else:
             probability = 1.0 if avg_daily_profit > 0 else 0

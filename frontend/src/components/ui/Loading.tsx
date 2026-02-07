@@ -79,8 +79,8 @@ export function Skeleton({ className, animate = true }: SkeletonProps) {
   return (
     <div
       className={cn(
-        'bg-foreground-muted/20 rounded',
-        animate && 'animate-pulse',
+        animate ? 'skeleton' : 'bg-foreground-muted/20',
+        'rounded',
         className
       )}
     />
@@ -121,21 +121,29 @@ export function SkeletonCard() {
 
 export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="space-y-2">
+    <div className="rounded-xl overflow-hidden border border-border/50">
       {/* Header */}
-      <div className="flex gap-4 p-3 bg-background-tertiary rounded">
+      <div className="flex gap-4 px-5 py-3.5 bg-background-tertiary/50">
         {Array.from({ length: cols }).map((_, i) => (
-          <Skeleton key={i} className="h-4 flex-1" />
+          <Skeleton key={i} className="h-3 flex-1" />
         ))}
       </div>
       {/* Rows */}
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex gap-4 p-3">
-          {Array.from({ length: cols }).map((_, j) => (
-            <Skeleton key={j} className="h-4 flex-1" />
-          ))}
-        </div>
-      ))}
+      <div className="divide-y divide-border/50">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div
+            key={i}
+            className={cn(
+              'flex gap-4 px-5 py-3.5',
+              i % 2 === 1 && 'bg-background-secondary/30'
+            )}
+          >
+            {Array.from({ length: cols }).map((_, j) => (
+              <Skeleton key={j} className="h-3.5 flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -181,9 +189,14 @@ export function LoadingState({
 }: LoadingStateProps) {
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[200px] p-6 text-center">
-        <p className="text-error mb-2">Error loading data</p>
-        <p className="text-sm text-foreground-muted">{error}</p>
+      <div className="flex flex-col items-center justify-center min-h-[200px] p-8 text-center">
+        <div className="w-10 h-10 rounded-2xl bg-bearish/10 flex items-center justify-center mb-3">
+          <svg className="w-5 h-5 text-bearish" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <p className="text-sm font-medium text-foreground-primary mb-1">Error loading data</p>
+        <p className="text-xs text-foreground-muted max-w-xs">{error}</p>
       </div>
     )
   }
@@ -194,8 +207,8 @@ export function LoadingState({
 
   if (isEmpty) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[200px] p-6 text-center">
-        <p className="text-foreground-muted">{emptyMessage}</p>
+      <div className="flex flex-col items-center justify-center min-h-[200px] p-8 text-center">
+        <p className="text-sm text-foreground-muted">{emptyMessage}</p>
       </div>
     )
   }

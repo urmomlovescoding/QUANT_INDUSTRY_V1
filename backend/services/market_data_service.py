@@ -29,6 +29,13 @@ except ImportError:
 _alpaca_provider = None
 _initialized = False
 
+# yfinance availability check
+try:
+    import yfinance as yf
+    HAS_YFINANCE = True
+except ImportError:
+    HAS_YFINANCE = False
+
 
 @dataclass
 class Quote:
@@ -104,22 +111,31 @@ class MarketDataService:
     
     def __init__(self):
         self._alpaca = None
+        self._use_yfinance = False
         self._cache: Dict[str, Any] = {}
         self._cache_ttl = 5  # seconds for quote cache
-    
+
     @classmethod
     async def create(cls) -> "MarketDataService":
         """Factory method to create and initialize the service."""
         service = cls()
         await service._initialize()
         return service
-    
+
     async def _initialize(self):
-        """Initialize data providers."""
-        if config.alpaca_configured:
+        """Initialize data providers.
+
+        Priority:
+        1. Alpaca (if API keys configured)
+        2. yfinance (free, no API key required - default)
+        3. Mock data (last resort if yfinance not installed)
+        """
+        data_mode = config.get_data_mode()
+
+        if data_mode == "alpaca" and config.alpaca_configured:
             try:
                 from data.providers.alpaca import AlpacaProvider, AlpacaConfig
-                
+
                 alpaca_config = AlpacaConfig(
                     api_key=config.ALPACA_API_KEY,
                     api_secret=config.ALPACA_API_SECRET
@@ -127,11 +143,20 @@ class MarketDataService:
                 self._alpaca = AlpacaProvider(alpaca_config)
                 await self._alpaca.connect()
                 logger.info("[OK] Alpaca provider connected")
+                return
             except Exception as e:
                 logger.error(f"Failed to initialize Alpaca: {e}")
                 self._alpaca = None
+
+        # Fall back to yfinance (free, no API key needed)
+        if HAS_YFINANCE:
+            self._use_yfinance = True
+            logger.info("[OK] Using yfinance for market data (free, no API key required)")
         else:
-            logger.warning("[WARN] Alpaca not configured - using mock data")
+            logger.warning(
+                "[WARN] No API keys configured and yfinance not installed. "
+                "Using mock data. Install yfinance with: pip install yfinance"
+            )
     
     async def close(self):
         """Clean up resources."""
@@ -147,6 +172,8 @@ class MarketDataService:
         """Get current data mode."""
         if self._alpaca:
             return "alpaca"
+        if self._use_yfinance:
+            return "yfinance"
         return "mock"
     
     # =========================================================================
@@ -156,7 +183,7 @@ class MarketDataService:
     async def get_quote(self, symbol: str) -> Quote:
         """Get real-time quote for a symbol."""
         symbol = symbol.upper()
-        
+
         # Try Alpaca first
         if self._alpaca:
             try:
@@ -173,14 +200,23 @@ class MarketDataService:
                 )
             except Exception as e:
                 logger.warning(f"Alpaca quote failed for {symbol}: {e}")
-        
-        # Fallback to mock
+
+        # Try yfinance (free, no API key)
+        if self._use_yfinance:
+            try:
+                quote = await self._yfinance_quote(symbol)
+                if quote:
+                    return quote
+            except Exception as e:
+                logger.warning(f"yfinance quote failed for {symbol}: {e}")
+
+        # Last resort: mock data
         return self._mock_quote(symbol)
     
     async def get_quotes(self, symbols: List[str]) -> Dict[str, Quote]:
         """Get quotes for multiple symbols."""
         symbols = [s.upper() for s in symbols]
-        
+
         if self._alpaca:
             try:
                 data = await self._alpaca.get_quotes(symbols)
@@ -203,9 +239,97 @@ class MarketDataService:
                 return result
             except Exception as e:
                 logger.warning(f"Alpaca quotes failed: {e}")
-        
+
+        # Try yfinance for each symbol
+        if self._use_yfinance:
+            result = {}
+            for symbol in symbols:
+                try:
+                    quote = await self._yfinance_quote(symbol)
+                    result[symbol] = quote if quote else self._mock_quote(symbol)
+                except Exception:
+                    result[symbol] = self._mock_quote(symbol)
+            return result
+
         return {s: self._mock_quote(s) for s in symbols}
     
+    async def _yfinance_quote(self, symbol: str) -> Optional[Quote]:
+        """Get quote from yfinance (free, no API key required)."""
+        if not HAS_YFINANCE:
+            return None
+
+        try:
+            loop = asyncio.get_event_loop()
+            # Run yfinance in a thread to avoid blocking the event loop
+            info = await loop.run_in_executor(
+                None, lambda: yf.Ticker(symbol).info
+            )
+
+            price = info.get('regularMarketPrice') or info.get('currentPrice', 0)
+            if not price or price <= 0:
+                return None
+
+            bid = info.get('bid', price)
+            ask = info.get('ask', price)
+            volume = info.get('regularMarketVolume', 0)
+
+            return Quote(
+                symbol=symbol,
+                bid=bid or price,
+                ask=ask or price,
+                last=price,
+                volume=volume or 0,
+                timestamp=datetime.now(),
+                source="yfinance"
+            )
+        except Exception as e:
+            logger.warning(f"yfinance quote failed for {symbol}: {e}")
+            return None
+
+    async def _yfinance_bars(
+        self,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        interval: str = "1d"
+    ) -> List['Bar']:
+        """Get historical bars from yfinance (free, no API key required)."""
+        if not HAS_YFINANCE:
+            return []
+
+        try:
+            loop = asyncio.get_event_loop()
+
+            def _fetch():
+                ticker = yf.Ticker(symbol)
+                df = ticker.history(
+                    start=start.strftime('%Y-%m-%d'),
+                    end=end.strftime('%Y-%m-%d'),
+                    interval=interval,
+                )
+                return df
+
+            df = await loop.run_in_executor(None, _fetch)
+
+            if df is None or df.empty:
+                return []
+
+            bars = []
+            for idx, row in df.iterrows():
+                bars.append(Bar(
+                    timestamp=idx.to_pydatetime(),
+                    open=float(row['Open']),
+                    high=float(row['High']),
+                    low=float(row['Low']),
+                    close=float(row['Close']),
+                    volume=float(row['Volume']),
+                    source="yfinance"
+                ))
+            return bars
+        except Exception as e:
+            logger.warning(f"yfinance bars failed for {symbol}: {e}")
+            return []
+
     def _mock_quote(self, symbol: str) -> Quote:
         """Generate mock quote for testing."""
         import random
@@ -278,10 +402,26 @@ class MarketDataService:
                 ]
             except Exception as e:
                 logger.warning(f"Alpaca bars failed for {symbol}: {e}")
-        
-        # Fallback to mock
+
+        # Try yfinance before mock
+        if self._use_yfinance:
+            try:
+                # Map timeframe to yfinance interval
+                tf_map = {
+                    "1Min": "1m", "5Min": "5m", "15Min": "15m",
+                    "30Min": "30m", "1Hour": "1h", "1Day": "1d",
+                    "1Week": "1wk", "1Month": "1mo",
+                }
+                yf_interval = tf_map.get(timeframe, "1d")
+                bars = await self._yfinance_bars(symbol, start, end, interval=yf_interval)
+                if bars:
+                    return bars
+            except Exception as e:
+                logger.warning(f"yfinance bars failed for {symbol}: {e}")
+
+        # Last resort: mock
         return self._mock_bars(symbol, start, end)
-    
+
     async def get_multi_bars(
         self,
         symbols: List[str],
@@ -321,7 +461,18 @@ class MarketDataService:
                 return result
             except Exception as e:
                 logger.warning(f"Alpaca multi-bars failed: {e}")
-        
+
+        # Try yfinance for each symbol
+        if self._use_yfinance:
+            result = {}
+            for symbol in symbols:
+                try:
+                    bars = await self._yfinance_bars(symbol, start, end)
+                    result[symbol] = bars if bars else self._mock_bars(symbol, start, end)
+                except Exception:
+                    result[symbol] = self._mock_bars(symbol, start, end)
+            return result
+
         return {s: self._mock_bars(s, start, end) for s in symbols}
     
     def _mock_bars(self, symbol: str, start: datetime, end: datetime) -> List[Bar]:
@@ -384,7 +535,22 @@ class MarketDataService:
             except Exception as e:
                 logger.warning(f"Alpaca snapshot failed for {symbol}: {e}")
         
-        # Mock snapshot
+        # Try yfinance snapshot
+        if self._use_yfinance:
+            try:
+                quote = await self._yfinance_quote(symbol)
+                if quote:
+                    return {
+                        "symbol": symbol,
+                        "latest_trade": {"price": quote.last, "size": 100},
+                        "latest_quote": quote.to_dict(),
+                        "daily_bar": {},
+                        "source": "yfinance"
+                    }
+            except Exception as e:
+                logger.warning(f"yfinance snapshot failed for {symbol}: {e}")
+
+        # Last resort: mock snapshot
         quote = self._mock_quote(symbol)
         return {
             "symbol": symbol,

@@ -7,6 +7,19 @@ interface GaugeChartProps {
   size?: number
 }
 
+// Theme colors
+const COLORS = {
+  track: 'rgba(255, 255, 255, 0.05)',
+  bullish: '#10b981',
+  accent: '#f59e0b',
+  bearish: '#ef4444',
+  needle: '#f4f4f5',
+  centerDot: '#f4f4f5',
+  text: '#f4f4f5',
+  labelText: 'rgba(113, 113, 122, 0.8)',
+  minMax: 'rgba(113, 113, 122, 0.6)',
+}
+
 export function GaugeChart({
   value,
   maxValue,
@@ -22,6 +35,12 @@ export function GaugeChart({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // High DPI
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = size * dpr
+    canvas.height = size * dpr
+    ctx.scale(dpr, dpr)
+
     const centerX = size / 2
     const centerY = size / 2 + 20
     const radius = (size / 2) - 20
@@ -36,8 +55,8 @@ export function GaugeChart({
     // Draw background arc (track)
     ctx.beginPath()
     ctx.arc(centerX, centerY, radius, startAngle, endAngle)
-    ctx.strokeStyle = '#2a2a2a'
-    ctx.lineWidth = 16
+    ctx.strokeStyle = COLORS.track
+    ctx.lineWidth = 14
     ctx.lineCap = 'round'
     ctx.stroke()
 
@@ -45,16 +64,16 @@ export function GaugeChart({
     const percentage = Math.min(value / maxValue, 1)
     const valueAngle = startAngle + (percentage * Math.PI)
 
-    // Draw gradient arc (value)
+    // Draw gradient arc (value) - green to yellow to red
     const gradient = ctx.createLinearGradient(0, centerY, size, centerY)
-    gradient.addColorStop(0, '#00c853')
-    gradient.addColorStop(0.5, '#f0b90b')
-    gradient.addColorStop(1, '#ff1744')
+    gradient.addColorStop(0, COLORS.bullish)
+    gradient.addColorStop(0.5, COLORS.accent)
+    gradient.addColorStop(1, COLORS.bearish)
 
     ctx.beginPath()
     ctx.arc(centerX, centerY, radius, startAngle, valueAngle)
     ctx.strokeStyle = gradient
-    ctx.lineWidth = 16
+    ctx.lineWidth = 14
     ctx.lineCap = 'round'
     ctx.stroke()
 
@@ -67,38 +86,38 @@ export function GaugeChart({
     ctx.beginPath()
     ctx.moveTo(centerX, centerY)
     ctx.lineTo(needleX, needleY)
-    ctx.strokeStyle = '#ffffff'
+    ctx.strokeStyle = COLORS.needle
     ctx.lineWidth = 2
     ctx.lineCap = 'round'
     ctx.stroke()
 
     // Draw center circle
     ctx.beginPath()
-    ctx.arc(centerX, centerY, 6, 0, 2 * Math.PI)
-    ctx.fillStyle = '#ffffff'
+    ctx.arc(centerX, centerY, 5, 0, 2 * Math.PI)
+    ctx.fillStyle = COLORS.centerDot
     ctx.fill()
 
     // Draw value text
-    ctx.fillStyle = '#ffffff'
-    ctx.font = 'bold 28px Inter'
+    ctx.fillStyle = COLORS.text
+    ctx.font = 'bold 24px "JetBrains Mono", monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(value.toString() + '%', centerX, centerY - 30)
+    ctx.fillText(value.toString() + '%', centerX, centerY - 28)
 
     // Draw label
     if (label) {
-      ctx.fillStyle = '#666666'
-      ctx.font = '11px Inter'
-      ctx.fillText(label, centerX, centerY + 30)
+      ctx.fillStyle = COLORS.labelText
+      ctx.font = '500 10px Inter, sans-serif'
+      ctx.fillText(label.toUpperCase(), centerX, centerY + 28)
     }
 
     // Draw min/max labels
-    ctx.fillStyle = '#666666'
-    ctx.font = '10px Inter'
+    ctx.fillStyle = COLORS.minMax
+    ctx.font = '9px "JetBrains Mono", monospace'
     ctx.textAlign = 'left'
-    ctx.fillText('0', 15, centerY + 10)
+    ctx.fillText('0', 18, centerY + 10)
     ctx.textAlign = 'right'
-    ctx.fillText(maxValue.toString(), size - 15, centerY + 10)
+    ctx.fillText(maxValue.toString(), size - 18, centerY + 10)
   }, [value, maxValue, label, size])
 
   return (
@@ -106,6 +125,7 @@ export function GaugeChart({
       ref={canvasRef}
       width={size}
       height={size}
+      style={{ width: size, height: size }}
       className="mx-auto"
     />
   )

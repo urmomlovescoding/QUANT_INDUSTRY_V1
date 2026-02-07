@@ -768,8 +768,9 @@ class ExecutionEngine:
         """Get current portfolio value from broker."""
         try:
             return await self.broker.get_portfolio_value()
-        except:
-            return 100000.0  # Default for testing
+        except Exception as e:
+            logger.warning(f"Could not fetch portfolio value, using default: {e}")
+            return 100000.0
     
     def get_performance_summary(self) -> Dict[str, Any]:
         """Get performance summary."""

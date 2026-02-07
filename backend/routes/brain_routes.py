@@ -19,19 +19,7 @@ router = APIRouter(prefix="/api", tags=["brain"])
 
 
 # ============== BRAIN V6 ==============
-
-@router.get("/brain-v6/status")
-async def get_brain_v6_status():
-    """Get PropFirm Brain V6 status"""
-    if not PROPFIRM_BRAIN_V6_AVAILABLE:
-        return {"available": False}
-    try:
-        from brain.propfirm_brain_v6 import get_propfirm_brain_v6
-        brain = get_propfirm_brain_v6()
-        return {"available": True, **brain.get_status()}
-    except Exception as e:
-        return {"available": True, "error": str(e)}
-
+# NOTE: /brain-v6/status is defined in api/routes/core_routes.py (authoritative).
 
 @router.get("/brain-v6/signal/{symbol}")
 async def get_brain_v6_signal(symbol: str, lookback_days: int = 60):
@@ -229,17 +217,28 @@ async def get_dl_status():
 
 @router.get("/evolution/status")
 async def get_evolution_status():
-    """Get Evolution engine status"""
+    """Get Evolution engine status using real engine data"""
     if not EVOLUTION_AVAILABLE:
         return {"available": False}
     try:
         from brain.evolution_engine import get_evolution_engine
         engine = get_evolution_engine()
+        status = engine.get_status()
+        best_fitness = engine.best_fitness_history[-1] if engine.best_fitness_history else None
+
         return {
             "available": True,
-            "population_size": engine.config.population_size,
+            "population_size": status.get("population_size", engine.config.population_size),
             "generations": engine.config.generations,
-            "has_population": len(engine.population) > 0
+            "mutation_rate": engine.config.mutation_rate,
+            "crossover_rate": engine.config.crossover_rate,
+            "elite_size": engine.config.elite_size,
+            "current_generation": status.get("generation", engine.generation),
+            "best_fitness": status.get("best_fitness", best_fitness),
+            "best_sharpe": status.get("best_sharpe", 0),
+            "generations_history": status.get("generations_history", len(engine.best_fitness_history)),
+            "has_population": status.get("population_size", 0) > 0,
+            "top_strategies": engine.get_top_strategies(3) if engine.population else []
         }
     except Exception as e:
         return {"available": True, "error": str(e)}
@@ -250,17 +249,26 @@ async def get_evolution_status():
 @router.get("/brain/modules")
 async def get_brain_modules():
     """Get status of all brain modules"""
-    return {
-        "modules": {
-            "beast_ml": {"available": BEAST_AVAILABLE, "description": "XGBoost/LightGBM/Neural ensemble"},
-            "reinforcement_learning": {"available": RL_AVAILABLE, "description": "PPO/A2C reinforcement learning"},
-            "deep_learning": {"available": DL_AVAILABLE, "description": "LSTM, Transformer, Hybrid models"},
-            "evolution": {"available": EVOLUTION_AVAILABLE, "description": "Genetic algorithm optimization"},
-            "propfirm_brain_v6": {"available": PROPFIRM_BRAIN_V6_AVAILABLE, "description": "Advanced ML/RL/DL trading brain"},
-            "neural_engine": {"available": SERVICES_AVAILABLE, "description": "Pattern recognition"},
-            "regime_detector": {"available": SERVICES_AVAILABLE, "description": "Market regime detection"}
-        }
+    modules = {
+        "beast_ml": {"available": BEAST_AVAILABLE, "description": "XGBoost/LightGBM/Neural ensemble"},
+        "reinforcement_learning": {"available": RL_AVAILABLE, "description": "PPO/A2C reinforcement learning"},
+        "deep_learning": {"available": DL_AVAILABLE, "description": "LSTM, Transformer, Hybrid models"},
+        "evolution": {"available": EVOLUTION_AVAILABLE, "description": "Genetic algorithm optimization"},
+        "propfirm_brain_v6": {"available": PROPFIRM_BRAIN_V6_AVAILABLE, "description": "Advanced ML/RL/DL trading brain"},
+        "neural_engine": {"available": SERVICES_AVAILABLE, "description": "Pattern recognition"},
+        "regime_detector": {"available": SERVICES_AVAILABLE, "description": "Market regime detection"}
     }
+    return {
+        "modules": modules,
+        "total_available": sum(1 for m in modules.values() if m["available"]),
+        "total_modules": len(modules)
+    }
+
+
+@router.get("/neural/modules")
+async def get_neural_modules():
+    """Get status of all neural/AI modules (alias for /api/brain/modules)"""
+    return await get_brain_modules()
 
 
 @router.get("/brain/gpu")

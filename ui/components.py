@@ -167,7 +167,7 @@ class Terminal:
             import shutil
             size = shutil.get_terminal_size()
             return size.columns, size.lines
-        except:
+        except (ValueError, OSError):
             return 120, 40
 
 

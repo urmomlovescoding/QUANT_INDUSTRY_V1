@@ -1,4 +1,4 @@
-import { Calendar, TrendingUp, TrendingDown } from 'lucide-react'
+import { Calendar, TrendingUp, TrendingDown, Search, RefreshCw } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { cn } from '@/utils/cn'
 
@@ -7,13 +7,17 @@ export function Earnings() {
   const [filter, setFilter] = useState<'all' | 'upcoming' | 'recent'>('upcoming')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tickerSearch, setTickerSearch] = useState('')
 
-  const fetchEarnings = async () => {
+  const fetchEarnings = async (symbols?: string) => {
     setLoading(true)
     setError(null)
 
     try {
-      const response = await fetch('/api/research/earnings')
+      const url = symbols
+        ? `/api/research/earnings?symbols=${encodeURIComponent(symbols)}`
+        : '/api/research/earnings'
+      const response = await fetch(url)
       const result = await response.json()
 
       if (!response.ok) {
@@ -22,7 +26,7 @@ export function Earnings() {
 
       // Check if data is unavailable
       if (result.status === 'unavailable') {
-        setError(result.message || 'Earnings data not available. Configure earnings data API to enable.')
+        setError(result.message || 'Earnings data not available.')
         setCalendar([])
         return
       }
@@ -58,6 +62,15 @@ export function Earnings() {
     fetchEarnings()
   }, [])
 
+  const handleTickerSearch = () => {
+    if (tickerSearch.trim()) {
+      const symbols = tickerSearch.split(',').map(s => s.trim().toUpperCase()).join(',')
+      fetchEarnings(symbols)
+    } else {
+      fetchEarnings()
+    }
+  }
+
   const filteredCalendar = calendar.filter(e => {
     if (filter === 'upcoming') return !e.isPast
     if (filter === 'recent') return e.isPast
@@ -74,7 +87,9 @@ export function Earnings() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-accent-primary">EARNINGS CALENDAR</h1>
-            <p className="text-xs text-foreground-muted">Upcoming and recent earnings reports</p>
+            <p className="text-xs text-foreground-muted">
+              {calendar.length} results &bull; Upcoming and recent earnings reports
+            </p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -95,62 +110,122 @@ export function Earnings() {
         </div>
       </div>
 
-      {/* Calendar */}
-      <div className="card overflow-hidden">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th>Date</th>
-              <th>Time</th>
-              <th>EPS Est.</th>
-              <th>EPS Actual</th>
-              <th>Revenue Est.</th>
-              <th>Surprise</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredCalendar.map((e, i) => (
-              <tr key={i} className={cn(e.isPast && 'opacity-75')}>
-                <td className="font-medium">{e.symbol}</td>
-                <td className="font-mono text-xs">{e.date}</td>
-                <td>
-                  <span className={cn(
-                    'px-2 py-0.5 rounded text-xs',
-                    e.time === 'BMO'
-                      ? 'bg-accent-primary/20 text-accent-primary'
-                      : 'bg-warning/20 text-warning'
-                  )}>
-                    {e.time}
-                  </span>
-                </td>
-                <td className="font-mono">${e.eps_estimate}</td>
-                <td className="font-mono">
-                  {e.eps_actual ? `$${e.eps_actual}` : '-'}
-                </td>
-                <td className="font-mono">{e.revenue_estimate}</td>
-                <td>
-                  {e.surprise_pct ? (
-                    <span className={cn(
-                      'flex items-center gap-1 font-mono',
-                      parseFloat(e.surprise_pct) >= 0 ? 'text-bullish' : 'text-bearish'
-                    )}>
-                      {parseFloat(e.surprise_pct) >= 0 ? (
-                        <TrendingUp className="w-3 h-3" />
-                      ) : (
-                        <TrendingDown className="w-3 h-3" />
-                      )}
-                      {parseFloat(e.surprise_pct) >= 0 ? '+' : ''}{e.surprise_pct}%
-                    </span>
-                  ) : (
-                    <span className="text-foreground-muted">-</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Search Bar */}
+      <div className="card p-4">
+        <div className="flex items-end gap-4">
+          <div className="flex-1 max-w-md">
+            <label className="block text-xs text-foreground-muted mb-1">
+              Search Tickers (comma-separated, e.g. AAPL,MSFT,TSLA)
+            </label>
+            <input
+              type="text"
+              value={tickerSearch}
+              onChange={(e) => setTickerSearch(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === 'Enter' && handleTickerSearch()}
+              placeholder="AAPL,MSFT,GOOGL..."
+              className="w-full px-3 py-2 bg-surface-secondary border border-border rounded-lg text-sm text-foreground-primary placeholder:text-foreground-muted focus:outline-none focus:border-accent-primary"
+            />
+          </div>
+          <button
+            onClick={handleTickerSearch}
+            disabled={loading}
+            className="btn-primary flex items-center gap-2"
+          >
+            <Search className="w-4 h-4" />
+            Search
+          </button>
+          <button
+            onClick={() => { setTickerSearch(''); fetchEarnings(); }}
+            disabled={loading}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            All
+          </button>
+        </div>
       </div>
+
+      {/* Error display */}
+      {error && (
+        <div className="card p-4 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <div className="card p-8 text-center text-foreground-muted">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+          <p className="text-sm">Loading earnings data...</p>
+        </div>
+      )}
+
+      {/* Calendar */}
+      {!loading && filteredCalendar.length > 0 && (
+        <div className="card overflow-hidden">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>EPS Est.</th>
+                <th>EPS Actual</th>
+                <th>Revenue Est.</th>
+                <th>Surprise</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCalendar.map((e, i) => (
+                <tr key={i} className={cn(e.isPast && 'opacity-75')}>
+                  <td className="font-medium">{e.symbol}</td>
+                  <td className="font-mono text-xs">{e.date}</td>
+                  <td>
+                    <span className={cn(
+                      'px-2 py-0.5 rounded text-xs',
+                      e.time === 'BMO'
+                        ? 'bg-accent-primary/20 text-accent-primary'
+                        : e.time === 'Reported'
+                          ? 'bg-foreground-muted/20 text-foreground-muted'
+                          : 'bg-warning/20 text-warning'
+                    )}>
+                      {e.time}
+                    </span>
+                  </td>
+                  <td className="font-mono">${e.eps_estimate}</td>
+                  <td className="font-mono">
+                    {e.eps_actual ? `$${e.eps_actual}` : '-'}
+                  </td>
+                  <td className="font-mono">{e.revenue_estimate}</td>
+                  <td>
+                    {e.surprise_pct ? (
+                      <span className={cn(
+                        'flex items-center gap-1 font-mono',
+                        parseFloat(e.surprise_pct) >= 0 ? 'text-bullish' : 'text-bearish'
+                      )}>
+                        {parseFloat(e.surprise_pct) >= 0 ? (
+                          <TrendingUp className="w-3 h-3" />
+                        ) : (
+                          <TrendingDown className="w-3 h-3" />
+                        )}
+                        {parseFloat(e.surprise_pct) >= 0 ? '+' : ''}{e.surprise_pct}%
+                      </span>
+                    ) : (
+                      <span className="text-foreground-muted">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && filteredCalendar.length === 0 && !error && (
+        <div className="card p-8 text-center text-foreground-muted">
+          <p>No earnings data found for the selected filter.</p>
+        </div>
+      )}
 
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-foreground-muted">
@@ -161,6 +236,10 @@ export function Earnings() {
         <div className="flex items-center gap-2">
           <span className="px-2 py-0.5 rounded bg-warning/20 text-warning">AMC</span>
           After Market Close
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-foreground-muted/20 text-foreground-muted">Reported</span>
+          Past Earnings
         </div>
       </div>
     </div>

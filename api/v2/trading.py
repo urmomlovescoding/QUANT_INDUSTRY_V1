@@ -460,9 +460,9 @@ async def generate_signal(request: GenerateSignalRequest) -> Signal:
             quote = ds.get_quote(symbol)
             if quote:
                 current_price = quote.price
-        except:
-            pass
-    
+        except Exception as e:
+            logger.debug(f"Could not fetch quote for {symbol}: {e}")
+
     return Signal(
         symbol=symbol,
         direction=SignalDirection.LONG,
@@ -681,7 +681,8 @@ async def create_order(request: CreateOrderRequest) -> Order:
                     quote = ds.get_quote(request.symbol.upper())
                     if quote:
                         broker.set_price(request.symbol.upper(), quote.bid or quote.price, quote.ask or quote.price)
-                except:
+                except Exception as e:
+                    logger.warning(f"Could not fetch price for paper order {request.symbol}: {e}")
                     broker.set_price(request.symbol.upper(), 100, 100.01)
             
             result = broker.submit_order(broker_order)

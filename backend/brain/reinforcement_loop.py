@@ -96,6 +96,9 @@ class RLConfig:
     stop_loss: float = 0.02  # 2%
     take_profit: float = 0.04  # 4%
 
+    # Confidence threshold for trade execution
+    confidence_threshold: float = 0.6
+
     # Performance targets (Prop firm)
     target_win_rate: float = 0.70
     target_wl_ratio: float = 2.0
@@ -1008,6 +1011,25 @@ class ReinforcementLoop:
         result = self.rl_engine.train_ppo(df)
         return result
 
+    def train_cycle(self, df: pd.DataFrame, total_timesteps: int = 10000) -> Dict:
+        """
+        Full training cycle: train RL engine and save model.
+        Called by the API endpoint /api/rl/train/{symbol}.
+        """
+        logger.info(f"Starting RL training cycle with {total_timesteps} timesteps...")
+        result = self.rl_engine.train_ppo(df, total_timesteps=total_timesteps)
+
+        # Save trained model
+        try:
+            self.rl_engine.save(str(self.db_path.parent / "rl_models"))
+        except Exception as e:
+            logger.warning(f"Could not save RL model: {e}")
+
+        # Update iteration count
+        self.iteration += 1
+
+        return result
+
     def run_iteration(self, market_data: pd.DataFrame, strategy_signals: Dict[str, Dict]) -> Dict:
         """
         Run one iteration of the reinforcement loop
@@ -1046,15 +1068,8 @@ class ReinforcementLoop:
             # In real implementation, this would come from actual trade execution
             result['action'] = 'BUY' if combined_signal > 0 else 'SELL'
 
-        # Step 4: Update ML Brain weights based on strategy performance
-        # (In real implementation, this would use actual trading results)
-        strategy_performance = {}
-        for strategy in self.ml_brain.strategies:
-            strategy_performance[strategy] = {
-                'win_rate': 0.5 + signals.get(strategy, 0) * 0.2,
-                'wl_ratio': 1.5 + signals.get(strategy, 0) * 0.5,
-                'sharpe': 1.0 + signals.get(strategy, 0) * 0.5
-            }
+        # Step 4: Update ML Brain weights based on REAL strategy performance
+        strategy_performance = self._compute_real_strategy_performance()
 
         new_weights = self.ml_brain.update_weights(strategy_performance)
         result['updated_weights'] = dict(zip(self.ml_brain.strategies, new_weights.tolist()))
@@ -1069,6 +1084,64 @@ class ReinforcementLoop:
         self._store_metrics(result)
 
         return result
+
+    def record_trade_result(self, trade: TradeResult):
+        """
+        Record a completed trade result for learning.
+        This feeds back into strategy weight optimization.
+        """
+        self.trading_brain.record_trade(trade)
+        logger.debug(f"RL Loop recorded trade: {trade.trade_id}, PnL: {trade.pnl:.2f}")
+
+    def _compute_real_strategy_performance(self) -> Dict[str, Dict]:
+        """
+        Compute real strategy performance from actual trade history.
+        Falls back to neutral defaults if no trade data is available.
+        """
+        strategy_performance = {}
+        trades = self.trading_brain.trades
+
+        # Group trades by strategy
+        strategy_trades: Dict[str, List[TradeResult]] = {}
+        for trade in trades:
+            name = trade.strategy_name
+            if name not in strategy_trades:
+                strategy_trades[name] = []
+            strategy_trades[name].append(trade)
+
+        for strategy in self.ml_brain.strategies:
+            strades = strategy_trades.get(strategy, [])
+
+            if len(strades) >= 5:
+                # Compute real metrics from trade history
+                wins = [t for t in strades if t.pnl > 0]
+                losses = [t for t in strades if t.pnl <= 0]
+                win_rate = len(wins) / len(strades)
+
+                avg_win = np.mean([t.pnl for t in wins]) if wins else 0
+                avg_loss = abs(np.mean([t.pnl for t in losses])) if losses else 1
+                wl_ratio = avg_win / avg_loss if avg_loss > 0 else 1.0
+
+                returns = [t.pnl_pct for t in strades]
+                sharpe = (np.mean(returns) / np.std(returns) * np.sqrt(252)
+                         if np.std(returns) > 0 else 0)
+
+                strategy_performance[strategy] = {
+                    'win_rate': win_rate,
+                    'wl_ratio': wl_ratio,
+                    'sharpe': sharpe,
+                    'total_trades': len(strades),
+                }
+            else:
+                # Not enough data - use neutral defaults that don't bias weights
+                strategy_performance[strategy] = {
+                    'win_rate': 0.5,
+                    'wl_ratio': 1.0,
+                    'sharpe': 0.0,
+                    'total_trades': len(strades),
+                }
+
+        return strategy_performance
 
     def _create_observation(self, df: pd.DataFrame) -> np.ndarray:
         """Create observation vector from market data"""

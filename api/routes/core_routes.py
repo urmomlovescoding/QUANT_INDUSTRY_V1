@@ -1,10 +1,14 @@
 """
 Core API Routes
 ===============
-Essential endpoints using REAL data from Alpaca when configured,
-with intelligent fallback to mock data.
+Essential endpoints using REAL data from backend services.
 
-All market data flows through the MarketDataService for consistency.
+Market data flows through MarketDataService (Alpaca/yfinance).
+Trading data from TradingService, risk from RiskService.
+AI/ML from PropFirm Brain V6 and FeedbackLoop.
+
+When a service is unavailable, endpoints return honest zero/empty data
+with data_source="none" -- never fake numbers.
 """
 
 # IMPORTANT: Import config first to ensure env vars are loaded
@@ -12,12 +16,43 @@ from backend.config.env import config
 
 import asyncio
 import logging
+import math
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timedelta
 from typing import Optional, List
-import random
 
 logger = logging.getLogger(__name__)
+
+
+def get_market_session() -> dict:
+    """Detect real US equity market session based on current Eastern Time."""
+    try:
+        import pytz
+        et = pytz.timezone('US/Eastern')
+        now = datetime.now(et)
+    except ImportError:
+        # Fallback without pytz: assume UTC-5 (EST) as approximation
+        from datetime import timezone
+        et_offset = timezone(timedelta(hours=-5))
+        now = datetime.now(et_offset)
+
+    weekday = now.weekday()
+    hour = now.hour
+    minute = now.minute
+    time_decimal = hour + minute / 60.0
+
+    if weekday >= 5:  # Saturday/Sunday
+        return {"session": "closed", "is_open": False, "is_pre_market": False, "is_after_hours": False}
+    elif time_decimal < 4.0:
+        return {"session": "closed", "is_open": False, "is_pre_market": False, "is_after_hours": False}
+    elif time_decimal < 9.5:
+        return {"session": "pre_market", "is_open": False, "is_pre_market": True, "is_after_hours": False}
+    elif time_decimal < 16.0:
+        return {"session": "regular", "is_open": True, "is_pre_market": False, "is_after_hours": False}
+    elif time_decimal < 20.0:
+        return {"session": "after_hours", "is_open": False, "is_pre_market": False, "is_after_hours": True}
+    else:
+        return {"session": "closed", "is_open": False, "is_pre_market": False, "is_after_hours": False}
 
 router = APIRouter(prefix="/api", tags=["core"])
 
@@ -60,42 +95,71 @@ async def get_service():
 async def health():
     """Health check with data source info."""
     service = await get_service()
-    
+
+    # Detect real market session
+    market = get_market_session()
+
+    # Check brain availability
+    brain_available = False
+    try:
+        from backend.brain.propfirm_brain_v6 import get_propfirm_brain_v6
+        brain = get_propfirm_brain_v6()
+        brain_available = brain is not None
+    except Exception:
+        pass
+
     return {
         "status": "healthy",
         "data_mode": service.data_mode if service else "mock",
         "alpaca_configured": config.alpaca_configured,
         "polygon_configured": config.polygon_configured,
-        "market": {
-            "session": "regular",
-            "is_open": True,
-            "is_pre_market": False,
-            "is_after_hours": False
-        },
+        "market": market,
         "services": {
             "database": True,
             "redis": config.redis_configured,
-            "brain": True,
+            "brain": brain_available,
             "data_provider": config.alpaca_configured or config.polygon_configured
         },
-        "uptime": 3600
+        "timestamp": datetime.now().isoformat()
     }
 
 
 @router.get("/system/status")
 async def system_status():
-    """System status."""
+    """System status using real system metrics."""
     service = await get_service()
-    
+
+    # Real system metrics via psutil
+    cpu_percent = 0.0
+    memory_percent = 0.0
+    try:
+        import psutil
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory_percent = psutil.virtual_memory().percent
+    except ImportError:
+        logger.warning("psutil not installed -- system metrics unavailable")
+    except Exception as e:
+        logger.warning(f"Failed to read system metrics: {e}")
+
+    # GPU detection
+    gpu_available = False
+    gpu_percent = 0.0
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+        if gpu_available:
+            gpu_percent = torch.cuda.memory_allocated() / torch.cuda.get_device_properties(0).total_mem * 100
+    except Exception:
+        pass
+
     return {
-        "cpu_percent": random.uniform(10, 40),
-        "memory_percent": random.uniform(30, 60),
-        "gpu_available": True,
-        "gpu_percent": random.uniform(5, 30),
-        "active_connections": random.randint(1, 10),
-        "uptime_hours": 24.5,
+        "cpu_percent": round(cpu_percent, 1),
+        "memory_percent": round(memory_percent, 1),
+        "gpu_available": gpu_available,
+        "gpu_percent": round(gpu_percent, 1),
         "data_mode": service.data_mode if service else "mock",
-        "alpaca_connected": service._alpaca is not None if service else False
+        "alpaca_connected": service._alpaca is not None if service else False,
+        "timestamp": datetime.now().isoformat()
     }
 
 
@@ -115,22 +179,39 @@ async def get_tickers(symbols: str = "SPY,QQQ,DIA,IWM"):
     symbol_list = [s.strip().upper() for s in symbols.split(",")]
     
     quotes = await service.get_quotes(symbol_list)
-    
+
+    # Fetch previous close for change calculation
+    prev_closes = {}
+    try:
+        for sym in symbol_list:
+            bars = await service.get_bars(sym, timeframe="1Day", days=5)
+            if bars and len(bars) >= 2:
+                prev_closes[sym] = bars[-2].close
+            elif bars and len(bars) >= 1:
+                prev_closes[sym] = bars[-1].close
+    except Exception as e:
+        logger.warning(f"Could not fetch previous closes for change calc: {e}")
+
     results = []
     for symbol in symbol_list:
         q = quotes.get(symbol)
         if q:
+            price = q.last or q.mid
+            prev = prev_closes.get(symbol, 0)
+            change = (price - prev) if prev else 0
+            change_pct = ((price - prev) / prev * 100) if prev else 0
+
             results.append({
                 "symbol": symbol,
-                "price": q.last or q.mid,
+                "price": price,
                 "bid": q.bid,
                 "ask": q.ask,
-                "change": random.uniform(-5, 5),  # Would need previous close for real change
-                "change_pct": random.uniform(-1.5, 1.5),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2),
                 "volume": q.volume,
                 "source": q.source
             })
-    
+
     return results
 
 
@@ -140,20 +221,47 @@ async def get_quote(symbol: str):
     service = await get_service()
     quote = await service.get_quote(symbol.upper())
     
+    price = quote.last or quote.mid
+
+    # Fetch bars for previous close, open, high, low
+    prev_close = 0.0
+    open_price = price
+    high_price = price
+    low_price = price
+    try:
+        bars = await service.get_bars(symbol.upper(), timeframe="1Day", days=5)
+        if bars and len(bars) >= 2:
+            prev_close = bars[-2].close
+            today_bar = bars[-1]
+            open_price = today_bar.open
+            high_price = today_bar.high
+            low_price = today_bar.low
+        elif bars and len(bars) >= 1:
+            today_bar = bars[-1]
+            prev_close = today_bar.open  # Fallback
+            open_price = today_bar.open
+            high_price = today_bar.high
+            low_price = today_bar.low
+    except Exception as e:
+        logger.warning(f"Could not fetch bars for {symbol}: {e}")
+
+    change = (price - prev_close) if prev_close else 0
+    change_pct = ((price - prev_close) / prev_close * 100) if prev_close else 0
+
     return {
         "symbol": quote.symbol,
-        "price": quote.last or quote.mid,
+        "price": price,
         "bid": quote.bid,
         "ask": quote.ask,
         "bid_size": quote.bid_size,
         "ask_size": quote.ask_size,
-        "change": random.uniform(-3, 3),
-        "change_pct": random.uniform(-1, 1),
+        "change": round(change, 2),
+        "change_pct": round(change_pct, 2),
         "volume": quote.volume,
-        "high": quote.last * 1.02 if quote.last else 0,
-        "low": quote.last * 0.98 if quote.last else 0,
-        "open": quote.last,
-        "prev_close": quote.last,
+        "high": high_price,
+        "low": low_price,
+        "open": open_price,
+        "prev_close": prev_close,
         "source": quote.source,
         "timestamp": quote.timestamp.isoformat() if quote.timestamp else datetime.now().isoformat()
     }
@@ -193,45 +301,57 @@ async def get_snapshot(symbol: str):
 
 @router.get("/brain-v6/status")
 async def brain_status():
-    """Trading brain status."""
-    return {
-        "available": True,
-        "device": "cuda:0",
-        "is_trained": True,
-        "current_regime": "trending",
-        "auto_train_enabled": True,
-        "training_step": 15000,
-        "total_trades": 1247,
-        "metrics": {
-            "win_rate": 0.68,
-            "total_pnl": 125430.50,
-            "profit_factor": 2.15
-        },
-        "strategies": [
-            {"name": "Momentum", "weight": 0.35, "win_rate": 0.72},
-            {"name": "Mean Reversion", "weight": 0.25, "win_rate": 0.65},
-            {"name": "Breakout", "weight": 0.20, "win_rate": 0.58},
-            {"name": "ML Ensemble", "weight": 0.20, "win_rate": 0.75}
-        ]
-    }
+    """Trading brain status from real PropFirm Brain V6."""
+    try:
+        from backend.brain.propfirm_brain_v6 import get_propfirm_brain_v6
+        brain = get_propfirm_brain_v6()
+        status = brain.get_status()
+        status["available"] = True
+        status["data_source"] = "propfirm_brain_v6"
+        return status
+    except Exception as e:
+        logger.warning(f"PropFirm Brain V6 not available: {e}")
+        return {
+            "available": False,
+            "device": "cpu",
+            "is_trained": False,
+            "current_regime": "unknown",
+            "auto_train_enabled": False,
+            "training_step": 0,
+            "total_trades": 0,
+            "metrics": {
+                "win_rate": 0.0,
+                "total_pnl": 0.0,
+                "profit_factor": 0.0
+            },
+            "strategies": [],
+            "data_source": "none",
+            "message": f"Brain not initialized: {str(e)}"
+        }
 
 
 @router.get("/feedback/status")
 async def feedback_status():
-    """Feedback loop status."""
-    return {
-        "phase": "exploitation",
-        "total_trades": 1247,
-        "win_rate": 0.68,
-        "profit_factor": 2.15,
-        "sharpe_ratio": 1.85,
-        "convergence_progress": {
-            "momentum": 0.95,
-            "mean_reversion": 0.88,
-            "breakout": 0.82
-        },
-        "is_converged": True
-    }
+    """Feedback loop status from real feedback loop."""
+    try:
+        from backend.brain.feedback_loop import get_feedback_loop
+        loop = get_feedback_loop()
+        status = loop.get_status()
+        status["data_source"] = "feedback_loop"
+        return status
+    except Exception as e:
+        logger.warning(f"Feedback loop not available: {e}")
+        return {
+            "phase": "not_initialized",
+            "total_trades": 0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "sharpe_ratio": 0.0,
+            "convergence_progress": {},
+            "is_converged": False,
+            "data_source": "none",
+            "message": f"Feedback loop not initialized: {str(e)}"
+        }
 
 
 # ============== SIGNALS & POSITIONS ==============
@@ -239,134 +359,288 @@ async def feedback_status():
 @router.get("/signals")
 @router.get("/signals/active")
 async def get_signals():
-    """Get active trading signals."""
-    symbols = ["AAPL", "MSFT", "NVDA", "TSLA", "META"]
-    strategies = ["Momentum", "Mean Reversion", "Breakout", "ML Ensemble"]
-    
-    return [
-        {
-            "id": f"sig-{i}",
-            "symbol": random.choice(symbols),
-            "direction": random.choice(["LONG", "SHORT"]),
-            "confidence": random.uniform(0.65, 0.95),
-            "strategy": random.choice(strategies),
-            "entry_price": random.uniform(100, 500),
-            "stop_loss": random.uniform(95, 480),
-            "take_profit": random.uniform(105, 520),
-            "risk_reward": random.uniform(1.5, 3.5),
-            "timeframe": random.choice(["1H", "4H", "1D"]),
-            "regime_alignment": random.choice([True, True, True, False]),
-            "timestamp": (datetime.now() - timedelta(minutes=random.randint(1, 120))).isoformat(),
-            "status": "active"
-        }
-        for i in range(5)
-    ]
+    """Get active trading signals from the brain's signal history."""
+    try:
+        from backend.brain.propfirm_brain_v6 import get_propfirm_brain_v6
+        brain = get_propfirm_brain_v6()
+
+        # The brain stores its last signal; collect any available signals
+        signals = []
+        if brain.last_signal:
+            sig = brain.last_signal
+            signals.append({
+                "id": f"sig-latest",
+                "symbol": sig.get("symbol", "N/A"),
+                "direction": sig.get("direction", "NEUTRAL"),
+                "confidence": round(sig.get("confidence", 0), 3),
+                "strategy": sig.get("strategy", ""),
+                "entry_price": sig.get("entry_price", 0),
+                "stop_loss": sig.get("stop_loss", 0),
+                "take_profit": sig.get("take_profit", 0),
+                "risk_reward": round(sig.get("risk_reward", 0), 2),
+                "timeframe": sig.get("timeframe", "1D"),
+                "regime": brain.current_regime.value,
+                "timestamp": sig.get("timestamp", datetime.now().isoformat()),
+                "status": "active",
+                "data_source": "propfirm_brain_v6"
+            })
+        return signals
+    except Exception as e:
+        logger.warning(f"Could not fetch signals from brain: {e}")
+        return []
 
 
 @router.get("/positions")
 async def get_positions():
-    """Get current positions."""
-    # TODO: Integrate with database
-    return [
-        {
-            "id": "pos-1",
-            "symbol": "AAPL",
-            "side": "long",
-            "quantity": 100,
-            "entry_price": 238.50,
-            "current_price": 242.30,
-            "pnl": 380.00,
-            "pnl_pct": 1.59,
-            "opened_at": (datetime.now() - timedelta(days=2)).isoformat()
-        },
-        {
-            "id": "pos-2",
-            "symbol": "NVDA",
-            "side": "long",
-            "quantity": 50,
-            "entry_price": 138.20,
-            "current_price": 142.50,
-            "pnl": 215.00,
-            "pnl_pct": 3.11,
-            "opened_at": (datetime.now() - timedelta(days=1)).isoformat()
-        }
-    ]
+    """Get current positions from the trading service."""
+    try:
+        from backend.services.trading_service import get_trading_service
+        trading = get_trading_service()
+        positions = trading.get_all_positions()
+        return [p.to_dict() for p in positions]
+    except Exception as e:
+        logger.warning(f"Could not fetch positions from trading service: {e}")
+        return []
 
 
 @router.get("/portfolio")
-async def get_portfolio():
-    """Get portfolio summary."""
-    return {
-        "equity": 125430.50,
-        "cash": 45230.25,
-        "buying_power": 90460.50,
-        "day_pnl": 1523.45,
-        "day_pnl_pct": 1.23,
-        "total_pnl": 25430.50,
-        "total_pnl_pct": 25.43,
-        "positions_count": 5
-    }
+async def get_portfolio_summary():
+    """Get portfolio summary from the trading service."""
+    try:
+        from backend.services.trading_service import get_trading_service
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        positions = trading.get_all_positions()
+        return {
+            "equity": round(account.equity, 2),
+            "cash": round(account.cash, 2),
+            "buying_power": round(account.buying_power, 2),
+            "day_pnl": round(account.day_pnl, 2),
+            "day_pnl_pct": round(account.day_pnl_pct, 2),
+            "total_pnl": round(account.total_pnl, 2),
+            "total_pnl_pct": round(account.total_pnl_pct, 2),
+            "positions_count": len(positions),
+            "data_source": "trading_service"
+        }
+    except Exception as e:
+        logger.warning(f"Could not fetch portfolio from trading service: {e}")
+        return {
+            "equity": 0.0,
+            "cash": 0.0,
+            "buying_power": 0.0,
+            "day_pnl": 0.0,
+            "day_pnl_pct": 0.0,
+            "total_pnl": 0.0,
+            "total_pnl_pct": 0.0,
+            "positions_count": 0,
+            "data_source": "none",
+            "message": f"Trading service not available: {str(e)}"
+        }
 
 
 @router.get("/portfolio/performance")
 async def get_performance():
-    """Get portfolio performance."""
-    return {
-        "total_return": 25430.50,
-        "total_return_pct": 25.43,
-        "win_rate": 0.68,
-        "profit_factor": 2.15,
-        "sharpe_ratio": 1.85,
-        "sortino_ratio": 2.45,
-        "max_drawdown": 0.12,
-        "avg_win": 523.45,
-        "avg_loss": -243.20,
-        "total_trades": 1247,
-        "winning_trades": 848,
-        "losing_trades": 399
-    }
+    """Get portfolio performance computed from real trade history."""
+    try:
+        from backend.services.trading_service import get_trading_service
+        trading = get_trading_service()
+        account = trading.get_account_info()
+        trades = trading.get_trades(limit=10000)
+
+        total_trades = len(trades)
+        if total_trades == 0:
+            return {
+                "total_return": round(account.total_pnl, 2),
+                "total_return_pct": round(account.total_pnl_pct, 2),
+                "win_rate": 0.0,
+                "profit_factor": 0.0,
+                "sharpe_ratio": 0.0,
+                "sortino_ratio": 0.0,
+                "max_drawdown": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "total_trades": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "data_source": "trading_service"
+            }
+
+        winning_trades = [t for t in trades if t.pnl > 0]
+        losing_trades = [t for t in trades if t.pnl <= 0]
+        win_count = len(winning_trades)
+        loss_count = len(losing_trades)
+
+        win_rate = win_count / total_trades if total_trades > 0 else 0
+        avg_win = sum(t.pnl for t in winning_trades) / win_count if win_count > 0 else 0
+        avg_loss = sum(t.pnl for t in losing_trades) / loss_count if loss_count > 0 else 0
+        gross_profit = sum(t.pnl for t in winning_trades)
+        gross_loss = abs(sum(t.pnl for t in losing_trades))
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+
+        # Compute Sharpe and Sortino from trade PnLs
+        pnls = [t.pnl for t in trades]
+        mean_pnl = sum(pnls) / len(pnls)
+        variance = sum((p - mean_pnl) ** 2 for p in pnls) / len(pnls) if len(pnls) > 1 else 0
+        std_pnl = math.sqrt(variance)
+        sharpe_ratio = (mean_pnl / std_pnl) * math.sqrt(252) if std_pnl > 0 else 0
+
+        downside_pnls = [p for p in pnls if p < 0]
+        downside_var = sum(p ** 2 for p in downside_pnls) / len(downside_pnls) if downside_pnls else 0
+        downside_std = math.sqrt(downside_var)
+        sortino_ratio = (mean_pnl / downside_std) * math.sqrt(252) if downside_std > 0 else 0
+
+        # Max drawdown from cumulative PnL
+        cumulative = 0.0
+        peak = 0.0
+        max_dd = 0.0
+        for t in sorted(trades, key=lambda x: x.exit_time):
+            cumulative += t.pnl
+            if cumulative > peak:
+                peak = cumulative
+            dd = (peak - cumulative) / peak if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+
+        return {
+            "total_return": round(account.total_pnl, 2),
+            "total_return_pct": round(account.total_pnl_pct, 2),
+            "win_rate": round(win_rate, 3),
+            "profit_factor": round(profit_factor, 2),
+            "sharpe_ratio": round(sharpe_ratio, 2),
+            "sortino_ratio": round(sortino_ratio, 2),
+            "max_drawdown": round(max_dd, 4),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "total_trades": total_trades,
+            "winning_trades": win_count,
+            "losing_trades": loss_count,
+            "data_source": "trading_service"
+        }
+    except Exception as e:
+        logger.warning(f"Could not compute performance: {e}")
+        return {
+            "total_return": 0.0,
+            "total_return_pct": 0.0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "sharpe_ratio": 0.0,
+            "sortino_ratio": 0.0,
+            "max_drawdown": 0.0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
+            "total_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "data_source": "none",
+            "message": f"Performance computation unavailable: {str(e)}"
+        }
 
 
 # ============== RISK ==============
 
 @router.get("/risk/metrics")
 async def get_risk_metrics():
-    """Get risk metrics."""
-    return {
-        "var_95": 2500.00,
-        "current_drawdown": 0.05,
-        "max_position_exposure": 0.15,
-        "sector_concentration": 0.35,
-        "daily_pnl": 1523.45,
-        "risk_score": 35
-    }
+    """Get risk metrics from the risk service."""
+    try:
+        from backend.services.risk_service import get_risk_service
+        risk = get_risk_service()
+        metrics = risk.calculate_metrics()
+        return metrics.to_dict()
+    except Exception as e:
+        logger.warning(f"Could not compute risk metrics: {e}")
+        return {
+            "var_95": 0.0,
+            "var_99": 0.0,
+            "cvar_95": 0.0,
+            "current_drawdown": 0.0,
+            "max_drawdown": 0.0,
+            "max_position_pct": 0.0,
+            "sector_concentration": 0.0,
+            "daily_pnl": 0.0,
+            "daily_pnl_pct": 0.0,
+            "risk_score": 0,
+            "risk_level": "unknown",
+            "data_source": "none",
+            "message": f"Risk service not available: {str(e)}"
+        }
 
 
 @router.get("/risk/safety")
 async def get_safety_status():
-    """Get safety status."""
-    return {
-        "is_safe": True,
-        "breaches": [],
-        "warnings": ["Approaching daily loss limit (85%)"],
-        "daily_loss": 850.00,
-        "max_daily_loss": 1000.00,
-        "current_drawdown": 0.05,
-        "max_drawdown_limit": 0.20
-    }
+    """Get safety status from real risk monitoring."""
+    try:
+        from backend.services.risk_service import get_risk_service
+        risk_svc = get_risk_service()
+        metrics = risk_svc.calculate_metrics()
+        alerts = risk_svc.get_alerts(unacknowledged_only=True)
+
+        breaches = [a.to_dict() for a in alerts if a.type.value == "CRITICAL"]
+        warnings = [a.to_dict() for a in alerts if a.type.value == "WARNING"]
+
+        # Determine safety based on risk level
+        is_safe = metrics.risk_level.value in ("LOW", "MODERATE")
+
+        return {
+            "is_safe": is_safe,
+            "risk_level": metrics.risk_level.value,
+            "risk_score": round(metrics.risk_score, 1),
+            "breaches": breaches,
+            "warnings": warnings,
+            "daily_pnl": round(metrics.daily_pnl, 2),
+            "daily_pnl_pct": round(metrics.daily_pnl_pct, 2),
+            "current_drawdown": round(metrics.current_drawdown, 4),
+            "max_drawdown_limit": risk_svc.limits.max_drawdown_pct,
+            "max_daily_loss_limit": risk_svc.limits.max_daily_loss_pct,
+            "data_source": "risk_service"
+        }
+    except Exception as e:
+        logger.warning(f"Could not compute safety status: {e}")
+        return {
+            "is_safe": True,
+            "risk_level": "unknown",
+            "risk_score": 0,
+            "breaches": [],
+            "warnings": [],
+            "daily_pnl": 0.0,
+            "daily_pnl_pct": 0.0,
+            "current_drawdown": 0.0,
+            "max_drawdown_limit": 0.0,
+            "max_daily_loss_limit": 0.0,
+            "data_source": "none",
+            "message": f"Risk service not available: {str(e)}"
+        }
 
 
 # ============== ML/REGIME ==============
 
 @router.get("/ml/regime")
 async def get_regime():
-    """Get market regime."""
-    return {
-        "regime": random.choice(["trending", "ranging", "volatile", "quiet"]),
-        "confidence": random.uniform(0.7, 0.95),
-        "volatility": random.uniform(0.1, 0.3),
-        "trend_strength": random.uniform(0.3, 0.8)
-    }
+    """Get market regime from the real PropFirm Brain V6 regime detector."""
+    try:
+        from backend.brain.propfirm_brain_v6 import get_propfirm_brain_v6
+        brain = get_propfirm_brain_v6()
+
+        regime = brain.current_regime.value
+        probs = brain.regime_probs if brain.regime_probs else {}
+
+        # Confidence is the probability of the detected regime
+        confidence = probs.get(regime, 0.5)
+
+        return {
+            "regime": regime,
+            "confidence": round(confidence, 3),
+            "regime_probabilities": {k: round(v, 3) for k, v in probs.items()} if probs else {},
+            "data_source": "propfirm_brain_v6"
+        }
+    except Exception as e:
+        logger.warning(f"Regime detector not available: {e}")
+        return {
+            "regime": "unknown",
+            "confidence": 0.0,
+            "regime_probabilities": {},
+            "data_source": "none",
+            "message": f"Regime detector not available: {str(e)}"
+        }
 
 
 # ============== NEWS ==============
@@ -472,7 +746,7 @@ async def get_strategy_info(strategy_id: str):
 _portfolio_instance = None
 
 
-def get_portfolio():
+def get_portfolio_manager():
     """Get or create portfolio instance."""
     global _portfolio_instance
     if _portfolio_instance is None:
@@ -487,24 +761,24 @@ def get_portfolio():
 @router.get("/portfolio/live")
 async def get_live_portfolio():
     """Get live portfolio state."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         return {
             "error": "Portfolio module not available",
-            "mock": True,
-            "equity": 125430.50,
-            "cash": 45230.25,
+            "equity": 0.0,
+            "cash": 0.0,
             "positions": [],
-            "total_pnl": 25430.50
+            "total_pnl": 0.0,
+            "data_source": "none"
         }
-    
+
     return portfolio.to_dict()
 
 
 @router.get("/portfolio/positions")
 async def get_positions():
     """Get all positions."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         return {"positions": [], "count": 0}
     
@@ -517,7 +791,7 @@ async def get_positions():
 @router.get("/portfolio/position/{symbol}")
 async def get_position(symbol: str):
     """Get single position."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         raise HTTPException(status_code=503, detail="Portfolio not available")
     
@@ -536,7 +810,7 @@ async def execute_trade(
     price: Optional[float] = None
 ):
     """Execute a trade."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         raise HTTPException(status_code=503, detail="Portfolio not available")
     
@@ -567,7 +841,7 @@ async def execute_trade(
 @router.delete("/portfolio/position/{symbol}")
 async def close_position(symbol: str):
     """Close a position."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         raise HTTPException(status_code=503, detail="Portfolio not available")
     
@@ -586,17 +860,18 @@ async def close_position(symbol: str):
 @router.get("/portfolio/risk")
 async def get_portfolio_risk():
     """Get portfolio risk metrics."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         return {
-            "var_95": 2500.00,
-            "max_drawdown": 0.12,
-            "current_drawdown": 0.05,
-            "leverage": 1.0,
-            "gross_exposure": 0.75,
-            "net_exposure": 0.60
+            "var_95": 0.0,
+            "max_drawdown": 0.0,
+            "current_drawdown": 0.0,
+            "leverage": 0.0,
+            "gross_exposure": 0.0,
+            "net_exposure": 0.0,
+            "data_source": "none"
         }
-    
+
     metrics = portfolio.calculate_risk_metrics()
     return metrics.to_dict()
 
@@ -604,7 +879,7 @@ async def get_portfolio_risk():
 @router.get("/portfolio/trades")
 async def get_trades(limit: int = 100):
     """Get trade history."""
-    portfolio = get_portfolio()
+    portfolio = get_portfolio_manager()
     if not portfolio:
         return {"trades": [], "count": 0}
     

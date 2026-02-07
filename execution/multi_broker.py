@@ -717,8 +717,8 @@ class MultiBrokerEngine:
                     best_bid = quote['bid']
                 if quote['ask'] < best_ask:
                     best_ask = quote['ask']
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Quote fetch failed for {symbol} on {broker_type.value}: {e}")
 
         return {
             'symbol': symbol,

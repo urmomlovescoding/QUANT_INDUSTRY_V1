@@ -131,15 +131,17 @@ export function SignalsTable({
 
   if (displayError && displaySignals.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <AlertCircle className="w-8 h-8 text-error mb-2" />
-        <p className="text-sm text-error mb-2">Error loading signals</p>
-        <p className="text-xs text-foreground-muted mb-4">{displayError}</p>
+      <div className="flex flex-col items-center justify-center p-10 text-center">
+        <div className="w-12 h-12 rounded-2xl bg-bearish/10 flex items-center justify-center mb-3">
+          <AlertCircle className="w-6 h-6 text-bearish" />
+        </div>
+        <p className="text-sm font-medium text-foreground-primary mb-1">Error loading signals</p>
+        <p className="text-xs text-foreground-muted mb-4 max-w-xs">{displayError}</p>
         <button
           onClick={handleRefresh}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm bg-background-tertiary rounded hover:bg-background-hover"
+          className="flex items-center gap-2 px-4 py-2 text-xs font-medium bg-background-tertiary rounded-lg hover:bg-background-hover transition-colors"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-3.5 h-3.5" />
           Retry
         </button>
       </div>
@@ -148,17 +150,17 @@ export function SignalsTable({
 
   if (displaySignals.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <div className="w-12 h-12 rounded-full bg-background-tertiary flex items-center justify-center mb-3">
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <div className="w-12 h-12 rounded-2xl bg-background-tertiary/80 flex items-center justify-center mb-3">
           <ArrowUpRight className="w-6 h-6 text-foreground-muted" />
         </div>
-        <p className="text-sm font-medium text-foreground-primary">No active signals</p>
-        <p className="text-xs text-foreground-muted mt-1 max-w-xs">
+        <p className="text-sm font-medium text-foreground-primary mb-1">No active signals</p>
+        <p className="text-xs text-foreground-muted mt-0.5 max-w-[280px] leading-relaxed">
           The trading brain will generate signals when market conditions align with your strategies
         </p>
         <button
           onClick={handleRefresh}
-          className="mt-4 flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-accent-primary hover:bg-background-tertiary rounded transition-colors"
+          className="mt-4 flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium text-accent-primary bg-accent-primary/10 hover:bg-accent-primary/15 rounded-lg transition-colors"
         >
           <RefreshCw className="w-3 h-3" />
           Check for signals
@@ -175,17 +177,17 @@ export function SignalsTable({
             <th>Symbol</th>
             <th>Direction</th>
             <th>Confidence</th>
-            <th>Entry</th>
+            <th className="text-right">Entry</th>
             {!compact && (
               <>
-                <th>Stop Loss</th>
-                <th>Take Profit</th>
+                <th className="text-right">Stop Loss</th>
+                <th className="text-right">Take Profit</th>
               </>
             )}
-            <th>R:R</th>
+            <th className="text-right">R:R</th>
             {!compact && <th>Strategy</th>}
             <th>Time</th>
-            {showActions && <th>Actions</th>}
+            {showActions && <th className="text-right">Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -194,7 +196,7 @@ export function SignalsTable({
             .map((signal) => (
               <tr key={signal.id}>
                 <td>
-                  <span className="font-medium text-foreground-primary">
+                  <span className="font-semibold text-foreground-primary tracking-wide">
                     {signal.symbol}
                   </span>
                 </td>
@@ -204,21 +206,22 @@ export function SignalsTable({
                 <td>
                   <ConfidenceBar confidence={signal.confidence} />
                 </td>
-                <td className="font-mono">{formatCurrency(signal.entry_price)}</td>
+                <td className="text-right font-mono tabular-nums">{formatCurrency(signal.entry_price)}</td>
                 {!compact && (
                   <>
-                    <td className="font-mono text-bearish">
+                    <td className="text-right font-mono tabular-nums text-bearish">
                       {formatCurrency(signal.stop_loss)}
                     </td>
-                    <td className="font-mono text-bullish">
+                    <td className="text-right font-mono tabular-nums text-bullish">
                       {formatCurrency(signal.take_profit)}
                     </td>
                   </>
                 )}
-                <td className="font-mono">
+                <td className="text-right font-mono tabular-nums">
                   <span
                     className={cn(
-                      signal.risk_reward >= 2 ? 'text-bullish' : 'text-foreground-secondary'
+                      'font-semibold',
+                      signal.risk_reward >= 2 ? 'text-bullish' : signal.risk_reward >= 1.5 ? 'text-accent-primary' : 'text-foreground-secondary'
                     )}
                   >
                     1:{signal.risk_reward.toFixed(1)}
@@ -229,16 +232,16 @@ export function SignalsTable({
                     <span className="badge badge-info">{signal.strategy}</span>
                   </td>
                 )}
-                <td className="text-foreground-muted text-xs">
+                <td className="text-foreground-muted text-xs whitespace-nowrap">
                   {formatRelativeTime(signal.timestamp)}
                 </td>
                 {showActions && (
-                  <td>
-                    <div className="flex items-center gap-1">
+                  <td className="text-right">
+                    <div className="flex items-center justify-end gap-1.5">
                       <button
                         onClick={() => handleExecute(signal)}
                         disabled={executingIds.has(signal.id)}
-                        className="p-1.5 rounded bg-bullish/20 text-bullish hover:bg-bullish/30 transition-colors disabled:opacity-50"
+                        className="p-1.5 rounded-lg bg-bullish/15 text-bullish hover:bg-bullish/25 transition-all disabled:opacity-50"
                         title="Execute Signal"
                       >
                         {executingIds.has(signal.id) ? (
@@ -249,7 +252,7 @@ export function SignalsTable({
                       </button>
                       <button
                         onClick={() => handleDismiss(signal.id)}
-                        className="p-1.5 rounded bg-background-hover text-foreground-muted hover:bg-background-active transition-colors"
+                        className="p-1.5 rounded-lg bg-background-hover/50 text-foreground-muted hover:bg-background-active hover:text-foreground-primary transition-all"
                         title="Dismiss Signal"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -262,9 +265,9 @@ export function SignalsTable({
         </tbody>
       </table>
       {displayLoading && (
-        <div className="flex items-center justify-center p-2 text-xs text-foreground-muted">
-          <Spinner size="sm" className="mr-2" />
-          Refreshing...
+        <div className="flex items-center justify-center py-2.5 text-[11px] text-foreground-muted gap-2">
+          <Spinner size="sm" />
+          <span>Refreshing signals...</span>
         </div>
       )}
     </div>

@@ -583,7 +583,8 @@ class PortfolioOptimizer:
                     constraints={'min_weight': min_w, 'max_weight': max_w}
                 )
                 frontier.append(alloc)
-            except:
+            except Exception as e:
+                logger.debug(f"Frontier point at target return {target:.4f} failed: {e}")
                 continue
         
         return frontier

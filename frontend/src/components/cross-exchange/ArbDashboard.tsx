@@ -323,8 +323,8 @@ export const ArbDashboard: React.FC = () => {
           <Tabs.Content value="opportunities">
             <ArbOpportunityList
               opportunities={data.opportunities}
-              onExecute={(opp) => console.log('Execute:', opp)}
-              onDismiss={(id) => console.log('Dismiss:', id)}
+              onExecute={(opp) => { /* TODO: wire to execution API */ }}
+              onDismiss={(id) => { /* TODO: wire to dismiss API */ }}
             />
           </Tabs.Content>
 

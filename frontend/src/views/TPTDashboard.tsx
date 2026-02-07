@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Building,
   TrendingUp,
@@ -7,12 +7,10 @@ import {
   CheckCircle,
   XCircle,
   DollarSign,
-  Target,
-  Shield,
-  Calendar,
-  Clock,
   BarChart3,
   Activity,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import {
@@ -25,8 +23,6 @@ import {
   BarChart,
   Bar,
   Cell,
-  PieChart,
-  Pie,
 } from 'recharts'
 
 // Prop firm rules configuration
@@ -57,61 +53,174 @@ const PROP_FIRM_RULES = {
   },
 }
 
-// Generate equity curve data
-const generateEquityData = (startBalance: number, days: number) => {
-  const data = []
-  let balance = startBalance
-  for (let i = 0; i < days; i++) {
-    const dailyPnL = (Math.random() - 0.45) * startBalance * 0.02
-    balance += dailyPnL
-    data.push({
-      day: i + 1,
-      balance: balance,
-      dailyPnL: dailyPnL,
-      date: new Date(Date.now() - (days - i) * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    })
-  }
-  return data
+interface EquityDataPoint {
+  day: number
+  balance: number
+  dailyPnL: number
+  date: string
 }
 
-// Generate trade history
-const generateTrades = (count: number) => {
-  const symbols = ['ES', 'NQ', 'YM', 'RTY', 'CL', 'GC']
-  const trades = []
-  for (let i = 0; i < count; i++) {
-    const isWin = Math.random() > 0.4
-    const pnl = isWin
-      ? Math.floor(Math.random() * 300) + 50
-      : -(Math.floor(Math.random() * 200) + 25)
-    trades.push({
-      id: i + 1,
-      symbol: symbols[Math.floor(Math.random() * symbols.length)],
-      side: Math.random() > 0.5 ? 'LONG' : 'SHORT',
-      pnl,
-      time: new Date(Date.now() - i * 3600000).toLocaleTimeString('en-US', { hour12: false }),
-      date: new Date(Date.now() - i * 3600000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    })
-  }
-  return trades
+interface Trade {
+  id: string | number
+  symbol: string
+  side: string
+  pnl: number
+  time: string
+  date: string
+  strategy?: string
 }
 
 export function TPTDashboard() {
   const [selectedFirm, setSelectedFirm] = useState<keyof typeof PROP_FIRM_RULES>('FTMO')
-  const [accountSize] = useState(100000)
-  const [equityData] = useState(() => generateEquityData(accountSize, 20))
-  const [trades] = useState(() => generateTrades(25))
+  const [accountSize, setAccountSize] = useState(100000)
+  const [equityData, setEquityData] = useState<EquityDataPoint[]>([])
+  const [trades, setTrades] = useState<Trade[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      // Fetch brain status, feedback metrics, closed trades, and performance history in parallel
+      const [brainRes, feedbackRes, tradesRes, perfHistRes] = await Promise.all([
+        fetch('/api/brain-v6/status').catch(() => null),
+        fetch('/api/feedback/status').catch(() => null),
+        fetch('/api/trades/closed?limit=50').catch(() => null),
+        fetch('/api/feedback/performance-history?days=30').catch(() => null),
+      ])
+
+      // Parse brain status for account/metrics info
+      let brainData: any = null
+      if (brainRes?.ok) {
+        brainData = await brainRes.json()
+      }
+
+      // Parse feedback status
+      let feedbackData: any = null
+      if (feedbackRes?.ok) {
+        feedbackData = await feedbackRes.json()
+      }
+
+      // Parse closed trades
+      let closedTrades: any[] = []
+      if (tradesRes?.ok) {
+        const tradesJson = await tradesRes.json()
+        if (Array.isArray(tradesJson)) {
+          closedTrades = tradesJson
+        } else if (tradesJson.trades && Array.isArray(tradesJson.trades)) {
+          closedTrades = tradesJson.trades
+        }
+      }
+
+      // Parse performance history for equity curve
+      let perfHistory: any[] = []
+      if (perfHistRes?.ok) {
+        const perfJson = await perfHistRes.json()
+        if (Array.isArray(perfJson)) {
+          perfHistory = perfJson
+        }
+      }
+
+      // Determine account size from brain config or use default
+      if (brainData?.config?.account_balance) {
+        setAccountSize(brainData.config.account_balance)
+      } else if (brainData?.ruleset?.account_size) {
+        setAccountSize(brainData.ruleset.account_size)
+      }
+
+      // Build equity curve from performance history or closed trades
+      const equity: EquityDataPoint[] = []
+      if (perfHistory.length > 0) {
+        let runningBalance = accountSize
+        perfHistory.forEach((entry: any, i: number) => {
+          const dailyPnL = entry.pnl || entry.daily_pnl || 0
+          runningBalance += dailyPnL
+          equity.push({
+            day: i + 1,
+            balance: runningBalance,
+            dailyPnL,
+            date: entry.date
+              ? new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              : `Day ${i + 1}`,
+          })
+        })
+      } else if (closedTrades.length > 0) {
+        // Build equity curve from trade PnLs
+        let runningBalance = accountSize
+        // Group trades by date
+        const tradesByDate = new Map<string, number>()
+        closedTrades.forEach((t: any) => {
+          const dateStr = t.exitTime || t.exit_time || t.entryTime || t.entry_time || new Date().toISOString()
+          const dateKey = new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          const pnl = t.realizedPnl ?? t.pnl ?? 0
+          tradesByDate.set(dateKey, (tradesByDate.get(dateKey) || 0) + pnl)
+        })
+
+        let dayIndex = 0
+        tradesByDate.forEach((dailyPnL, dateKey) => {
+          runningBalance += dailyPnL
+          equity.push({
+            day: ++dayIndex,
+            balance: runningBalance,
+            dailyPnL,
+            date: dateKey,
+          })
+        })
+      }
+
+      if (equity.length === 0) {
+        // Show at least the starting balance
+        equity.push({
+          day: 1,
+          balance: accountSize,
+          dailyPnL: 0,
+          date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        })
+      }
+
+      setEquityData(equity)
+
+      // Map closed trades to display format
+      const mappedTrades: Trade[] = closedTrades.slice(0, 25).map((t: any, i: number) => {
+        const exitTime = t.exitTime || t.exit_time || t.entryTime || t.entry_time || new Date().toISOString()
+        return {
+          id: t.id || i + 1,
+          symbol: t.symbol || 'UNKNOWN',
+          side: (t.side || t.direction || 'LONG').toUpperCase(),
+          pnl: t.realizedPnl ?? t.pnl ?? 0,
+          time: new Date(exitTime).toLocaleTimeString('en-US', { hour12: false }),
+          date: new Date(exitTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          strategy: t.strategy,
+        }
+      })
+      setTrades(mappedTrades)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load TPT dashboard data')
+    } finally {
+      setLoading(false)
+    }
+  }, [accountSize])
+
+  useEffect(() => {
+    fetchData()
+    const interval = setInterval(fetchData, 30000)
+    return () => clearInterval(interval)
+  }, [fetchData])
 
   const rules = PROP_FIRM_RULES[selectedFirm]
-  const currentBalance = equityData[equityData.length - 1]?.balance || accountSize
+  const currentBalance = equityData.length > 0 ? equityData[equityData.length - 1].balance : accountSize
   const totalPnL = currentBalance - accountSize
   const totalPnLPercent = (totalPnL / accountSize) * 100
 
   // Calculate daily P&L
-  const todayPnL = equityData[equityData.length - 1]?.dailyPnL || 0
+  const todayPnL = equityData.length > 0 ? equityData[equityData.length - 1].dailyPnL : 0
   const todayPnLPercent = (todayPnL / accountSize) * 100
 
   // Calculate drawdown
-  const maxBalance = Math.max(...equityData.map(d => d.balance))
+  const maxBalance = equityData.length > 0 ? Math.max(...equityData.map(d => d.balance)) : accountSize
   const drawdown = ((maxBalance - currentBalance) / maxBalance) * 100
 
   // Calculate trading days
@@ -126,7 +235,27 @@ export function TPTDashboard() {
   // Win/Loss breakdown
   const winningTrades = trades.filter(t => t.pnl > 0)
   const losingTrades = trades.filter(t => t.pnl < 0)
-  const winRate = (winningTrades.length / trades.length) * 100
+  const winRate = trades.length > 0 ? (winningTrades.length / trades.length) * 100 : 0
+
+  if (loading && equityData.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-accent-primary/10">
+            <Building className="w-5 h-5 text-accent-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-accent-primary">TPT DASHBOARD</h1>
+            <p className="text-xs text-foreground-muted">Prop Firm Trading Performance</p>
+          </div>
+        </div>
+        <div className="card p-12 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 text-accent-primary animate-spin" />
+          <span className="ml-3 text-foreground-muted">Loading dashboard data...</span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -142,17 +271,33 @@ export function TPTDashboard() {
           </div>
         </div>
 
-        {/* Firm Selector */}
-        <select
-          value={selectedFirm}
-          onChange={(e) => setSelectedFirm(e.target.value as keyof typeof PROP_FIRM_RULES)}
-          className="px-4 py-2 text-sm bg-background-secondary border border-border rounded-lg text-foreground-primary focus:outline-none focus:border-accent-primary"
-        >
-          {Object.keys(PROP_FIRM_RULES).map(firm => (
-            <option key={firm} value={firm}>{PROP_FIRM_RULES[firm as keyof typeof PROP_FIRM_RULES].name}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchData}
+            className="p-2 rounded bg-background-tertiary hover:bg-background-secondary transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={cn('w-4 h-4 text-foreground-muted', loading && 'animate-spin')} />
+          </button>
+          {/* Firm Selector */}
+          <select
+            value={selectedFirm}
+            onChange={(e) => setSelectedFirm(e.target.value as keyof typeof PROP_FIRM_RULES)}
+            className="px-4 py-2 text-sm bg-background-secondary border border-border rounded-lg text-foreground-primary focus:outline-none focus:border-accent-primary"
+          >
+            {Object.keys(PROP_FIRM_RULES).map(firm => (
+              <option key={firm} value={firm}>{PROP_FIRM_RULES[firm as keyof typeof PROP_FIRM_RULES].name}</option>
+            ))}
+          </select>
+        </div>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="card p-3 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Status Banner */}
       {(dailyLossViolated || totalLossViolated) ? (
@@ -217,79 +362,90 @@ export function TPTDashboard() {
           {/* Equity Curve */}
           <div className="card">
             <h3 className="text-sm font-medium text-foreground-primary mb-4">Equity Curve</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={equityData}>
-                  <defs>
-                    <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={totalPnL >= 0 ? '#00c853' : '#ff5252'} stopOpacity={0.3} />
-                      <stop offset="95%" stopColor={totalPnL >= 0 ? '#00c853' : '#ff5252'} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#666', fontSize: 10 }}
-                    axisLine={{ stroke: '#333' }}
-                    tickLine={{ stroke: '#333' }}
-                  />
-                  <YAxis
-                    domain={['auto', 'auto']}
-                    tick={{ fill: '#666', fontSize: 10 }}
-                    axisLine={{ stroke: '#333' }}
-                    tickLine={{ stroke: '#333' }}
-                    tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`}
-                    width={60}
-                  />
-                  <Tooltip
-                    contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
-                    labelStyle={{ color: '#888' }}
-                    formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 'Balance']}
-                  />
-                  {/* Profit Target Line */}
-                  <Area
-                    type="monotone"
-                    dataKey="balance"
-                    stroke={totalPnL >= 0 ? '#00c853' : '#ff5252'}
-                    strokeWidth={2}
-                    fill="url(#equityGradient)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            {equityData.length <= 1 ? (
+              <div className="h-64 flex items-center justify-center text-foreground-muted text-sm">
+                No equity data yet. Trades will populate the chart as they are executed.
+              </div>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={equityData}>
+                    <defs>
+                      <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={totalPnL >= 0 ? '#00c853' : '#ff5252'} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={totalPnL >= 0 ? '#00c853' : '#ff5252'} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: '#666', fontSize: 10 }}
+                      axisLine={{ stroke: '#333' }}
+                      tickLine={{ stroke: '#333' }}
+                    />
+                    <YAxis
+                      domain={['auto', 'auto']}
+                      tick={{ fill: '#666', fontSize: 10 }}
+                      axisLine={{ stroke: '#333' }}
+                      tickLine={{ stroke: '#333' }}
+                      tickFormatter={(v) => `$${(v/1000).toFixed(0)}k`}
+                      width={60}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
+                      labelStyle={{ color: '#888' }}
+                      formatter={(value: number) => [`$${value.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 'Balance']}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke={totalPnL >= 0 ? '#00c853' : '#ff5252'}
+                      strokeWidth={2}
+                      fill="url(#equityGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
 
           {/* Daily P&L Chart */}
           <div className="card">
             <h3 className="text-sm font-medium text-foreground-primary mb-4">Daily P&L</h3>
-            <div className="h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={equityData}>
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#666', fontSize: 10 }}
-                    axisLine={{ stroke: '#333' }}
-                    tickLine={{ stroke: '#333' }}
-                  />
-                  <YAxis
-                    tick={{ fill: '#666', fontSize: 10 }}
-                    axisLine={{ stroke: '#333' }}
-                    tickLine={{ stroke: '#333' }}
-                    tickFormatter={(v) => `$${v}`}
-                    width={50}
-                  />
-                  <Tooltip
-                    contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
-                    labelStyle={{ color: '#888' }}
-                    formatter={(value: number) => [`$${value.toFixed(2)}`, 'P&L']}
-                  />
-                  <Bar dataKey="dailyPnL" radius={[4, 4, 0, 0]}>
-                    {equityData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.dailyPnL >= 0 ? '#00c853' : '#ff5252'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {equityData.length <= 1 ? (
+              <div className="h-40 flex items-center justify-center text-foreground-muted text-sm">
+                No daily P&L data available yet.
+              </div>
+            ) : (
+              <div className="h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={equityData}>
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: '#666', fontSize: 10 }}
+                      axisLine={{ stroke: '#333' }}
+                      tickLine={{ stroke: '#333' }}
+                    />
+                    <YAxis
+                      tick={{ fill: '#666', fontSize: 10 }}
+                      axisLine={{ stroke: '#333' }}
+                      tickLine={{ stroke: '#333' }}
+                      tickFormatter={(v) => `$${v}`}
+                      width={50}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
+                      labelStyle={{ color: '#888' }}
+                      formatter={(value: number) => [`$${value.toFixed(2)}`, 'P&L']}
+                    />
+                    <Bar dataKey="dailyPnL" radius={[4, 4, 0, 0]}>
+                      {equityData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.dailyPnL >= 0 ? '#00c853' : '#ff5252'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </div>
         </div>
 
@@ -302,7 +458,7 @@ export function TPTDashboard() {
               {/* Daily Loss Limit */}
               <RuleProgress
                 label="Daily Loss Limit"
-                current={Math.abs(todayPnL)}
+                current={Math.abs(todayPnL < 0 ? todayPnL : 0)}
                 max={accountSize * (rules.maxDailyLoss / 100)}
                 unit="$"
                 isViolated={dailyLossViolated}
@@ -380,25 +536,31 @@ export function TPTDashboard() {
           <div className="card">
             <h3 className="text-sm font-medium text-foreground-primary mb-3">Recent Trades</h3>
             <div className="space-y-2 max-h-48 overflow-y-auto">
-              {trades.slice(0, 8).map((trade) => (
-                <div key={trade.id} className="flex items-center justify-between py-1 border-b border-border/50">
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      'text-[10px] font-bold px-1.5 py-0.5 rounded',
-                      trade.side === 'LONG' ? 'bg-bullish/20 text-bullish' : 'bg-bearish/20 text-bearish'
-                    )}>
-                      {trade.side}
-                    </span>
-                    <span className="text-xs text-foreground-secondary">{trade.symbol}</span>
-                  </div>
-                  <span className={cn(
-                    'text-xs font-mono font-bold',
-                    trade.pnl >= 0 ? 'text-bullish' : 'text-bearish'
-                  )}>
-                    {trade.pnl >= 0 ? '+' : ''}{trade.pnl}
-                  </span>
+              {trades.length === 0 ? (
+                <div className="text-xs text-foreground-muted text-center py-4">
+                  No trades recorded yet.
                 </div>
-              ))}
+              ) : (
+                trades.slice(0, 8).map((trade) => (
+                  <div key={trade.id} className="flex items-center justify-between py-1 border-b border-border/50">
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        'text-[10px] font-bold px-1.5 py-0.5 rounded',
+                        trade.side === 'LONG' || trade.side === 'BUY' ? 'bg-bullish/20 text-bullish' : 'bg-bearish/20 text-bearish'
+                      )}>
+                        {trade.side}
+                      </span>
+                      <span className="text-xs text-foreground-secondary">{trade.symbol}</span>
+                    </div>
+                    <span className={cn(
+                      'text-xs font-mono font-bold',
+                      trade.pnl >= 0 ? 'text-bullish' : 'text-bearish'
+                    )}>
+                      {trade.pnl >= 0 ? '+' : ''}{typeof trade.pnl === 'number' ? trade.pnl.toFixed(2) : trade.pnl}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

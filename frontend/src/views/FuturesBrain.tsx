@@ -65,35 +65,79 @@ export function FuturesBrain() {
   const [currentSignal, setCurrentSignal] = useState<'LONG' | 'SHORT' | 'FLAT'>('FLAT')
   const [confidence, setConfidence] = useState(0.72)
   const [error, setError] = useState<string | null>(null)
+  const [brainMetrics, setBrainMetrics] = useState<any>(null)
+  const [todayPerf, setTodayPerf] = useState<any>(null)
 
   // Fetch initial data from API
   const fetchData = async () => {
     setError(null)
     try {
-      // Fetch price data
-      const priceRes = await fetch(`/api/futures/${selectedContract.symbol}/prices`)
-      const priceResult = await priceRes.json()
+      // Fetch price data, signals, brain status, and trade stats in parallel
+      const [priceRes, signalRes, brainRes, statsRes, riskRes] = await Promise.all([
+        fetch(`/api/futures/${selectedContract.symbol}/prices`).catch(() => null),
+        fetch(`/api/futures/${selectedContract.symbol}/signals`).catch(() => null),
+        fetch('/api/brain-v6/status').catch(() => null),
+        fetch('/api/trades/stats').catch(() => null),
+        fetch('/api/risk/metrics').catch(() => null),
+      ])
 
-      if (priceRes.ok && priceResult.status !== 'unavailable') {
-        const prices = priceResult.data?.prices || priceResult.prices || []
-        if (prices.length > 0) {
-          setPriceData(transformPriceData(prices))
+      // Process price data
+      if (priceRes?.ok) {
+        const priceResult = await priceRes.json()
+        if (priceResult.status !== 'unavailable') {
+          const prices = priceResult.data?.prices || priceResult.prices || []
+          if (prices.length > 0) {
+            setPriceData(transformPriceData(prices))
+          }
         }
       }
 
-      // Fetch signals
-      const signalRes = await fetch(`/api/futures/${selectedContract.symbol}/signals`)
-      const signalResult = await signalRes.json()
-
-      if (signalRes.ok && signalResult.status !== 'unavailable') {
-        const sigs = signalResult.data?.signals || signalResult.signals || []
-        if (sigs.length > 0) {
-          setSignals(transformSignals(sigs))
-          const latestSignal = sigs[sigs.length - 1]
-          setCurrentSignal(latestSignal.type || latestSignal.signal || 'FLAT')
-          setConfidence(latestSignal.confidence || 0.5)
+      // Process signals
+      if (signalRes?.ok) {
+        const signalResult = await signalRes.json()
+        if (signalResult.status !== 'unavailable') {
+          const sigs = signalResult.data?.signals || signalResult.signals || []
+          if (sigs.length > 0) {
+            setSignals(transformSignals(sigs))
+            const latestSignal = sigs[sigs.length - 1]
+            setCurrentSignal(latestSignal.type || latestSignal.signal || 'FLAT')
+            setConfidence(latestSignal.confidence || 0.5)
+          }
         }
       }
+
+      // Process brain metrics
+      if (brainRes?.ok) {
+        const brainData = await brainRes.json()
+        setBrainMetrics({
+          neuralStrength: brainData.metrics?.win_rate ? Math.round(brainData.metrics.win_rate) : 0,
+          patternMatch: brainData.confidence ? Math.round(brainData.confidence * 100) : 0,
+          riskScore: brainData.metrics?.profit_factor >= 1.5 ? 'Low' : brainData.metrics?.profit_factor >= 1.0 ? 'Medium' : 'High',
+          regime: brainData.current_regime || 'Unknown',
+          isTrained: brainData.is_trained ?? false,
+        })
+      }
+
+      // Process today's performance
+      if (statsRes?.ok) {
+        const statsData = await statsRes.json()
+        setTodayPerf({
+          trades: statsData.totalTrades ?? 0,
+          winRate: statsData.winRate ?? 0,
+          pnl: statsData.totalPnl ?? 0,
+          sharpe: statsData.sharpeRatio ?? 0,
+        })
+      }
+
+      // Fallback: get risk score from risk metrics
+      if (riskRes?.ok && !brainMetrics) {
+        const riskData = await riskRes.json()
+        setBrainMetrics(prev => ({
+          ...(prev || {}),
+          riskScore: riskData.risk_score < 40 ? 'Low' : riskData.risk_score < 70 ? 'Medium' : 'High',
+        }))
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch futures data')
     }
@@ -369,23 +413,23 @@ export function FuturesBrain() {
               <MetricRow
                 icon={<Zap className="w-4 h-4 text-yellow-500" />}
                 label="Neural Strength"
-                value="87%"
+                value={brainMetrics?.neuralStrength ? `${brainMetrics.neuralStrength}%` : '--'}
               />
               <MetricRow
                 icon={<Target className="w-4 h-4 text-accent-primary" />}
                 label="Pattern Match"
-                value="94%"
+                value={brainMetrics?.patternMatch ? `${brainMetrics.patternMatch}%` : '--'}
               />
               <MetricRow
                 icon={<Shield className="w-4 h-4 text-bullish" />}
                 label="Risk Score"
-                value="Low"
-                valueColor="text-bullish"
+                value={brainMetrics?.riskScore || '--'}
+                valueColor={brainMetrics?.riskScore === 'Low' ? 'text-bullish' : brainMetrics?.riskScore === 'High' ? 'text-bearish' : 'text-warning'}
               />
               <MetricRow
                 icon={<Activity className="w-4 h-4 text-purple-500" />}
                 label="Market Regime"
-                value="Trending"
+                value={brainMetrics?.regime || '--'}
               />
             </div>
           </div>
@@ -419,19 +463,25 @@ export function FuturesBrain() {
             <div className="grid grid-cols-2 gap-3">
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">Trades</p>
-                <p className="text-lg font-bold text-foreground-primary">12</p>
+                <p className="text-lg font-bold text-foreground-primary">{todayPerf?.trades ?? '--'}</p>
               </div>
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">Win Rate</p>
-                <p className="text-lg font-bold text-bullish">67%</p>
+                <p className={cn('text-lg font-bold', (todayPerf?.winRate ?? 0) >= 50 ? 'text-bullish' : 'text-bearish')}>
+                  {todayPerf?.winRate != null ? `${todayPerf.winRate.toFixed(1)}%` : '--'}
+                </p>
               </div>
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">P&L</p>
-                <p className="text-lg font-bold text-bullish">+$847</p>
+                <p className={cn('text-lg font-bold', (todayPerf?.pnl ?? 0) >= 0 ? 'text-bullish' : 'text-bearish')}>
+                  {todayPerf?.pnl != null ? `${todayPerf.pnl >= 0 ? '+' : ''}$${todayPerf.pnl.toFixed(0)}` : '--'}
+                </p>
               </div>
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">Sharpe</p>
-                <p className="text-lg font-bold text-foreground-primary">1.82</p>
+                <p className="text-lg font-bold text-foreground-primary">
+                  {todayPerf?.sharpe != null ? todayPerf.sharpe.toFixed(2) : '--'}
+                </p>
               </div>
             </div>
           </div>

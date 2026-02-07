@@ -215,9 +215,10 @@ class TPTEvalTracker:
                 return False
             
             return True
-        except:
+        except Exception as e:
+            logger.warning(f"Market hours check failed, assuming tradable: {e}")
             return True
-    
+
     def should_flatten(self) -> bool:
         """Check if we should flatten all positions."""
         try:
@@ -225,7 +226,8 @@ class TPTEvalTracker:
             est = pytz.timezone('US/Eastern')
             now = datetime.now(est)
             return now.strftime('%H:%M') >= self.rules.FLATTEN_TIME
-        except:
+        except Exception as e:
+            logger.warning(f"Flatten time check failed, not flattening: {e}")
             return False
     
     def open_position(self, symbol: str, contracts: int, direction: str, 
@@ -1436,8 +1438,8 @@ class TPTProductionBot:
         for cb in self._callbacks.get(event_type, []):
             try:
                 cb(data)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Callback error for event {event_type}: {e}")
     
     def on(self, event_type: str, callback: Callable):
         """Register callback."""

@@ -149,9 +149,9 @@ class MeanVarianceOptimizer:
                 frontier_returns.append(metrics['return'])
                 frontier_vols.append(metrics['volatility'])
                 frontier_weights.append(w)
-            except:
+            except (ValueError, np.linalg.LinAlgError):
                 continue
-        
+
         return (
             np.array(frontier_returns),
             np.array(frontier_vols),

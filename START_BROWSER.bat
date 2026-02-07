@@ -28,9 +28,9 @@ if %ERRORLEVEL% NEQ 0 (
 echo [OK] Prerequisites verified
 echo.
 
-:: Start backend
+:: Start backend (using api.main:app - the unified entry point)
 echo [1/2] Starting Backend API Server...
-start "QUANT Backend" cmd /c "cd /d %~dp0backend && call start.bat"
+start "QUANT Backend" cmd /c "cd /d %~dp0 && python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
 
 :: Wait for backend
 echo      Waiting for API to initialize...

@@ -244,7 +244,7 @@ def _parse_expiration(exp_str: str) -> date:
     """Parse expiration string to date."""
     try:
         return datetime.strptime(exp_str, "%Y-%m-%d").date()
-    except:
+    except (ValueError, TypeError):
         return date.today()
 
 

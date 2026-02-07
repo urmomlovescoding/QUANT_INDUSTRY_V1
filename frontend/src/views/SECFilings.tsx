@@ -1,4 +1,4 @@
-import { FileSearch, Search, ExternalLink } from 'lucide-react'
+import { FileSearch, Search, ExternalLink, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/utils/cn'
 
@@ -104,8 +104,16 @@ export function SECFilings() {
         </div>
       )}
 
+      {/* Loading */}
+      {loading && (
+        <div className="card p-8 text-center text-foreground-muted">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+          <p className="text-sm">Fetching SEC filings from EDGAR...</p>
+        </div>
+      )}
+
       {/* Filings Table */}
-      {filings.length > 0 && (
+      {!loading && filings.length > 0 && (
         <div className="card overflow-hidden">
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-bold">Recent Filings - {ticker}</h3>

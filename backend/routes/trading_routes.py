@@ -129,9 +129,12 @@ async def get_active_signals(symbols: str = "NVDA,AAPL,TSLA,AMD,MSFT,GOOGL"):
     return []
 
 
-@router.get("/signals")
+@router.get("/signals/all")
 async def get_all_signals():
-    """Get all signals (active and historical)"""
+    """Get all signals (active and historical).
+    NOTE: /api/signals is defined in api/routes/core_routes.py (authoritative).
+    This endpoint is renamed to /signals/all to avoid conflict.
+    """
     return list(ACTIVE_SIGNALS.values())
 
 
@@ -175,9 +178,12 @@ async def dismiss_signal(signal_id: str):
 
 # ============== POSITIONS ==============
 
-@router.get("/positions")
+@router.get("/positions/broker")
 async def get_positions():
-    """Get open positions from broker or paper"""
+    """Get open positions from broker or paper.
+    NOTE: /api/positions is defined in api/routes/core_routes.py (authoritative).
+    This endpoint is renamed to /positions/broker to avoid conflict.
+    """
     if BROKER_ADAPTER_AVAILABLE:
         try:
             from execution.broker_adapter import PaperBroker

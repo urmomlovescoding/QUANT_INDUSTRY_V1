@@ -647,7 +647,11 @@ class FeedbackLoop:
             self.metrics.loss_rate = self.metrics.losing_trades / self.metrics.total_trades
 
         if self.metrics.avg_loss > 0:
-            self.metrics.profit_factor = self.metrics.avg_win / self.metrics.avg_loss
+            # Profit factor = total gross profit / total gross loss
+            gross_profit = self.metrics.avg_win * self.metrics.winning_trades
+            gross_loss = self.metrics.avg_loss * self.metrics.losing_trades
+            self.metrics.profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+            # Risk/Reward = avg win / avg loss
             self.metrics.avg_risk_reward = self.metrics.avg_win / self.metrics.avg_loss
 
         # Calculate Sharpe (simplified, annualized)
@@ -842,6 +846,41 @@ class FeedbackLoop:
 
 _feedback_loop: Optional[FeedbackLoop] = None
 
+def _brain_update_callback(metrics: PerformanceMetrics, state: LearningState) -> None:
+    """
+    Callback that triggers PropFirm Brain V6 retraining when feedback loop
+    determines a model update is needed.
+    """
+    try:
+        from .propfirm_brain_v6 import get_propfirm_brain_v6
+        brain = get_propfirm_brain_v6()
+
+        if len(brain.trade_history) >= brain.config.min_trades_for_training:
+            logger.info(
+                f"Feedback loop triggering brain retraining | "
+                f"Win rate: {metrics.win_rate:.2%} | "
+                f"Phase: {state.phase.value} | "
+                f"LR: {state.learning_rate:.4f}"
+            )
+
+            # Adapt brain's learning rate based on feedback loop state
+            if brain.optimizer is not None:
+                for param_group in brain.optimizer.param_groups:
+                    param_group['lr'] = state.learning_rate
+
+            result = brain.train_step()
+            logger.info(f"Brain retrained via feedback loop: {result}")
+        else:
+            logger.debug(
+                f"Feedback loop skipping brain retrain: "
+                f"only {len(brain.trade_history)} trades (need {brain.config.min_trades_for_training})"
+            )
+    except ImportError:
+        logger.debug("PropFirm Brain V6 not available for feedback-triggered retraining")
+    except Exception as e:
+        logger.error(f"Feedback-triggered brain retrain failed: {e}")
+
+
 def get_feedback_loop(
     targets: ConvergenceTargets = None,
     db_path: str = "brain_metrics.db"
@@ -850,6 +889,9 @@ def get_feedback_loop(
     global _feedback_loop
     if _feedback_loop is None:
         _feedback_loop = FeedbackLoop(targets=targets, db_path=db_path)
+        # Auto-register the brain update callback so the loop drives real retraining
+        _feedback_loop.register_update_callback(_brain_update_callback)
+        logger.info("Feedback loop -> Brain V6 retraining callback registered")
     return _feedback_loop
 
 

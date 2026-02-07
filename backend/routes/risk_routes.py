@@ -35,8 +35,8 @@ async def get_risk_metrics():
                 tracker = brain.performance_tracker
                 if hasattr(tracker, 'current_drawdown'):
                     current_drawdown = abs(tracker.current_drawdown * 100)
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not fetch drawdown from brain tracker: {e}")
 
     risk_score = min(100, (var_95 / 5) * 100 * 0.3 + (current_drawdown / 15) * 100 * 0.3 + 
                      (max_position_exposure / 15) * 100 * 0.2 + (sector_concentration / 40) * 100 * 0.2)

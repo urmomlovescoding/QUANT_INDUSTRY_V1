@@ -162,7 +162,8 @@ class FuturesBrainV2Integration:
                 # Try V2 first
                 self.feature_extractor = FuturesFeatureExtractorV2()
                 logger.info("Using FuturesFeatureExtractorV2")
-            except:
+            except Exception as e:
+                logger.debug(f"V2 feature extractor unavailable ({e}), trying V1")
                 try:
                     self.feature_extractor = FuturesFeatureExtractor()
                     logger.info("Using FuturesFeatureExtractor (v1)")

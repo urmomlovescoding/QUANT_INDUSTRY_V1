@@ -882,7 +882,7 @@ class StrategyDSL:
                     fraction = float(match.group(1))
                     return min(fraction * 0.1, 0.2)  # Cap at 20%
             return float(size_rule)
-        except:
+        except (ValueError, TypeError, KeyError):
             return 0.02
     
     def _eval_price(self, price_rule: str, ctx: Dict) -> Optional[float]:
@@ -901,7 +901,7 @@ class StrategyDSL:
                 return atr_val * multiplier
             
             return float(price_rule)
-        except:
+        except (ValueError, TypeError, KeyError):
             return None
     
     # Indicator calculations

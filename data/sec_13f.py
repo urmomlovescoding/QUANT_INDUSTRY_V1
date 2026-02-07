@@ -317,7 +317,8 @@ class Filing13FParser:
                     share_type='SH',
                     investment_discretion='SOLE',
                 ))
-            except:
+            except (ValueError, IndexError) as e:
+                logger.debug(f"Skipping malformed 13F holding entry: {e}")
                 continue
 
         return holdings

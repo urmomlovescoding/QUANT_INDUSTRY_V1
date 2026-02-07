@@ -285,7 +285,8 @@ async def get_market_status() -> MarketStatus:
     try:
         et = pytz.timezone('US/Eastern')
         now = datetime.now(et)
-    except:
+    except Exception as e:
+        logger.debug(f"Timezone conversion failed, using local time: {e}")
         now = datetime.now()
     
     hour = now.hour
@@ -680,7 +681,8 @@ async def get_sectors() -> SectorsResponse:
                         prev_close = prev.get("c", price) if prev else price
                         change_pct = ((price - prev_close) / prev_close * 100) if prev_close else 0
                         volume = daily.get("v", q.volume) or 0
-                    except:
+                    except Exception as e:
+                        logger.debug(f"Snapshot lookup failed for {etf}: {e}")
                         change_pct = 0
                         volume = q.volume or 0
                     
@@ -773,7 +775,8 @@ async def get_movers(
                             "change_pct": change_pct,
                             "volume": int(volume),
                         })
-                    except:
+                    except Exception as e:
+                        logger.debug(f"Skipping mover symbol due to error: {e}")
                         continue
             
             # Sort for gainers/losers/volume

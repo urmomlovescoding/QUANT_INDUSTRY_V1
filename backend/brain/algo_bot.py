@@ -447,19 +447,83 @@ class AlgoBot:
         price: float,
         neural_score: float
     ) -> Optional[TradingSignal]:
-        """ML ensemble strategy combining multiple signals"""
-        if abs(neural_score) < 20:
-            return None  # No strong signal
+        """ML ensemble strategy combining PropFirm Brain V6 + neural score signals"""
 
-        # Determine signal type and confidence
-        if neural_score > 30:
-            signal_type = SignalType.BUY
-            confidence = min(neural_score / 100 + 0.5, 1.0)
-        elif neural_score < -30:
-            signal_type = SignalType.SELL
-            confidence = min(abs(neural_score) / 100 + 0.5, 1.0)
+        # Try to get PropFirm Brain V6 signal (the real ML brain)
+        brain_signal = None
+        brain_confidence = 0.0
+        brain_direction = None
+        reason_parts = []
+
+        try:
+            from .propfirm_brain_v6 import get_propfirm_brain_v6
+            from ..services.data_service import get_data_service
+            data_service = get_data_service()
+
+            historical = data_service.get_historical(symbol, "1d", 100)
+            if historical and len(historical) >= 50:
+                import pandas as pd
+                df = pd.DataFrame([{
+                    'timestamp': getattr(d, 'timestamp', ''),
+                    'open': getattr(d, 'open', d.get('open', 0)) if isinstance(d, dict) else d.open,
+                    'high': getattr(d, 'high', d.get('high', 0)) if isinstance(d, dict) else d.high,
+                    'low': getattr(d, 'low', d.get('low', 0)) if isinstance(d, dict) else d.low,
+                    'close': getattr(d, 'close', d.get('close', 0)) if isinstance(d, dict) else d.close,
+                    'volume': getattr(d, 'volume', d.get('volume', 0)) if isinstance(d, dict) else d.volume,
+                } for d in historical])
+                if 'timestamp' in df.columns:
+                    df.set_index('timestamp', inplace=True)
+
+                brain = get_propfirm_brain_v6()
+                brain_signal = brain.generate_signal(df, symbol)
+
+                if brain_signal:
+                    brain_direction = brain_signal.get('direction', 'HOLD')
+                    brain_confidence = brain_signal.get('confidence', 0)
+                    reason_parts.append(
+                        f"BrainV6: {brain_direction} ({brain_confidence:.2f})"
+                    )
+        except Exception as e:
+            logger.debug(f"PropFirm Brain V6 not available for {symbol}: {e}")
+
+        # Combine brain signal with neural score
+        if neural_score != 0:
+            reason_parts.append(f"Neural: {neural_score:.1f}")
+
+        # Decision logic: use brain signal if available, fallback to neural score
+        if brain_direction and brain_direction not in ('HOLD', None):
+            # Use brain signal as primary
+            if brain_direction in ('BUY', 'STRONG_BUY'):
+                signal_type = SignalType.BUY
+                confidence = brain_confidence
+            elif brain_direction in ('SELL', 'STRONG_SELL'):
+                signal_type = SignalType.SELL
+                confidence = brain_confidence
+            else:
+                return None
+
+            # Boost confidence if neural score agrees
+            if neural_score > 20 and signal_type == SignalType.BUY:
+                confidence = min(confidence + 0.1, 1.0)
+            elif neural_score < -20 and signal_type == SignalType.SELL:
+                confidence = min(confidence + 0.1, 1.0)
+            elif (neural_score > 20 and signal_type == SignalType.SELL) or \
+                 (neural_score < -20 and signal_type == SignalType.BUY):
+                # Conflicting signals - reduce confidence
+                confidence *= 0.7
+
+        elif abs(neural_score) >= 30:
+            # Fallback to neural score only
+            if neural_score > 30:
+                signal_type = SignalType.BUY
+                confidence = min(neural_score / 100 + 0.5, 0.85)
+            elif neural_score < -30:
+                signal_type = SignalType.SELL
+                confidence = min(abs(neural_score) / 100 + 0.5, 0.85)
+            else:
+                return None
         else:
-            return None
+            return None  # No strong signal from either source
 
         # Check if we already have a position
         if symbol in self.positions:
@@ -476,13 +540,17 @@ class AlgoBot:
         if quantity <= 0:
             return None
 
-        # Calculate stop loss and take profit
-        if signal_type == SignalType.BUY:
-            stop_loss = price * (1 - self.config.stop_loss_pct / 100)
-            take_profit = price * (1 + self.config.take_profit_pct / 100)
+        # Use brain's stop loss / take profit if available, otherwise use config
+        if brain_signal and brain_signal.get('stop_loss') is not None:
+            stop_loss = brain_signal['stop_loss']
+            take_profit = brain_signal.get('take_profit', price * (1 + self.config.take_profit_pct / 100))
         else:
-            stop_loss = price * (1 + self.config.stop_loss_pct / 100)
-            take_profit = price * (1 - self.config.take_profit_pct / 100)
+            if signal_type in (SignalType.BUY, SignalType.CLOSE_SHORT):
+                stop_loss = price * (1 - self.config.stop_loss_pct / 100)
+                take_profit = price * (1 + self.config.take_profit_pct / 100)
+            else:
+                stop_loss = price * (1 + self.config.stop_loss_pct / 100)
+                take_profit = price * (1 - self.config.take_profit_pct / 100)
 
         return TradingSignal(
             signal_id=str(uuid.uuid4())[:8],
@@ -494,7 +562,7 @@ class AlgoBot:
             quantity=quantity,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            reason=f"Neural score: {neural_score:.1f}",
+            reason=" | ".join(reason_parts) if reason_parts else f"Neural score: {neural_score:.1f}",
         )
 
     def _trend_following_strategy(self, symbol: str, price: float) -> Optional[TradingSignal]:
@@ -718,6 +786,12 @@ class AlgoBot:
 
         logger.info(f"Closed {position.side} position: {symbol} @ ${exit_price:.2f}, P&L: ${pnl:.2f}")
 
+        # Record trade to PropFirm Brain V6 for learning
+        self._record_trade_to_brain(trade)
+
+        # Record trade to feedback loop for convergence tracking
+        self._record_trade_to_feedback(trade)
+
     def _update_positions(self):
         """Update current prices for all positions"""
         try:
@@ -769,6 +843,71 @@ class AlgoBot:
         # Close positions
         for symbol, price in symbols_to_close:
             self._close_position(symbol, price)
+
+    def _record_trade_to_brain(self, trade: Dict):
+        """Record completed trade to PropFirm Brain V6 for model learning."""
+        try:
+            from .propfirm_brain_v6 import get_propfirm_brain_v6, TradeRecord, MarketRegime
+            brain = get_propfirm_brain_v6()
+
+            outcome_pnl = trade.get("pnl", 0)
+            direction = "long" if trade.get("side") == "LONG" else "short"
+
+            trade_record = TradeRecord(
+                trade_id=str(uuid.uuid4())[:8],
+                symbol=trade.get("symbol", ""),
+                direction=direction,
+                entry_price=trade.get("entry_price", 0),
+                exit_price=trade.get("exit_price", 0),
+                entry_time=datetime.fromisoformat(trade.get("entry_time", datetime.now().isoformat())),
+                exit_time=datetime.fromisoformat(trade.get("exit_time", datetime.now().isoformat())),
+                contracts=trade.get("quantity", 1),
+                pnl=outcome_pnl,
+                pnl_pct=trade.get("pnl_pct", 0),
+                strategy=trade.get("strategy", "ML_ENSEMBLE"),
+                confidence=0.5,
+                regime=brain.current_regime if brain.current_regime else MarketRegime.RANGING,
+                exit_reason="tp" if outcome_pnl > 0 else "sl",
+            )
+            brain.record_trade(trade_record)
+            logger.debug(f"Trade recorded to Brain V6: {trade_record.trade_id}")
+        except Exception as e:
+            logger.debug(f"Could not record trade to Brain V6: {e}")
+
+    def _record_trade_to_feedback(self, trade: Dict):
+        """Record completed trade to feedback loop for convergence tracking."""
+        try:
+            from .feedback_loop import get_feedback_loop, TradeResult, TradeOutcome
+            feedback = get_feedback_loop()
+
+            pnl = trade.get("pnl", 0)
+            if pnl > 0:
+                outcome = TradeOutcome.WIN
+            elif pnl < 0:
+                outcome = TradeOutcome.LOSS
+            else:
+                outcome = TradeOutcome.BREAKEVEN
+
+            result = TradeResult(
+                trade_id=str(uuid.uuid4())[:8],
+                symbol=trade.get("symbol", ""),
+                direction=trade.get("side", "LONG"),
+                entry_price=trade.get("entry_price", 0),
+                exit_price=trade.get("exit_price", 0),
+                entry_time=datetime.fromisoformat(trade.get("entry_time", datetime.now().isoformat())),
+                exit_time=datetime.fromisoformat(trade.get("exit_time", datetime.now().isoformat())),
+                quantity=trade.get("quantity", 1),
+                pnl=pnl,
+                pnl_pct=trade.get("pnl_pct", 0),
+                outcome=outcome,
+                strategy=trade.get("strategy", "ML_ENSEMBLE"),
+                signal_confidence=0.5,
+                regime_at_entry="ranging",
+            )
+            feedback.record_trade(result)
+            logger.debug(f"Trade recorded to feedback loop: {result.trade_id}")
+        except Exception as e:
+            logger.debug(f"Could not record trade to feedback loop: {e}")
 
     def get_status(self) -> Dict:
         """Get bot status"""

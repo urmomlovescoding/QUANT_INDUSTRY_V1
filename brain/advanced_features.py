@@ -603,7 +603,7 @@ class AdvancedFeatureComputer:
         try:
             poly = np.polyfit(np.log(lags), np.log(tau), 1)
             return poly[0]
-        except:
+        except (ValueError, np.linalg.LinAlgError):
             return 0.5
 
     def _autocorrelation(self, prices: np.ndarray, lag: int) -> float:

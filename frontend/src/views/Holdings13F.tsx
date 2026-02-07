@@ -1,4 +1,4 @@
-import { Building2, Search, TrendingUp, TrendingDown } from 'lucide-react'
+import { Building2, Search, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/utils/cn'
 
@@ -89,6 +89,14 @@ export function Holdings13F() {
         </div>
       )}
 
+      {/* Loading */}
+      {loading && !data && (
+        <div className="card p-8 text-center text-foreground-muted">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+          <p className="text-sm">Fetching institutional holders...</p>
+        </div>
+      )}
+
       {data && (
         <div className="grid grid-cols-12 gap-4">
           {/* Summary */}
@@ -145,8 +153,17 @@ export function Holdings13F() {
                 {data.holders.map((h: any, i: number) => (
                   <tr key={i}>
                     <td className="font-medium">{h.name}</td>
-                    <td className="font-mono">{(h.shares / 1000000).toFixed(1)}M</td>
-                    <td className="font-mono">${(h.value / 1000000000).toFixed(1)}B</td>
+                    <td className="font-mono">
+                      {h.shares >= 1000000 ? `${(h.shares / 1000000).toFixed(1)}M` :
+                       h.shares >= 1000 ? `${(h.shares / 1000).toFixed(0)}K` :
+                       h.shares?.toLocaleString() || '0'}
+                    </td>
+                    <td className="font-mono">
+                      {h.value >= 1000000000 ? `$${(h.value / 1000000000).toFixed(1)}B` :
+                       h.value >= 1000000 ? `$${(h.value / 1000000).toFixed(0)}M` :
+                       h.value >= 1000 ? `$${(h.value / 1000).toFixed(0)}K` :
+                       `$${h.value?.toLocaleString() || '0'}`}
+                    </td>
                     <td>
                       <span className={cn(
                         'flex items-center gap-1 font-mono',

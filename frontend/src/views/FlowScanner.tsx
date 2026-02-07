@@ -128,7 +128,7 @@ export function FlowScanner() {
   // WebSocket connection
   const { isConnected, lastMessage, subscribe } = useWebSocket({
     autoConnect: true,
-    onOpen: () => console.log('FlowScanner WebSocket connected'),
+    onOpen: () => { /* connected */ },
   })
 
   // Notifications

@@ -96,8 +96,8 @@ def get_broker():
             broker = AlpacaBroker(paper=True)
             if broker.connect():
                 return broker
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Alpaca broker connection failed, falling back to paper: {e}")
     
     # Fallback to paper
     if _broker is None and BROKER_ADAPTER_AVAILABLE:
@@ -490,8 +490,8 @@ async def get_performance(
             if total_return_dollar == 0:
                 total_return_dollar = current_equity - 100000
                 total_return_pct = (total_return_dollar / 100000) * 100
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not fetch account equity: {e}")
     
     # Build metrics by period
     metrics = {
@@ -670,8 +670,8 @@ async def get_history(
             account = broker.get_account()
             current_value = account.equity
             cash = account.cash
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not fetch account for history: {e}")
     
     # Generate synthetic history based on current value
     # In a real implementation, this would come from a database

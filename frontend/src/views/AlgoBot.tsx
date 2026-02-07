@@ -1,6 +1,28 @@
-import { Bot, Play, Pause, Square } from 'lucide-react'
-import { useState } from 'react'
+import { Bot, Play, Pause, Square, RefreshCw, Loader2 } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/utils/cn'
+
+interface AlgoBotStatus {
+  status: 'STOPPED' | 'RUNNING' | 'PAUSED'
+  capital: number
+  open_positions: number
+  mode: string
+  pnl_today: number
+  pnl_total: number
+  trades_today: number
+  win_rate: number
+}
+
+interface AlgoBotTrade {
+  id: string
+  timestamp: string
+  symbol: string
+  side: string
+  quantity: number
+  price: number
+  exit_price: number | null
+  pnl: number
+}
 
 export function AlgoBot() {
   const [status, setStatus] = useState<'STOPPED' | 'RUNNING' | 'PAUSED'>('STOPPED')
@@ -11,35 +33,103 @@ export function AlgoBot() {
   const [maxPositions, setMaxPositions] = useState(5)
   const [trailingStop, setTrailingStop] = useState(true)
 
-  const [stats] = useState({
-    openPositions: 3,
-    pnlToday: 1250.50,
-    pnlTotal: 8750.25,
-    tradesTotal: 156,
-    winRate: 68.5
-  })
+  const [stats, setStats] = useState<AlgoBotStatus | null>(null)
+  const [trades, setTrades] = useState<AlgoBotTrade[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const [trades] = useState([
-    { id: 'T001', time: '14:32:15', symbol: 'NVDA', side: 'BUY', qty: 50, price: 141.50, pnl: 125.00 },
-    { id: 'T002', time: '13:45:22', symbol: 'AAPL', side: 'SELL', qty: 30, price: 236.20, pnl: -45.50 },
-    { id: 'T003', time: '12:18:08', symbol: 'AMD', side: 'BUY', qty: 100, price: 124.80, pnl: 320.00 },
-    { id: 'T004', time: '11:05:33', symbol: 'MSFT', side: 'BUY', qty: 25, price: 440.15, pnl: 87.50 },
-    { id: 'T005', time: '10:22:47', symbol: 'SPY', side: 'SELL', qty: 50, price: 687.30, pnl: -112.00 },
-  ])
+  const fetchStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/algobot/status')
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      setStats(data)
+      setStatus(data.status || 'STOPPED')
+      if (data.capital) setCapital(data.capital)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch bot status')
+    }
+  }, [])
 
-  const toggleBot = () => {
-    if (status === 'STOPPED') {
-      setStatus('RUNNING')
-    } else if (status === 'RUNNING') {
-      setStatus('PAUSED')
-    } else {
-      setStatus('RUNNING')
+  const fetchTrades = useCallback(async () => {
+    try {
+      const response = await fetch('/api/algobot/trades')
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      if (Array.isArray(data)) {
+        setTrades(data)
+      } else if (data.trades && Array.isArray(data.trades)) {
+        setTrades(data.trades)
+      }
+    } catch {
+      // Non-critical - trades may not be available yet
+    }
+  }, [])
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true)
+    await Promise.all([fetchStatus(), fetchTrades()])
+    setLoading(false)
+  }, [fetchStatus, fetchTrades])
+
+  useEffect(() => {
+    fetchAll()
+    const interval = setInterval(fetchAll, 10000)
+    return () => clearInterval(interval)
+  }, [fetchAll])
+
+  const startBot = async () => {
+    try {
+      const response = await fetch('/api/algobot/start', { method: 'POST' })
+      if (response.ok) {
+        setStatus('RUNNING')
+        await fetchStatus()
+      }
+    } catch (err) {
+      setError('Failed to start bot')
     }
   }
 
-  const stopBot = () => {
-    setStatus('STOPPED')
+  const pauseBot = async () => {
+    try {
+      const response = await fetch('/api/algobot/pause', { method: 'POST' })
+      if (response.ok) {
+        setStatus('PAUSED')
+        await fetchStatus()
+      }
+    } catch (err) {
+      setError('Failed to pause bot')
+    }
   }
+
+  const stopBot = async () => {
+    try {
+      const response = await fetch('/api/algobot/stop', { method: 'POST' })
+      if (response.ok) {
+        setStatus('STOPPED')
+        await fetchStatus()
+      }
+    } catch (err) {
+      setError('Failed to stop bot')
+    }
+  }
+
+  const toggleBot = () => {
+    if (status === 'STOPPED') {
+      startBot()
+    } else if (status === 'RUNNING') {
+      pauseBot()
+    } else {
+      startBot()
+    }
+  }
+
+  const pnlToday = stats?.pnl_today ?? 0
+  const pnlTotal = stats?.pnl_total ?? 0
+  const openPositions = stats?.open_positions ?? 0
+  const tradesTotal = stats?.trades_today ?? 0
+  const winRate = stats?.win_rate ?? 0
 
   return (
     <div className="space-y-4">
@@ -61,6 +151,13 @@ export function AlgoBot() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={fetchAll}
+            className="p-2 rounded bg-background-tertiary hover:bg-background-secondary transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={cn('w-4 h-4 text-foreground-muted', loading && 'animate-spin')} />
+          </button>
           <span className={cn(
             'px-3 py-1 rounded text-xs font-bold flex items-center gap-2',
             status === 'RUNNING' ? 'bg-bullish text-white' :
@@ -76,6 +173,13 @@ export function AlgoBot() {
           </span>
         </div>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="card p-3 bg-bearish/10 border border-bearish/30">
+          <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-4">
         {/* Controls */}
@@ -192,41 +296,53 @@ export function AlgoBot() {
 
         {/* Stats */}
         <div className="col-span-5 space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="card p-4">
-              <div className="text-xs text-foreground-muted">Open Positions</div>
-              <div className="text-2xl font-bold">{stats.openPositions}</div>
+          {loading && !stats ? (
+            <div className="card p-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 text-accent-primary animate-spin" />
+              <span className="ml-2 text-sm text-foreground-muted">Loading bot status...</span>
             </div>
-            <div className="card p-4">
-              <div className="text-xs text-foreground-muted">P&L Today</div>
-              <div className={cn(
-                'text-2xl font-bold font-mono',
-                stats.pnlToday >= 0 ? 'text-bullish' : 'text-bearish'
-              )}>
-                {stats.pnlToday >= 0 ? '+' : ''}${stats.pnlToday.toFixed(2)}
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="card p-4">
+                  <div className="text-xs text-foreground-muted">Open Positions</div>
+                  <div className="text-2xl font-bold">{openPositions}</div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-xs text-foreground-muted">P&L Today</div>
+                  <div className={cn(
+                    'text-2xl font-bold font-mono',
+                    pnlToday >= 0 ? 'text-bullish' : 'text-bearish'
+                  )}>
+                    {pnlToday >= 0 ? '+' : ''}${pnlToday.toFixed(2)}
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-xs text-foreground-muted">P&L Total</div>
+                  <div className={cn(
+                    'text-2xl font-bold font-mono',
+                    pnlTotal >= 0 ? 'text-bullish' : 'text-bearish'
+                  )}>
+                    {pnlTotal >= 0 ? '+' : ''}${pnlTotal.toFixed(2)}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="card p-4">
-              <div className="text-xs text-foreground-muted">P&L Total</div>
-              <div className={cn(
-                'text-2xl font-bold font-mono',
-                stats.pnlTotal >= 0 ? 'text-bullish' : 'text-bearish'
-              )}>
-                {stats.pnlTotal >= 0 ? '+' : ''}${stats.pnlTotal.toFixed(2)}
-              </div>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="card p-4">
-              <div className="text-xs text-foreground-muted mb-1">Total Trades</div>
-              <div className="text-xl font-bold">{stats.tradesTotal}</div>
-            </div>
-            <div className="card p-4">
-              <div className="text-xs text-foreground-muted mb-1">Win Rate</div>
-              <div className="text-xl font-bold text-bullish">{stats.winRate}%</div>
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="card p-4">
+                  <div className="text-xs text-foreground-muted mb-1">Total Trades</div>
+                  <div className="text-xl font-bold">{tradesTotal}</div>
+                </div>
+                <div className="card p-4">
+                  <div className="text-xs text-foreground-muted mb-1">Win Rate</div>
+                  <div className={cn(
+                    'text-xl font-bold',
+                    winRate >= 50 ? 'text-bullish' : winRate > 0 ? 'text-warning' : 'text-foreground-muted'
+                  )}>{winRate}%</div>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Features */}
           <div className="card p-4">
@@ -259,29 +375,42 @@ export function AlgoBot() {
         <div className="col-span-4 card p-4">
           <h3 className="text-xs font-bold text-foreground-muted mb-3">LIVE TRADE LOG</h3>
           <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {trades.map(t => (
-              <div key={t.id} className="p-2 bg-background-tertiary rounded flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      'text-xs font-bold',
-                      t.side === 'BUY' ? 'text-bullish' : 'text-bearish'
-                    )}>
-                      {t.side}
-                    </span>
-                    <span className="text-sm font-medium">{t.symbol}</span>
-                    <span className="text-xs text-foreground-muted">x{t.qty}</span>
-                  </div>
-                  <div className="text-xs text-foreground-muted">{t.time} @ ${t.price}</div>
-                </div>
-                <div className={cn(
-                  'text-sm font-mono font-bold',
-                  t.pnl >= 0 ? 'text-bullish' : 'text-bearish'
-                )}>
-                  {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
-                </div>
+            {loading && trades.length === 0 ? (
+              <div className="p-4 flex items-center justify-center">
+                <Loader2 className="w-4 h-4 text-accent-primary animate-spin" />
+                <span className="ml-2 text-xs text-foreground-muted">Loading trades...</span>
               </div>
-            ))}
+            ) : trades.length === 0 ? (
+              <div className="p-4 text-center text-xs text-foreground-muted">
+                No trades yet. Start the bot to begin trading.
+              </div>
+            ) : (
+              trades.map(t => (
+                <div key={t.id} className="p-2 bg-background-tertiary rounded flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        'text-xs font-bold',
+                        t.side === 'BUY' || t.side === 'LONG' ? 'text-bullish' : 'text-bearish'
+                      )}>
+                        {t.side}
+                      </span>
+                      <span className="text-sm font-medium">{t.symbol}</span>
+                      <span className="text-xs text-foreground-muted">x{t.quantity}</span>
+                    </div>
+                    <div className="text-xs text-foreground-muted">
+                      {t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : 'N/A'} @ ${t.price}
+                    </div>
+                  </div>
+                  <div className={cn(
+                    'text-sm font-mono font-bold',
+                    t.pnl >= 0 ? 'text-bullish' : 'text-bearish'
+                  )}>
+                    {t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

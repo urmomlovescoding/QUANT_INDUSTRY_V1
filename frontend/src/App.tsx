@@ -65,10 +65,15 @@ import { News } from './views/News'
 import { Portfolio } from './views/Portfolio'
 import { PairsTrading } from './views/PairsTrading'
 import { Reports } from './views/Reports'
+import { TaxLots } from './views/TaxLots'
 
 // System views
 import { APIConnector } from './views/APIConnector'
 import { Settings } from './views/Settings'
+
+// Support views
+import { LearningCenter } from './views/LearningCenter'
+import { HelpSupport } from './views/HelpSupport'
 
 // Legacy views for compatibility
 import { Signals } from './views/Signals'
@@ -166,10 +171,15 @@ function AppContent() {
                 <Route path="/portfolio" element={<Portfolio />} />
                 <Route path="/pairs-trading" element={<PairsTrading />} />
                 <Route path="/reports" element={<Reports />} />
+                <Route path="/tax-lots" element={<TaxLots />} />
 
                 {/* System */}
                 <Route path="/api-connector" element={<APIConnector />} />
                 <Route path="/settings" element={<Settings />} />
+
+                {/* Support */}
+                <Route path="/learning" element={<LearningCenter />} />
+                <Route path="/help" element={<HelpSupport />} />
 
                 {/* Legacy routes */}
                 <Route path="/signals" element={<Signals />} />

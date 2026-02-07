@@ -411,8 +411,8 @@ class IBKRProvider:
                 msg = self.wrapper._request_queue.get(timeout=0.1)
                 if msg[0] == 'historical_complete' and msg[1] == req_id:
                     break
-            except:
-                continue
+            except Exception:
+                continue  # Queue empty or timeout, keep polling
                 
         return self.wrapper.bars.get(req_id, [])
         

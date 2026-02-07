@@ -49,6 +49,7 @@ Thumbs.db
 *.pem
 *.key
 credentials.json
+api_keys.json
 
 # Cache
 .cache/

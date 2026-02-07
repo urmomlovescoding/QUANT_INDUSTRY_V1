@@ -1,4 +1,4 @@
-import { Moon, Search, TrendingUp, TrendingDown } from 'lucide-react'
+import { Moon, Search, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/utils/cn'
 
@@ -42,8 +42,11 @@ export function DarkPool() {
         signal: apiData.signal || (darkVolume > litVolume * 0.4 ? 'ACCUMULATION' : 'DISTRIBUTION'),
         large_blocks: apiData.large_blocks || 0,
         avg_block_size: apiData.avg_block_size || 0,
+        short_interest: apiData.short_interest || 0,
+        short_ratio: apiData.short_ratio || 0,
+        short_percent_float: apiData.short_percent_float || 0,
         venues: apiData.venues || [],
-        _note: result._note
+        _note: result._note || result.message
       })
 
     } catch (err) {
@@ -89,6 +92,14 @@ export function DarkPool() {
       {error && (
         <div className="card p-4 bg-bearish/10 border border-bearish/30">
           <p className="text-bearish text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && !data && (
+        <div className="card p-8 text-center text-foreground-muted">
+          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+          <p className="text-sm">Analyzing dark pool activity...</p>
         </div>
       )}
 
@@ -162,6 +173,42 @@ export function DarkPool() {
                 </div>
               </div>
             </div>
+
+            <div className="card p-4">
+              <h3 className="text-xs font-bold text-foreground-muted mb-3">SHORT INTEREST</h3>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-xs text-foreground-muted">Short Interest</span>
+                  <span className="text-sm font-mono font-bold">
+                    {data.short_interest > 1e6
+                      ? `${(data.short_interest / 1e6).toFixed(1)}M`
+                      : data.short_interest > 1e3
+                        ? `${(data.short_interest / 1e3).toFixed(0)}K`
+                        : data.short_interest}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-foreground-muted">Short Ratio</span>
+                  <span className="text-sm font-mono font-bold">{data.short_ratio}x</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-foreground-muted">% of Float Short</span>
+                  <span className={cn(
+                    'text-sm font-mono font-bold',
+                    data.short_percent_float > 10 ? 'text-bearish' :
+                    data.short_percent_float > 5 ? 'text-warning' : 'text-foreground-primary'
+                  )}>
+                    {data.short_percent_float}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {data._note && (
+              <div className="text-xs text-foreground-muted italic px-1">
+                {data._note}
+              </div>
+            )}
           </div>
 
           {/* Venues */}
@@ -182,7 +229,7 @@ export function DarkPool() {
               <tbody>
                 {data.venues.map((v: any, i: number) => {
                   const share = (v.volume / data.dark_pool_volume * 100).toFixed(1)
-                  const avgPrice = 230 + Math.random() * 10
+                  const avgPrice = v.avg_price || 0
                   return (
                     <tr key={i}>
                       <td className="font-medium">{v.name}</td>

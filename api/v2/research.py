@@ -340,7 +340,7 @@ async def get_news(
                 # Parse timestamp
                 try:
                     ts = datetime.fromisoformat(item.get("created_at", "").replace("Z", "+00:00"))
-                except:
+                except (ValueError, TypeError):
                     ts = datetime.utcnow()
                 
                 articles.append(NewsArticle(

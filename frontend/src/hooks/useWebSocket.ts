@@ -172,7 +172,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsRef.current = new WebSocket(url);
 
       wsRef.current.onopen = () => {
-        console.log('[WebSocket] Connected');
+        if (import.meta.env.DEV) console.log('[WebSocket] Connected');
         setConnectionState('connected');
         reconnectAttemptsRef.current = 0;
         setReconnectAttempt(0);
@@ -188,7 +188,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       };
 
       wsRef.current.onclose = (event) => {
-        console.log('[WebSocket] Disconnected', event.code, event.reason);
+        if (import.meta.env.DEV) console.log('[WebSocket] Disconnected', event.code, event.reason);
         setConnectionState('disconnected');
         setClientId(null);
         clearTimeouts();
@@ -210,7 +210,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             30000
           );
           
-          console.log(`[WebSocket] Reconnecting in ${delay}ms... (attempt ${reconnectAttemptsRef.current})`);
+          if (import.meta.env.DEV) console.log(`[WebSocket] Reconnecting in ${delay}ms... (attempt ${reconnectAttemptsRef.current})`);
           onReconnecting?.(reconnectAttemptsRef.current);
           
           reconnectTimeoutRef.current = setTimeout(connect, delay);

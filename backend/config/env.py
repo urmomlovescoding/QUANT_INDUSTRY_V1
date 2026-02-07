@@ -63,16 +63,20 @@ class Config:
         self.ALPACA_API_KEY = os.environ.get('ALPACA_API_KEY', '')
         self.ALPACA_API_SECRET = os.environ.get('ALPACA_API_SECRET', '') or os.environ.get('ALPACA_SECRET_KEY', '')
         self.POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
-        
+
+        # Data source preference: "alpaca", "polygon", "yfinance" (default)
+        # When set to "yfinance", no API key is required for market data
+        self.DATA_SOURCE = os.environ.get('DATA_SOURCE', 'yfinance')
+
         # Database
         self.DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///./data/quant.db')
         self.REDIS_URL = os.environ.get('REDIS_URL', '')
-        
+
         # API Settings
         self.API_HOST = os.environ.get('API_HOST', '0.0.0.0')
         self.API_PORT = int(os.environ.get('API_PORT', 8000))
         self.DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
-        
+
         # Alerts
         self.DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL', '')
         self.TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
@@ -91,12 +95,30 @@ class Config:
         return bool(self.REDIS_URL)
     
     def get_data_mode(self) -> str:
-        """Determine which data source to use."""
+        """Determine which data source to use.
+
+        Priority:
+        1. Explicit DATA_SOURCE env var (if the required keys are available)
+        2. Alpaca (if keys configured)
+        3. Polygon (if key configured)
+        4. yfinance (free, no API key required - default fallback)
+        """
+        # If user explicitly chose a source, respect it when keys are available
+        if self.DATA_SOURCE == "alpaca" and self.alpaca_configured:
+            return "alpaca"
+        if self.DATA_SOURCE == "polygon" and self.polygon_configured:
+            return "polygon"
+        if self.DATA_SOURCE == "yfinance":
+            return "yfinance"
+
+        # Auto-detect based on available keys
         if self.alpaca_configured:
             return "alpaca"
         if self.polygon_configured:
             return "polygon"
-        return "mock"
+
+        # Default to yfinance (free, no API key needed)
+        return "yfinance"
 
 
 # Convenience access

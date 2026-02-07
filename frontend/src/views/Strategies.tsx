@@ -176,7 +176,7 @@ export function Strategies() {
       })
       if (response.ok) {
         const result = await response.json()
-        console.log('Backtest result:', result)
+        // Backtest completed - result available for display
       }
     } catch (error) {
       console.error('Backtest failed:', error)

@@ -92,8 +92,8 @@ def get_system_usage() -> Dict[str, float]:
             )
             if result.returncode == 0:
                 usage['gpu_percent'] = float(result.stdout.strip())
-        except:
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass  # GPU not available
     return usage
 
 
@@ -1055,8 +1055,8 @@ class TrainingStatusManager:
         try:
             with open(REALTIME_METRICS_FILE, 'w') as f:
                 json.dump(self.to_dict(), f, indent=2)
-        except:
-            pass
+        except (IOError, OSError) as e:
+            logger.debug(f"Could not save realtime metrics: {e}")
 
 
 # =============================================================================
@@ -1280,8 +1280,8 @@ class UnifiedTrainingBrain:
                     if progress_callback:
                         try:
                             progress_callback(self.status_manager.to_dict())
-                        except:
-                            pass
+                        except Exception as cb_err:
+                            logger.debug(f"Progress callback failed: {cb_err}")
             
             # Flush remaining batches
             for strat_name, batch in batch_queues.items():

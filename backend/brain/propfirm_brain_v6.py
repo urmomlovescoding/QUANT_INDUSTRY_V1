@@ -49,6 +49,16 @@ try:
 except ImportError:
     TA_AVAILABLE = False
 
+# SVM for regime classification and signal generation
+try:
+    from sklearn.svm import SVC, NuSVR
+    from sklearn.preprocessing import RobustScaler
+    from sklearn.feature_selection import SelectKBest, f_classif
+    import joblib
+    SVM_AVAILABLE = True
+except ImportError:
+    SVM_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
@@ -165,8 +175,8 @@ class TradeRecord:
 @dataclass
 class ModelConfig:
     """Neural network configuration"""
-    # Architecture
-    input_dim: int = 64
+    # Architecture - input_dim MUST match FeatureEngine.FEATURE_NAMES count (56)
+    input_dim: int = 56
     hidden_dim: int = 256
     num_heads: int = 8
     num_layers: int = 4
@@ -1880,7 +1890,17 @@ class StrategyEnsemble:
 # ============== REGIME DETECTION ==============
 
 class BayesianRegimeDetector:
-    """Bayesian regime detection with Hidden Markov Model approximation"""
+    """
+    Bayesian regime detection with Hidden Markov Model approximation.
+    Enhanced with SVM-based regime classification for learned decision boundaries.
+
+    The detector uses two approaches:
+    1. Rule-based: Threshold-based regime scoring (always available)
+    2. SVM-based: Learned decision boundaries from historical data (when trained)
+
+    When the SVM is trained, both approaches are combined with configurable
+    weighting (default 60% SVM, 40% rule-based) for more robust detection.
+    """
 
     def __init__(self, n_regimes: int = 7):
         self.n_regimes = n_regimes
@@ -1891,6 +1911,26 @@ class BayesianRegimeDetector:
 
         # Regime priors
         self.regime_priors = np.ones(n_regimes) / n_regimes
+
+        # SVM regime classifier
+        self.svm_regime_classifier = None  # Trained SVC for regime classification
+        self.svm_regime_scaler = None      # RobustScaler for SVM features
+        self.svm_regime_trained = False
+        self.svm_weight = 0.6             # Weight for SVM vs rule-based (when SVM available)
+        self.rule_weight = 0.4
+
+        # Training data accumulation
+        self._regime_feature_buffer: List[np.ndarray] = []
+        self._regime_label_buffer: List[int] = []
+        self._min_training_samples = 100   # Minimum samples before SVM training
+
+        # Regime feature names used for SVM
+        self._svm_feature_keys = [
+            'adx_14', 'plus_di', 'minus_di', 'bb_width', 'bb_pct',
+            'volatility_20', 'volatility_ratio', 'volume_sma_ratio',
+            'rsi_14', 'rsi_7', 'returns_1', 'returns_5', 'returns_20',
+            'atr_14', 'macd_hist', 'stoch_k', 'momentum_10', 'cci_20'
+        ]
 
         # Feature-to-regime mapping thresholds
         self.regime_thresholds = {
@@ -1903,14 +1943,173 @@ class BayesianRegimeDetector:
             MarketRegime.MEAN_REVERTING: {'bb_pct_extreme': True, 'rsi_extreme': True},
         }
 
+    def _extract_svm_features(self, features: pd.DataFrame) -> Optional[np.ndarray]:
+        """Extract feature vector for SVM regime classification."""
+        if features.empty:
+            return None
+
+        row = features.iloc[-1]
+        feature_vector = []
+        for key in self._svm_feature_keys:
+            val = row.get(key, 0.0)
+            if pd.isna(val) or np.isinf(val):
+                val = 0.0
+            feature_vector.append(float(val))
+
+        return np.array(feature_vector).reshape(1, -1)
+
+    def train_svm_regime_classifier(
+        self,
+        features_history: List[np.ndarray],
+        regime_labels: List[int]
+    ) -> Dict[str, Any]:
+        """
+        Train SVM classifier on historical regime-labeled data.
+
+        SVM is ideal for regime classification because:
+        - Market regimes have complex, non-linear boundaries in feature space
+        - RBF kernel can model these non-linear separations
+        - Support vectors naturally capture the boundary cases between regimes
+        - Probability calibration gives confidence in regime classification
+
+        Args:
+            features_history: List of feature vectors (from _extract_svm_features)
+            regime_labels: List of integer regime labels
+
+        Returns:
+            Training metrics dictionary
+        """
+        if not SVM_AVAILABLE:
+            return {'error': 'scikit-learn not available'}
+
+        if len(features_history) < self._min_training_samples:
+            return {
+                'error': f'Need at least {self._min_training_samples} samples, got {len(features_history)}'
+            }
+
+        try:
+            X = np.vstack(features_history)
+            y = np.array(regime_labels)
+
+            # Scale features - critical for SVM performance
+            self.svm_regime_scaler = RobustScaler()
+            X_scaled = self.svm_regime_scaler.fit_transform(X)
+            X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Train SVC with RBF kernel and probability estimates
+            self.svm_regime_classifier = SVC(
+                kernel='rbf',
+                C=10.0,
+                gamma='scale',
+                probability=True,
+                class_weight='balanced',
+                cache_size=500,
+                max_iter=5000,
+                random_state=42,
+                tol=1e-4,
+                shrinking=True
+            )
+
+            self.svm_regime_classifier.fit(X_scaled, y)
+            self.svm_regime_trained = True
+
+            # Evaluate on training data (in-sample, but useful for diagnostics)
+            y_pred = self.svm_regime_classifier.predict(X_scaled)
+            from sklearn.metrics import accuracy_score
+            train_accuracy = accuracy_score(y, y_pred)
+
+            n_sv = self.svm_regime_classifier.n_support_
+            total_sv = sum(n_sv)
+
+            logger.info(
+                f"SVM regime classifier trained - "
+                f"Accuracy: {train_accuracy:.4f} | "
+                f"Support vectors: {total_sv} | "
+                f"Classes: {self.svm_regime_classifier.classes_.tolist()}"
+            )
+
+            return {
+                'trained': True,
+                'accuracy': train_accuracy,
+                'support_vectors': int(total_sv),
+                'n_samples': len(y),
+                'n_classes': len(self.svm_regime_classifier.classes_)
+            }
+
+        except Exception as e:
+            logger.error(f"SVM regime classifier training failed: {e}")
+            self.svm_regime_trained = False
+            return {'error': str(e)}
+
+    def _accumulate_training_data(self, features: pd.DataFrame, regime_label: int):
+        """Accumulate data for online SVM regime training."""
+        feature_vec = self._extract_svm_features(features)
+        if feature_vec is not None:
+            self._regime_feature_buffer.append(feature_vec.flatten())
+            self._regime_label_buffer.append(regime_label)
+
+            # Auto-train when enough data is accumulated
+            if (len(self._regime_feature_buffer) >= self._min_training_samples and
+                    len(self._regime_feature_buffer) % 50 == 0):  # Retrain every 50 new samples
+                self.train_svm_regime_classifier(
+                    self._regime_feature_buffer,
+                    self._regime_label_buffer
+                )
+
+    def _svm_predict_regime(self, features: pd.DataFrame) -> Optional[Tuple[MarketRegime, Dict[str, float]]]:
+        """Use trained SVM to predict regime with probabilities."""
+        if not self.svm_regime_trained or self.svm_regime_classifier is None:
+            return None
+
+        try:
+            feature_vec = self._extract_svm_features(features)
+            if feature_vec is None:
+                return None
+
+            # Scale and predict
+            X_scaled = self.svm_regime_scaler.transform(feature_vec)
+            X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+
+            proba = self.svm_regime_classifier.predict_proba(X_scaled)[0]
+            classes = self.svm_regime_classifier.classes_
+
+            # Map class probabilities back to MarketRegime
+            regime_probs = {}
+            for regime in MarketRegime:
+                idx = regime.value
+                class_idx = np.where(classes == self.regimes.index(regime))[0]
+                if len(class_idx) > 0:
+                    regime_probs[regime] = float(proba[class_idx[0]])
+                else:
+                    regime_probs[regime] = 0.01  # Small prior for unseen regimes
+
+            # Normalize
+            total = sum(regime_probs.values())
+            if total > 0:
+                regime_probs = {k: v / total for k, v in regime_probs.items()}
+
+            best_regime = max(regime_probs, key=regime_probs.get)
+            prob_dict = {r.value: p for r, p in regime_probs.items()}
+
+            return best_regime, prob_dict
+
+        except Exception as e:
+            logger.debug(f"SVM regime prediction error: {e}")
+            return None
+
     def detect_regime(self, features: pd.DataFrame) -> Tuple[MarketRegime, Dict[str, float]]:
-        """Detect current market regime with probabilities"""
+        """
+        Detect current market regime with probabilities.
+        Combines rule-based scoring with SVM classification when available.
+        """
         if features.empty:
             return MarketRegime.RANGING, {r.value: 1/7 for r in MarketRegime}
 
         row = features.iloc[-1]
 
-        # Calculate regime scores
+        # ============================================================
+        # Rule-based regime scoring (always available)
+        # ============================================================
         scores = {}
 
         # Trending Up
@@ -1964,14 +2163,91 @@ class BayesianRegimeDetector:
         else:
             scores[MarketRegime.MEAN_REVERTING] = 0.2
 
-        # Normalize to probabilities
+        # Normalize rule-based to probabilities
         total = sum(scores.values())
-        probs = {r.value: s / total for r, s in scores.items()}
+        rule_probs = {r.value: s / total for r, s in scores.items()}
+        rule_best = max(scores, key=scores.get)
 
-        # Get most likely regime
-        best_regime = max(scores, key=scores.get)
+        # ============================================================
+        # SVM-based regime prediction (when trained)
+        # ============================================================
+        svm_result = self._svm_predict_regime(features)
 
-        return best_regime, probs
+        if svm_result is not None:
+            svm_regime, svm_probs = svm_result
+
+            # Combine rule-based and SVM probabilities
+            combined_probs = {}
+            for regime_val in rule_probs:
+                rule_p = rule_probs.get(regime_val, 0)
+                svm_p = svm_probs.get(regime_val, 0)
+                combined_probs[regime_val] = (
+                    self.svm_weight * svm_p + self.rule_weight * rule_p
+                )
+
+            # Normalize
+            total_combined = sum(combined_probs.values())
+            if total_combined > 0:
+                combined_probs = {k: v / total_combined for k, v in combined_probs.items()}
+
+            # Find best regime from combined probabilities
+            best_val = max(combined_probs, key=combined_probs.get)
+            best_regime = None
+            for r in MarketRegime:
+                if r.value == best_val:
+                    best_regime = r
+                    break
+            if best_regime is None:
+                best_regime = rule_best
+
+            # Accumulate data for continued SVM training (use rule-based as label)
+            rule_label = self.regimes.index(rule_best)
+            self._accumulate_training_data(features, rule_label)
+
+            return best_regime, combined_probs
+        else:
+            # Only rule-based available
+            # Accumulate data for future SVM training
+            rule_label = self.regimes.index(rule_best)
+            self._accumulate_training_data(features, rule_label)
+
+            return rule_best, rule_probs
+
+    def save_svm_model(self, path: str = "regime_svm_model.joblib") -> bool:
+        """Save the trained SVM regime classifier."""
+        if not self.svm_regime_trained or not SVM_AVAILABLE:
+            return False
+        try:
+            model_data = {
+                'classifier': self.svm_regime_classifier,
+                'scaler': self.svm_regime_scaler,
+                'feature_keys': self._svm_feature_keys,
+            }
+            joblib.dump(model_data, path)
+            logger.info(f"SVM regime model saved to {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save SVM regime model: {e}")
+            return False
+
+    def load_svm_model(self, path: str = "regime_svm_model.joblib") -> bool:
+        """Load a trained SVM regime classifier."""
+        if not SVM_AVAILABLE:
+            return False
+        try:
+            import os
+            if not os.path.exists(path):
+                return False
+            model_data = joblib.load(path)
+            self.svm_regime_classifier = model_data['classifier']
+            self.svm_regime_scaler = model_data['scaler']
+            self._svm_feature_keys = model_data.get('feature_keys', self._svm_feature_keys)
+            self.svm_regime_trained = True
+            logger.info(f"SVM regime model loaded from {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load SVM regime model: {e}")
+            return False
 
 
 # ============== MAIN BRAIN CLASS ==============
@@ -2047,6 +2323,14 @@ class PropFirmBrainV6:
             confidence_threshold=0.15
         )
 
+        # Signal history for API access
+        self.signal_history: List[Dict[str, Any]] = []
+
+        # Initialize database and try to load saved model
+        self._init_db()
+
+        logger.info(f"PropFirmBrainV6 initialized | Device: {self.device} | Rules: {ruleset.name}")
+
     def _compute_model_hash(self) -> str:
         """
         Compute SHA256 hash of model weights for version tracking.
@@ -2074,11 +2358,6 @@ class PropFirmBrainV6:
     def _invalidate_model_version(self):
         """Call after training to update version."""
         self._model_version = None
-
-        # Initialize database
-        self._init_db()
-
-        logger.info(f"PropFirmBrainV6 initialized | Device: {self.device} | Rules: {ruleset.name}")
 
     def _init_db(self):
         """Initialize SQLite database for persistence"""
@@ -2133,8 +2412,64 @@ class PropFirmBrainV6:
         conn.commit()
         conn.close()
 
+        # Load trade history from database for continued learning
+        self._load_trade_history()
+
         # Try to load saved model on initialization
         self._try_load_model()
+
+    def _load_trade_history(self):
+        """Load trade history from database so brain can resume learning after restart."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, symbol, direction, entry_price, exit_price,
+                       entry_time, exit_time, contracts, pnl, pnl_pct,
+                       strategy, confidence, regime, exit_reason, features
+                FROM trades ORDER BY created_at DESC LIMIT 500
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+
+            for row in reversed(rows):  # oldest first
+                try:
+                    features = json.loads(row['features']) if row['features'] else {}
+                    regime_str = row['regime'] or 'ranging'
+                    regime = MarketRegime(regime_str) if regime_str in [r.value for r in MarketRegime] else MarketRegime.RANGING
+
+                    trade = TradeRecord(
+                        trade_id=row['id'],
+                        symbol=row['symbol'] or '',
+                        direction=row['direction'] or 'long',
+                        entry_price=row['entry_price'] or 0,
+                        exit_price=row['exit_price'] or 0,
+                        entry_time=datetime.fromisoformat(row['entry_time']) if row['entry_time'] else datetime.now(),
+                        exit_time=datetime.fromisoformat(row['exit_time']) if row['exit_time'] else datetime.now(),
+                        contracts=row['contracts'] or 1,
+                        pnl=row['pnl'] or 0,
+                        pnl_pct=row['pnl_pct'] or 0,
+                        strategy=row['strategy'] or 'unknown',
+                        confidence=row['confidence'] or 0.5,
+                        regime=regime,
+                        exit_reason=row['exit_reason'] or 'unknown',
+                        features=features
+                    )
+                    self.trade_history.append(trade)
+
+                    # Update strategy performance from loaded trades
+                    self.strategy_ensemble.update_strategy_performance(trade.strategy, trade.pnl)
+                except Exception as e:
+                    logger.debug(f"Error loading trade record: {e}")
+                    continue
+
+            if self.trade_history:
+                self.total_trades_seen = len(self.trade_history)
+                logger.info(f"Loaded {len(self.trade_history)} trades from database for continued learning")
+
+        except Exception as e:
+            logger.debug(f"Could not load trade history: {e}")
 
     def save_model(self, path: str = None) -> bool:
         """
@@ -2164,15 +2499,20 @@ class PropFirmBrainV6:
                 'config': {
                     'input_dim': self.config.input_dim,
                     'hidden_dim': self.config.hidden_dim,
-                    'd_model': self.config.d_model,
-                    'n_heads': self.config.n_heads,
-                    'n_layers': self.config.n_layers,
+                    'num_heads': self.config.num_heads,
+                    'num_layers': self.config.num_layers,
                 },
                 'saved_at': datetime.now().isoformat()
             }
 
             torch.save(checkpoint, path)
             logger.info(f"Model saved to {path} | Version: {self.model_version}")
+
+            # Also save SVM regime classifier if trained
+            if self.regime_detector.svm_regime_trained:
+                svm_path = path.replace('.pt', '_regime_svm.joblib') if path.endswith('.pt') else path + '_regime_svm.joblib'
+                self.regime_detector.save_svm_model(svm_path)
+
             return True
 
         except Exception as e:
@@ -2223,6 +2563,10 @@ class PropFirmBrainV6:
             self._model_version = checkpoint.get('model_version')
 
             logger.info(f"Model loaded from {path} | Version: {self.model_version} | Steps: {self.training_step}")
+
+            # Also try to load SVM regime classifier
+            svm_path = path.replace('.pt', '_regime_svm.joblib') if path.endswith('.pt') else path + '_regime_svm.joblib'
+            self.regime_detector.load_svm_model(svm_path)
             return True
 
         except Exception as e:
@@ -2416,6 +2760,10 @@ class PropFirmBrainV6:
         }
 
         self.last_signal = signal
+        self.signal_history.append(signal)
+        # Keep signal history bounded
+        if len(self.signal_history) > 500:
+            self.signal_history = self.signal_history[-500:]
 
         # Record prediction for drift monitoring
         try:
@@ -2677,6 +3025,19 @@ class PropFirmBrainV6:
             avg_pnl = 0
             profit_factor = 0
 
+        # SVM regime classifier info
+        svm_regime_info = {
+            'available': SVM_AVAILABLE,
+            'trained': self.regime_detector.svm_regime_trained,
+            'training_samples': len(self.regime_detector._regime_feature_buffer),
+        }
+        if self.regime_detector.svm_regime_trained and self.regime_detector.svm_regime_classifier is not None:
+            try:
+                svm_regime_info['support_vectors'] = int(sum(self.regime_detector.svm_regime_classifier.n_support_))
+                svm_regime_info['classes'] = self.regime_detector.svm_regime_classifier.classes_.tolist()
+            except Exception:
+                pass
+
         return {
             'version': '6.0.0',
             'ruleset': self.ruleset.name,
@@ -2686,6 +3047,7 @@ class PropFirmBrainV6:
             'total_trades': len(self.trade_history),
             'current_regime': self.current_regime.value,
             'regime_probs': self.regime_probs,
+            'svm_regime_classifier': svm_regime_info,
             'metrics': {
                 'win_rate': round(win_rate, 3),
                 'total_pnl': round(total_pnl, 2),

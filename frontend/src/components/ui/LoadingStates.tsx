@@ -1,8 +1,10 @@
 /**
  * Loading State Components for QUANT INDUSTRY
  * Provides skeleton loaders and loading indicators
+ * Uses theme-consistent glass morphism styling
  */
 import React from 'react';
+import { cn } from '@/utils/cn';
 
 interface SkeletonProps {
   width?: string | number;
@@ -19,7 +21,11 @@ export function Skeleton({
 }: SkeletonProps) {
   return (
     <div
-      className={`animate-pulse bg-gray-700 ${rounded ? 'rounded-full' : 'rounded'} ${className}`}
+      className={cn(
+        'skeleton',
+        rounded ? 'rounded-full' : 'rounded-md',
+        className
+      )}
       style={{ width, height }}
     />
   );
@@ -27,7 +33,7 @@ export function Skeleton({
 
 export function SkeletonText({ lines = 3, className = '' }: { lines?: number; className?: string }) {
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={`space-y-2.5 ${className}`}>
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton
           key={i}
@@ -41,8 +47,8 @@ export function SkeletonText({ lines = 3, className = '' }: { lines?: number; cl
 
 export function SkeletonCard({ className = '' }: { className?: string }) {
   return (
-    <div className={`bg-gray-800 rounded-lg p-4 ${className}`}>
-      <Skeleton width="40%" height="1.25rem" className="mb-3" />
+    <div className={cn('card p-5', className)}>
+      <Skeleton width="40%" height="1.25rem" className="mb-4" />
       <SkeletonText lines={2} />
     </div>
   );
@@ -50,17 +56,29 @@ export function SkeletonCard({ className = '' }: { className?: string }) {
 
 export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="bg-gray-800 rounded-lg overflow-hidden">
-      <div className="bg-gray-700 p-3 flex gap-4">
+    <div className="rounded-xl overflow-hidden border border-border/50">
+      {/* Header */}
+      <div className="bg-background-tertiary/50 px-5 py-3.5 flex gap-4">
         {Array.from({ length: cols }).map((_, i) => (
-          <Skeleton key={i} width={`${100 / cols}%`} height="1rem" />
+          <Skeleton key={i} width={`${100 / cols}%`} height="0.75rem" />
         ))}
       </div>
-      <div className="divide-y divide-gray-700">
+      {/* Rows */}
+      <div className="divide-y divide-border/50">
         {Array.from({ length: rows }).map((_, rowIdx) => (
-          <div key={rowIdx} className="p-3 flex gap-4">
+          <div
+            key={rowIdx}
+            className={cn(
+              'px-5 py-3.5 flex gap-4',
+              rowIdx % 2 === 1 && 'bg-background-secondary/30'
+            )}
+          >
             {Array.from({ length: cols }).map((_, colIdx) => (
-              <Skeleton key={colIdx} width={`${100 / cols}%`} height="1rem" />
+              <Skeleton
+                key={colIdx}
+                width={colIdx === 0 ? '60%' : `${100 / cols}%`}
+                height="0.875rem"
+              />
             ))}
           </div>
         ))}
@@ -71,30 +89,30 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
 
 export function SkeletonChart({ className = '' }: { className?: string }) {
   return (
-    <div className={`bg-gray-800 rounded-lg p-4 ${className}`}>
-      <div className="flex justify-between mb-4">
-        <Skeleton width="30%" height="1.5rem" />
+    <div className={cn('card p-5', className)}>
+      <div className="flex justify-between items-center mb-5 pb-4 border-b border-border">
+        <Skeleton width="30%" height="1rem" />
         <div className="flex gap-2">
-          <Skeleton width="60px" height="1.5rem" />
-          <Skeleton width="60px" height="1.5rem" />
+          <Skeleton width="60px" height="1.5rem" className="rounded-lg" />
+          <Skeleton width="60px" height="1.5rem" className="rounded-lg" />
         </div>
       </div>
-      <Skeleton width="100%" height="200px" />
+      <Skeleton width="100%" height="200px" className="rounded-lg" />
     </div>
   );
 }
 
 export function SkeletonQuote() {
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <div className="flex justify-between items-center mb-2">
-        <Skeleton width="80px" height="1.5rem" />
+    <div className="card p-4">
+      <div className="flex justify-between items-center mb-3">
+        <Skeleton width="80px" height="1.25rem" />
         <Skeleton width="60px" height="1rem" rounded />
       </div>
-      <Skeleton width="120px" height="2rem" className="mb-2" />
+      <Skeleton width="120px" height="2rem" className="mb-3" />
       <div className="flex gap-4">
-        <Skeleton width="80px" height="1rem" />
-        <Skeleton width="80px" height="1rem" />
+        <Skeleton width="80px" height="0.875rem" />
+        <Skeleton width="80px" height="0.875rem" />
       </div>
     </div>
   );
@@ -106,7 +124,7 @@ interface SpinnerProps {
   className?: string;
 }
 
-export function Spinner({ size = 'md', color = 'text-blue-500', className = '' }: SpinnerProps) {
+export function Spinner({ size = 'md', color = 'text-accent-primary', className = '' }: SpinnerProps) {
   const sizeClasses = {
     sm: 'w-4 h-4',
     md: 'w-8 h-8',
@@ -114,7 +132,7 @@ export function Spinner({ size = 'md', color = 'text-blue-500', className = '' }
   };
 
   return (
-    <div className={`${sizeClasses[size]} ${color} ${className}`}>
+    <div className={cn(sizeClasses[size], color, className)}>
       <svg className="animate-spin" viewBox="0 0 24 24" fill="none">
         <circle
           className="opacity-25"
@@ -145,10 +163,10 @@ export function LoadingOverlay({ message = 'Loading...', fullScreen = false }: L
     : 'absolute inset-0';
 
   return (
-    <div className={`${containerClass} bg-gray-900/80 flex items-center justify-center`}>
+    <div className={cn(containerClass, 'bg-background-primary/80 backdrop-blur-sm flex items-center justify-center')}>
       <div className="text-center">
         <Spinner size="lg" className="mx-auto mb-4" />
-        <p className="text-gray-300">{message}</p>
+        <p className="text-foreground-secondary text-sm">{message}</p>
       </div>
     </div>
   );
@@ -188,9 +206,9 @@ export function LoadingButton({
 
 export function PulsingDot({ className = '' }: { className?: string }) {
   return (
-    <span className={`relative flex h-3 w-3 ${className}`}>
-      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+    <span className={cn('relative flex h-2.5 w-2.5', className)}>
+      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-bullish opacity-75" />
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-bullish" />
     </span>
   );
 }
@@ -207,7 +225,7 @@ export function DataRefreshIndicator({
   };
 
   return (
-    <div className="flex items-center gap-2 text-xs text-gray-400">
+    <div className="flex items-center gap-2 text-xs text-foreground-muted">
       {isRefreshing ? (
         <>
           <Spinner size="sm" />

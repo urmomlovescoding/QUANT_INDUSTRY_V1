@@ -289,8 +289,8 @@ class TradingEngine:
                 for handler in self.on_error:
                     try:
                         handler(e)
-                    except:
-                        pass
+                    except Exception as handler_err:
+                        logger.warning(f"Error handler failed: {handler_err}")
 
             # Wait for next update
             self._stop_event.wait(self.config.update_interval_seconds)
@@ -456,8 +456,8 @@ class TradingEngine:
                     for handler in self.on_signal:
                         try:
                             handler(signal_dict)
-                        except:
-                            pass
+                        except Exception as handler_err:
+                            logger.warning(f"Signal handler failed: {handler_err}")
 
                     # Record to database
                     self._record_signal(signal)
@@ -579,8 +579,8 @@ class TradingEngine:
                     for handler in self.on_trade:
                         try:
                             handler(trade)
-                        except:
-                            pass
+                        except Exception as handler_err:
+                            logger.warning(f"Trade handler failed: {handler_err}")
 
                     logger.info(f"Executed: {side.value} {int(result.filled_quantity)} {signal.symbol} @ {fill_price:.2f}")
 

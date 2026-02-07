@@ -42,6 +42,8 @@ import {
   Network,
   Sparkles,
   LayoutGrid,
+  BookOpen,
+  HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useState } from 'react'
@@ -156,6 +158,13 @@ const navSections: NavSection[] = [
       { path: '/settings', icon: Settings, label: 'Settings' },
     ],
   },
+  {
+    title: 'SUPPORT',
+    items: [
+      { path: '/learning', icon: BookOpen, label: 'Learning Center' },
+      { path: '/help', icon: HelpCircle, label: 'Help & Support' },
+    ],
+  },
 ]
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
@@ -230,22 +239,33 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     to={path}
                     className={({ isActive }) =>
                       cn(
-                        'flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-xl',
-                        'transition-all duration-200 ease-smooth',
+                        'group flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-xl relative',
+                        'transition-all duration-250 ease-smooth',
                         'text-foreground-secondary hover:text-foreground-primary',
                         collapsed && 'justify-center px-2',
-                        isActive 
-                          ? 'bg-gradient-to-r from-accent-primary/15 to-accent-primary/5 text-accent-primary shadow-inner-light' 
+                        isActive
+                          ? 'bg-gradient-to-r from-accent-primary/15 to-accent-primary/5 text-accent-primary'
                           : 'hover:bg-background-hover/50'
                       )
                     }
                     title={collapsed ? label : undefined}
                   >
-                    <Icon className={cn(
-                      'w-4 h-4 flex-shrink-0 transition-transform duration-200',
-                      'group-hover:scale-110'
-                    )} />
-                    {!collapsed && <span className="truncate">{label}</span>}
+                    {({ isActive }) => (
+                      <>
+                        {/* Active indicator bar */}
+                        {isActive && (
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent-primary shadow-[0_0_8px_rgba(245,158,11,0.4)] transition-all duration-300" />
+                        )}
+                        <Icon className={cn(
+                          'w-4 h-4 flex-shrink-0 transition-all duration-200',
+                          'group-hover:scale-110',
+                          isActive && 'text-accent-primary drop-shadow-[0_0_4px_rgba(245,158,11,0.3)]'
+                        )} />
+                        {!collapsed && (
+                          <span className={cn('truncate', isActive && 'font-semibold')}>{label}</span>
+                        )}
+                      </>
+                    )}
                   </NavLink>
                 ))}
               </div>

@@ -7,9 +7,9 @@ echo  QUANT INDUSTRY v10.0 Desktop
 echo ========================================
 echo.
 
-:: Start backend in background
+:: Start backend (using api.main:app - the unified entry point)
 echo Starting backend server...
-start "QUANT Backend" /min cmd /c "cd backend && start.bat"
+start "QUANT Backend" /min cmd /c "cd /d %~dp0 && python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
 
 :: Wait for backend to start
 echo Waiting for backend to initialize...

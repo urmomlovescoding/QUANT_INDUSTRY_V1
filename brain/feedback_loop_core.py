@@ -1317,22 +1317,23 @@ class FeedbackLoopEngine:
         wr_bar = "█" * int(wr_pct / 5) + "░" * (20 - int(wr_pct / 5))
         wl_bar = "█" * int(wl_pct / 5) + "░" * (20 - int(wl_pct / 5))
         
-        print("\n" + "=" * 60)
-        print("📊 FEEDBACK LOOP STATUS")
-        print("=" * 60)
-        print(f"Total Trades: {m['total_trades']}")
-        print(f"Wins: {m['wins']} | Losses: {m['losses']}")
-        print(f"\nWin Rate:  {m['current_win_rate']:.1%} [{wr_bar}] Target: {TARGET_WIN_RATE:.0%}")
-        print(f"W/L Ratio: {m['current_wl_ratio']:.2f}:1 [{wl_bar}] Target: {TARGET_WL_RATIO:.0f}:1")
-        print(f"Sharpe:    {m['current_sharpe']:.2f}")
-        print(f"Total P&L: {m['total_pnl']:.2f}%")
-        
+        status_lines = [
+            "=" * 60,
+            "FEEDBACK LOOP STATUS",
+            "=" * 60,
+            f"Total Trades: {m['total_trades']}",
+            f"Wins: {m['wins']} | Losses: {m['losses']}",
+            f"Win Rate:  {m['current_win_rate']:.1%} [{wr_bar}] Target: {TARGET_WIN_RATE:.0%}",
+            f"W/L Ratio: {m['current_wl_ratio']:.2f}:1 [{wl_bar}] Target: {TARGET_WL_RATIO:.0f}:1",
+            f"Sharpe:    {m['current_sharpe']:.2f}",
+            f"Total P&L: {m['total_pnl']:.2f}%",
+        ]
         if m['target_achieved']:
-            print("\n🎯 TARGETS ACHIEVED! ✓")
+            status_lines.append("TARGETS ACHIEVED!")
         else:
-            print(f"\n⏳ Progress: WR {wr_pct:.0f}% | WL {wl_pct:.0f}%")
-        
-        print("=" * 60)
+            status_lines.append(f"Progress: WR {wr_pct:.0f}% | WL {wl_pct:.0f}%")
+        status_lines.append("=" * 60)
+        logger.info("\n".join(status_lines))
 
 
 

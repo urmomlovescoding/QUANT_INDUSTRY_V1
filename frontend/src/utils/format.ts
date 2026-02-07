@@ -50,6 +50,35 @@ export function formatPercent(
 }
 
 /**
+ * Format percentage with sign and color class (always shows +/-)
+ * Returns { text, colorClass } for use in JSX
+ */
+export function formatSignedPercent(value: number, decimals: number = 2): { text: string; colorClass: string } {
+  const sign = value > 0 ? '+' : ''
+  return {
+    text: `${sign}${value.toFixed(decimals)}%`,
+    colorClass: value > 0 ? 'text-bullish' : value < 0 ? 'text-bearish' : 'text-foreground-secondary',
+  }
+}
+
+/**
+ * Format P&L value with sign, commas, and color class
+ * Returns { text, colorClass } for use in JSX
+ */
+export function formatPnL(value: number, asCurrency: boolean = true): { text: string; colorClass: string } {
+  const sign = value > 0 ? '+' : ''
+  const formatted = asCurrency ? formatCurrency(Math.abs(value)) : formatNumber(Math.abs(value), 2)
+  const prefix = value < 0 ? '-' : sign
+  const displayValue = asCurrency
+    ? `${prefix}${formatted.replace('-', '')}`
+    : `${prefix}${formatted}`
+  return {
+    text: displayValue,
+    colorClass: value > 0 ? 'text-bullish' : value < 0 ? 'text-bearish' : 'text-foreground-secondary',
+  }
+}
+
+/**
  * Format number with thousands separators
  */
 export function formatNumber(value: number, decimals: number = 0): string {

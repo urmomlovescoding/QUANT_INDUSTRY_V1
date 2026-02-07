@@ -18,7 +18,19 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 # Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-change-in-production")
+# SECURITY: If JWT_SECRET_KEY is not set, generate a random one per process.
+# This means tokens will be invalidated on restart -- set JWT_SECRET_KEY in
+# your .env file for persistent sessions.
+_env_jwt_secret = os.getenv("JWT_SECRET_KEY", "")
+if not _env_jwt_secret:
+    import secrets as _secrets
+    _env_jwt_secret = _secrets.token_urlsafe(64)
+    logger.warning(
+        "JWT_SECRET_KEY not set in environment. Using a random key -- "
+        "tokens will not survive server restarts. Set JWT_SECRET_KEY in .env "
+        "for persistent sessions."
+    )
+SECRET_KEY = _env_jwt_secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7

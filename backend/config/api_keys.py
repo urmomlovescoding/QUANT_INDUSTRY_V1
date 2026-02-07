@@ -290,22 +290,38 @@ def _load_api_keys() -> APIKeys:
 
 
 def _get_default_keys() -> APIKeys:
-    """Get default API keys with pre-configured values"""
+    """Get default API keys - returns empty keys.
+
+    Users must configure their own API keys through:
+    1. The Settings UI in the application
+    2. Environment variables (ALPACA_API_KEY, ALPACA_SECRET_KEY, etc.)
+    3. A .env file in the project root
+
+    When no API keys are configured, the system automatically falls back
+    to yfinance for free market data (no API key required).
+    """
     keys = APIKeys()
 
-    # Pre-configure with provided keys
-    keys.alpaca.api_key = "AKFXWR05RECAQKA2EC5U"
-    keys.alpaca.secret_key = "r0k16iNgUdA6kMOuw7ULGJ8J9lhcjraLtwgYs4f4"
-    keys.alpaca.base_url = "https://paper-api.alpaca.markets"
+    # Load from environment variables if available
+    keys.alpaca.api_key = os.environ.get("ALPACA_API_KEY", "")
+    keys.alpaca.secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+    keys.alpaca.base_url = os.environ.get(
+        "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
+    )
 
-    keys.tradier.api_key = "e4Z0NUVJhCrTRrNnia7KiiOGeERp"
-    keys.tradier.account_id = "VA87218417"
-    keys.tradier.is_sandbox = True
-    keys.tradier.base_url = "https://sandbox.tradier.com"
+    keys.tradier.api_key = os.environ.get("TRADIER_API_KEY", "")
+    keys.tradier.account_id = os.environ.get("TRADIER_ACCOUNT_ID", "")
+    keys.tradier.is_sandbox = os.environ.get("TRADIER_SANDBOX", "true").lower() == "true"
+    keys.tradier.base_url = os.environ.get(
+        "TRADIER_BASE_URL", "https://sandbox.tradier.com"
+    )
 
-    keys.finra.api_key = "a34d69c7c7754cc38082"
-
-    keys.news_api.api_key = "e2ed8879fb2a45d9997734f3f30997e1"
+    keys.polygon.api_key = os.environ.get("POLYGON_API_KEY", "")
+    keys.finnhub.api_key = os.environ.get("FINNHUB_API_KEY", "")
+    keys.finra.api_key = os.environ.get("FINRA_API_KEY", "")
+    keys.news_api.api_key = os.environ.get("NEWS_API_KEY", "")
+    keys.alpha_vantage.api_key = os.environ.get("ALPHA_VANTAGE_API_KEY", "")
+    keys.fmp.api_key = os.environ.get("FMP_API_KEY", "")
 
     return keys
 

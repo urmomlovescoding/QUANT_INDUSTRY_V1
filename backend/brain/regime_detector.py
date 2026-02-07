@@ -1,6 +1,7 @@
 """
 QUANT INDUSTRY - Market Regime Detection
 Classifies market conditions into Bull/Bear/Ranging/Crisis regimes
+Enhanced with SVM-based regime classification for learned decision boundaries
 """
 
 import logging
@@ -13,6 +14,15 @@ from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
+# SVM for enhanced regime classification
+try:
+    from sklearn.svm import SVC
+    from sklearn.preprocessing import RobustScaler
+    import joblib
+    SVM_AVAILABLE = True
+except ImportError:
+    SVM_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +117,12 @@ class RegimeAnalysis:
 
 class RegimeDetector:
     """
-    Market regime detection using multiple indicators and classification
+    Market regime detection using multiple indicators and classification.
+    Enhanced with SVM classifier for learned regime boundaries.
+
+    The SVM learns from historical indicator-to-regime mappings and provides
+    a more nuanced, data-driven classification that can capture non-linear
+    relationships between market indicators and regime states.
     """
 
     def __init__(self, db_path: str = None):
@@ -119,6 +134,19 @@ class RegimeDetector:
 
         self.regime_history: List[RegimeState] = []
         self.last_regime_change: datetime = datetime.now()
+
+        # SVM regime classifier
+        self.svm_classifier: Optional[SVC] = None if SVM_AVAILABLE else None
+        self.svm_scaler: Optional[RobustScaler] = None if SVM_AVAILABLE else None
+        self.svm_trained: bool = False
+        self._indicator_buffer: List[Dict[str, float]] = []
+        self._regime_label_buffer: List[str] = []
+        self._svm_model_path = os.path.join(
+            os.path.dirname(self.db_path), "regime_svm.joblib"
+        )
+
+        # Try to load existing SVM model
+        self._try_load_svm()
 
         # Strategy recommendations by regime
         self.regime_strategies = {
@@ -144,7 +172,7 @@ class RegimeDetector:
             MarketRegime.RECOVERY: 0.9,
         }
 
-        logger.info("RegimeDetector initialized")
+        logger.info(f"RegimeDetector initialized | SVM available: {SVM_AVAILABLE}")
 
     def _init_db(self):
         """Initialize database"""
@@ -207,10 +235,43 @@ class RegimeDetector:
             indicators.get("sma_position", 0)
         )
 
-        # Determine overall market regime
+        # Determine overall market regime (rule-based)
         regime, confidence = self._classify_regime(
             trend_regime, volatility_regime, indicators
         )
+
+        # Try SVM-based regime prediction (overrides rule-based when confident)
+        svm_result = self._svm_predict_regime(indicators)
+        if svm_result is not None:
+            svm_regime_val, svm_confidence = svm_result
+            # Use SVM prediction if it's confident enough (>0.5)
+            if svm_confidence > 0.5:
+                try:
+                    svm_regime = MarketRegime(svm_regime_val)
+                    # Blend: use SVM when confident, otherwise keep rule-based
+                    if svm_confidence > 0.7:
+                        regime = svm_regime
+                        confidence = svm_confidence
+                    else:
+                        # Average confidence if they agree, reduce if they disagree
+                        if svm_regime == regime:
+                            confidence = (confidence + svm_confidence) / 2
+                        else:
+                            confidence = min(confidence, svm_confidence) * 0.8
+                except ValueError:
+                    pass  # Invalid regime string, keep rule-based
+
+        # Accumulate training data for SVM (using rule-based regime as label)
+        self._indicator_buffer.append(indicators.copy())
+        self._regime_label_buffer.append(regime.value)
+        # Keep buffer bounded
+        if len(self._indicator_buffer) > 5000:
+            self._indicator_buffer = self._indicator_buffer[-5000:]
+            self._regime_label_buffer = self._regime_label_buffer[-5000:]
+        # Auto-train SVM periodically
+        if (SVM_AVAILABLE and len(self._indicator_buffer) >= 100 and
+                len(self._indicator_buffer) % 100 == 0):
+            self.train_svm_classifier()
 
         # Calculate momentum and breadth
         momentum_score = indicators.get("momentum_score", 0)
@@ -566,6 +627,133 @@ class RegimeDetector:
             conn.close()
         except Exception as e:
             logger.error(f"Error saving regime transition: {e}")
+
+    def _try_load_svm(self):
+        """Try to load a previously saved SVM regime model."""
+        if not SVM_AVAILABLE:
+            return
+        try:
+            if os.path.exists(self._svm_model_path):
+                model_data = joblib.load(self._svm_model_path)
+                self.svm_classifier = model_data['classifier']
+                self.svm_scaler = model_data['scaler']
+                self.svm_trained = True
+                logger.info(f"SVM regime model loaded from {self._svm_model_path}")
+        except Exception as e:
+            logger.debug(f"Could not load SVM regime model: {e}")
+
+    def _indicators_to_feature_vector(self, indicators: Dict[str, float]) -> np.ndarray:
+        """Convert indicator dict to a fixed-size feature vector for SVM."""
+        keys = [
+            'trend_strength', 'sma_position', 'volatility_percentile',
+            'momentum_score', 'rsi', 'vix_level', 'vix_sma', 'breadth_score'
+        ]
+        vector = []
+        for key in keys:
+            val = indicators.get(key, 0.0)
+            if val is None or np.isnan(val) or np.isinf(val):
+                val = 0.0
+            vector.append(float(val))
+        return np.array(vector).reshape(1, -1)
+
+    def train_svm_classifier(self) -> Dict:
+        """
+        Train SVM regime classifier from accumulated indicator data.
+        The SVM learns the mapping from market indicators to regime labels,
+        finding optimal decision boundaries between regime states.
+
+        Returns:
+            Training metrics
+        """
+        if not SVM_AVAILABLE:
+            return {'error': 'scikit-learn not available'}
+
+        if len(self._indicator_buffer) < 50:
+            return {'error': f'Need at least 50 samples, have {len(self._indicator_buffer)}'}
+
+        try:
+            # Convert buffers to arrays
+            X_list = [self._indicators_to_feature_vector(ind).flatten()
+                      for ind in self._indicator_buffer]
+            X = np.vstack(X_list)
+            y = np.array(self._regime_label_buffer)
+
+            # Scale features
+            self.svm_scaler = RobustScaler()
+            X_scaled = self.svm_scaler.fit_transform(X)
+            X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Train SVM
+            self.svm_classifier = SVC(
+                kernel='rbf',
+                C=10.0,
+                gamma='scale',
+                probability=True,
+                class_weight='balanced',
+                cache_size=500,
+                max_iter=5000,
+                random_state=42
+            )
+            self.svm_classifier.fit(X_scaled, y)
+            self.svm_trained = True
+
+            # Evaluate
+            from sklearn.metrics import accuracy_score
+            y_pred = self.svm_classifier.predict(X_scaled)
+            accuracy = accuracy_score(y, y_pred)
+
+            # Save model
+            self._save_svm_model()
+
+            logger.info(f"SVM regime classifier trained - Accuracy: {accuracy:.4f} | Samples: {len(y)}")
+            return {
+                'trained': True,
+                'accuracy': accuracy,
+                'samples': len(y),
+                'support_vectors': int(sum(self.svm_classifier.n_support_))
+            }
+
+        except Exception as e:
+            logger.error(f"SVM regime training failed: {e}")
+            return {'error': str(e)}
+
+    def _save_svm_model(self):
+        """Save SVM regime model to disk."""
+        if not SVM_AVAILABLE or not self.svm_trained:
+            return
+        try:
+            model_data = {
+                'classifier': self.svm_classifier,
+                'scaler': self.svm_scaler,
+            }
+            joblib.dump(model_data, self._svm_model_path)
+            logger.info(f"SVM regime model saved to {self._svm_model_path}")
+        except Exception as e:
+            logger.error(f"Failed to save SVM regime model: {e}")
+
+    def _svm_predict_regime(self, indicators: Dict[str, float]) -> Optional[Tuple[str, float]]:
+        """
+        Use SVM to predict market regime from indicators.
+
+        Returns:
+            Tuple of (regime_value_string, confidence) or None
+        """
+        if not self.svm_trained or self.svm_classifier is None:
+            return None
+
+        try:
+            X = self._indicators_to_feature_vector(indicators)
+            X_scaled = self.svm_scaler.transform(X)
+            X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+
+            proba = self.svm_classifier.predict_proba(X_scaled)[0]
+            predicted_class = self.svm_classifier.predict(X_scaled)[0]
+            confidence = float(max(proba))
+
+            return predicted_class, confidence
+        except Exception as e:
+            logger.debug(f"SVM regime prediction error: {e}")
+            return None
 
     def get_regime_history(self, days: int = 90) -> List[Dict]:
         """Get regime history"""

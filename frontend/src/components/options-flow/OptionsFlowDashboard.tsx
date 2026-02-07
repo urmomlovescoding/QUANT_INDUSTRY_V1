@@ -273,7 +273,7 @@ export const OptionsFlowDashboard: React.FC<OptionsFlowDashboardProps> = ({ symb
                   data={data.unusualActivity.filter(
                     a => selectedSymbol === 'ALL' || a.symbol === selectedSymbol || selectedSymbol === 'SPY'
                   )}
-                  onRowClick={(activity) => console.log('Clicked:', activity)}
+                  onRowClick={(activity) => { /* TODO: open activity detail panel */ }}
                 />
               </Tabs.Content>
 
@@ -302,7 +302,6 @@ export const OptionsFlowDashboard: React.FC<OptionsFlowDashboardProps> = ({ symb
               <FlowSignalsPanel
                 signals={data.flowSignals}
                 onSignalClick={(signal) => {
-                  console.log('Signal clicked:', signal);
                   if (signal.symbol) setSelectedSymbol(signal.symbol);
                 }}
               />

@@ -52,12 +52,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware - use explicit origins in production
+_cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -175,13 +182,7 @@ try:
 except Exception as e:
     logger.warning(f"Could not load API v2 routes: {e}")
 
-# Deprecation Middleware
-try:
-    from api.middleware.deprecation import DeprecationMiddleware
-    app.add_middleware(DeprecationMiddleware)
-    logger.info("[OK] Deprecation middleware registered")
-except Exception as e:
-    logger.warning(f"Could not load deprecation middleware: {e}")
+# Note: Deprecation middleware already registered above via add_deprecation_middleware()
 
 
 @app.get("/")
