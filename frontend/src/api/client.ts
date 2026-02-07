@@ -694,6 +694,7 @@ export interface MarketRegime {
   confidence: number
   volatility: number
   trend_strength: number
+  recommended_strategies?: string[]
 }
 
 export interface NeuralAnalysis {

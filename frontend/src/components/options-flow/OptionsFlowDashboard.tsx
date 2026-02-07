@@ -5,7 +5,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import * as Tabs from '@radix-ui/react-tabs';
 import { RefreshCw, Settings, Filter, Download, Activity } from 'lucide-react';
 import { UnusualActivityTable } from './UnusualActivityTable';
 import { GammaExposureChart } from './GammaExposureChart';
@@ -229,72 +228,53 @@ export const OptionsFlowDashboard: React.FC<OptionsFlowDashboardProps> = ({ symb
         </div>
 
         {/* Main Content */}
-        <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
-          <Tabs.List className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
-            <Tabs.Trigger
-              value="unusual"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'unusual' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Unusual Activity
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="gex"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'gex' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Gamma Exposure
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="darkpool"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'darkpool' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Dark Pool
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="smartmoney"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'smartmoney' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Smart Money
-            </Tabs.Trigger>
-          </Tabs.List>
+        <div>
+          <div className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
+            {[
+              { value: 'unusual', label: 'Unusual Activity' },
+              { value: 'gex', label: 'Gamma Exposure' },
+              { value: 'darkpool', label: 'Dark Pool' },
+              { value: 'smartmoney', label: 'Smart Money' },
+            ].map(tab => (
+              <button
+                key={tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                  activeTab === tab.value ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Main Content Area */}
             <div className="lg:col-span-3">
-              <Tabs.Content value="unusual" className="h-[600px]">
-                <UnusualActivityTable 
-                  data={data.unusualActivity.filter(
-                    a => selectedSymbol === 'ALL' || a.symbol === selectedSymbol || selectedSymbol === 'SPY'
-                  )}
-                  onRowClick={(activity) => console.log('Clicked:', activity)}
-                />
-              </Tabs.Content>
-
-              <Tabs.Content value="gex">
-                <GammaExposureChart data={data.gammaExposure} height={600} />
-              </Tabs.Content>
-
-              <Tabs.Content value="darkpool">
+              {activeTab === 'unusual' && (
+                <div className="h-[600px]">
+                  <UnusualActivityTable
+                    data={data.unusualActivity.filter(
+                      a => selectedSymbol === 'ALL' || a.symbol === selectedSymbol || selectedSymbol === 'SPY'
+                    )}
+                    onRowClick={(activity) => console.log('Clicked:', activity)}
+                  />
+                </div>
+              )}
+              {activeTab === 'gex' && <GammaExposureChart data={data.gammaExposure} height={600} />}
+              {activeTab === 'darkpool' && (
                 <DarkPoolMonitor
                   prints={data.darkPoolPrints}
                   accumulation={data.darkPoolAccumulation}
                   selectedSymbol={selectedSymbol}
                 />
-              </Tabs.Content>
-
-              <Tabs.Content value="smartmoney">
+              )}
+              {activeTab === 'smartmoney' && (
                 <SmartMoneyTracker
                   flow={data.institutionalFlow}
                   metrics={data.smartMoneyMetrics}
                 />
-              </Tabs.Content>
+              )}
             </div>
 
             {/* Side Panel - Signals */}
@@ -308,7 +288,7 @@ export const OptionsFlowDashboard: React.FC<OptionsFlowDashboardProps> = ({ symb
               />
             </div>
           </div>
-        </Tabs.Root>
+        </div>
       </div>
     </div>
   );

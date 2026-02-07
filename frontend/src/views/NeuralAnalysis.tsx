@@ -141,7 +141,7 @@ export function NeuralAnalysis() {
     const signal = score >= 65 ? 'BUY' : score <= 35 ? 'SELL' : 'HOLD'
     const confidence = Math.min(95, Math.max(30, score))
 
-    let reasoning = analysis.recommendation || ''
+    let reasoning = typeof analysis.recommendation === 'string' ? analysis.recommendation : ''
     if (!reasoning) {
       if (signal === 'BUY') {
         reasoning = `Neural analysis indicates bullish outlook for ${searchTicker} based on pattern recognition and trend analysis. Technical score: ${analysis.technical_score?.toFixed(0)}%, Sentiment: ${analysis.sentiment_score?.toFixed(0)}%.`

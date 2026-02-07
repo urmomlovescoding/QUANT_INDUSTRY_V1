@@ -5,7 +5,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import * as Tabs from '@radix-ui/react-tabs';
 import { RefreshCw, Settings, Zap, TrendingUp } from 'lucide-react';
 import { PriceMatrixTable } from './PriceMatrixTable';
 import { ArbOpportunityList } from './ArbOpportunityList';
@@ -268,90 +267,47 @@ export const ArbDashboard: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
-          <Tabs.List className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
-            <Tabs.Trigger
-              value="opportunities"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'opportunities' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Opportunities
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="prices"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'prices' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Price Matrix
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="triangular"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'triangular' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Triangular
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="cexdex"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'cexdex' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              CEX-DEX
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="latency"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'latency' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Latency
-            </Tabs.Trigger>
-            <Tabs.Trigger
-              value="history"
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                activeTab === 'history' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Execution Log
-            </Tabs.Trigger>
-          </Tabs.List>
+        <div>
+          <div className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
+            {[
+              { value: 'opportunities', label: 'Opportunities' },
+              { value: 'prices', label: 'Price Matrix' },
+              { value: 'triangular', label: 'Triangular' },
+              { value: 'cexdex', label: 'CEX-DEX' },
+              { value: 'latency', label: 'Latency' },
+              { value: 'history', label: 'Execution Log' },
+            ].map(tab => (
+              <button
+                key={tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                  activeTab === tab.value ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-          <Tabs.Content value="opportunities">
+          {activeTab === 'opportunities' && (
             <ArbOpportunityList
               opportunities={data.opportunities}
               onExecute={(opp) => console.log('Execute:', opp)}
               onDismiss={(id) => console.log('Dismiss:', id)}
             />
-          </Tabs.Content>
-
-          <Tabs.Content value="prices">
-            <PriceMatrixTable data={data.priceMatrices} />
-          </Tabs.Content>
-
-          <Tabs.Content value="triangular">
-            <TriangularArbVisualizer paths={data.triangularPaths} />
-          </Tabs.Content>
-
-          <Tabs.Content value="cexdex">
+          )}
+          {activeTab === 'prices' && <PriceMatrixTable data={data.priceMatrices} />}
+          {activeTab === 'triangular' && <TriangularArbVisualizer paths={data.triangularPaths} />}
+          {activeTab === 'cexdex' && (
             <CexDexSpreadChart
               currentSpread={data.cexDexSpread}
               history={data.spreadHistory}
               symbol="ETH/USD"
             />
-          </Tabs.Content>
-
-          <Tabs.Content value="latency">
-            <LatencyMonitor latencies={data.latencies} />
-          </Tabs.Content>
-
-          <Tabs.Content value="history">
-            <ExecutionLog executions={data.executions} />
-          </Tabs.Content>
-        </Tabs.Root>
+          )}
+          {activeTab === 'latency' && <LatencyMonitor latencies={data.latencies} />}
+          {activeTab === 'history' && <ExecutionLog executions={data.executions} />}
+        </div>
       </div>
     </div>
   );

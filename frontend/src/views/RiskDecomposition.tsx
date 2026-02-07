@@ -79,11 +79,11 @@ export function RiskDecomposition() {
         fetch('/api/risk/correlation-monitor'),
         fetch('/api/risk/attribution/alpha-trend'),
       ])
-      setFactorData(await factorRes.json())
-      setAttribution(await attrRes.json())
-      setBudgets(await budgetRes.json())
-      setCorrMonitor(await corrRes.json())
-      setAlphaTrend(await alphaRes.json())
+      if (factorRes.ok) setFactorData(await factorRes.json())
+      if (attrRes.ok) setAttribution(await attrRes.json())
+      if (budgetRes.ok) setBudgets(await budgetRes.json())
+      if (corrRes.ok) setCorrMonitor(await corrRes.json())
+      if (alphaRes.ok) setAlphaTrend(await alphaRes.json())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch risk decomposition data')
     } finally {
@@ -293,7 +293,7 @@ export function RiskDecomposition() {
                         {alphaTrend.trend.toUpperCase()}
                       </span>
                       <span className="text-xs font-mono text-foreground-muted">
-                        Sharpe: {alphaTrend.alpha_sharpe.toFixed(2)}
+                        Sharpe: {alphaTrend.alpha_sharpe?.toFixed(2) ?? '—'}
                       </span>
                     </div>
                   </div>
@@ -324,17 +324,17 @@ export function RiskDecomposition() {
                   </div>
                 )}
               </div>
-              {budgets && Object.keys(budgets.utilizations).length > 0 ? (
+              {budgets?.utilizations && Object.keys(budgets.utilizations).length > 0 ? (
                 <div className="space-y-3">
                   {Object.entries(budgets.utilizations).map(([name, data]) => {
-                    const util = data.overall_utilization
+                    const util = data?.overall_utilization ?? 0
                     return (
                       <div key={name}>
                         <div className="flex justify-between mb-1">
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-foreground-secondary capitalize">{name.replace(/_/g, ' ')}</span>
                             <span className="text-[10px] bg-background-tertiary px-1.5 py-0.5 rounded text-foreground-muted">
-                              {data.budget.budget_type}
+                              {data?.budget?.budget_type}
                             </span>
                           </div>
                           <span className={cn(
@@ -398,47 +398,47 @@ export function RiskDecomposition() {
                   <div>
                     <p className="text-[10px] font-bold text-foreground-muted mb-1">REGIME</p>
                     <div className="flex items-center justify-between">
-                      <span className={cn('text-sm font-bold uppercase', getRegimeColor(corrMonitor.regime.regime))}>
-                        {corrMonitor.regime.regime}
+                      <span className={cn('text-sm font-bold uppercase', getRegimeColor(corrMonitor.regime?.regime))}>
+                        {corrMonitor.regime?.regime}
                       </span>
                       <span className="text-xs font-mono text-foreground-muted">
-                        avg corr: {corrMonitor.regime.avg_correlation.toFixed(2)}
+                        avg corr: {corrMonitor.regime?.avg_correlation?.toFixed(2) ?? '—'}
                       </span>
                     </div>
-                    <p className="text-[10px] text-foreground-muted mt-1">{corrMonitor.regime.description}</p>
+                    <p className="text-[10px] text-foreground-muted mt-1">{corrMonitor.regime?.description}</p>
                   </div>
 
                   {/* Diversification Score */}
                   <div>
                     <p className="text-[10px] font-bold text-foreground-muted mb-1">DIVERSIFICATION</p>
                     <div className="flex items-center gap-3">
-                      <div className={cn('text-2xl font-bold', getGradeColor(corrMonitor.diversification.grade))}>
-                        {corrMonitor.diversification.grade}
+                      <div className={cn('text-2xl font-bold', getGradeColor(corrMonitor.diversification?.grade))}>
+                        {corrMonitor.diversification?.grade ?? '—'}
                       </div>
                       <div className="flex-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-foreground-muted">Score</span>
-                          <span className="font-mono">{corrMonitor.diversification.score.toFixed(0)}/100</span>
+                          <span className="font-mono">{corrMonitor.diversification?.score?.toFixed(0) ?? '—'}/100</span>
                         </div>
                         <div className="h-2 bg-background-tertiary rounded-full overflow-hidden mt-1">
                           <div
                             className={cn(
                               'h-full rounded-full',
-                              corrMonitor.diversification.score >= 65 ? 'bg-bullish' :
-                              corrMonitor.diversification.score >= 35 ? 'bg-warning' : 'bg-bearish'
+                              (corrMonitor.diversification?.score ?? 0) >= 65 ? 'bg-bullish' :
+                              (corrMonitor.diversification?.score ?? 0) >= 35 ? 'bg-warning' : 'bg-bearish'
                             )}
-                            style={{ width: `${corrMonitor.diversification.score}%` }}
+                            style={{ width: `${corrMonitor.diversification?.score ?? 0}%` }}
                           />
                         </div>
                         <div className="text-[10px] text-foreground-muted mt-1">
-                          {corrMonitor.diversification.effective_positions.toFixed(1)} effective positions
+                          {corrMonitor.diversification?.effective_positions?.toFixed(1) ?? '0.0'} effective positions
                         </div>
                       </div>
                     </div>
                   </div>
 
                   {/* High Correlation Pairs */}
-                  {corrMonitor.correlation_matrix.high_correlation_pairs.length > 0 && (
+                  {corrMonitor.correlation_matrix?.high_correlation_pairs?.length > 0 && (
                     <div>
                       <p className="text-[10px] font-bold text-foreground-muted mb-1">HIGH CORRELATION PAIRS</p>
                       <div className="space-y-1">

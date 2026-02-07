@@ -288,7 +288,7 @@ export function APIConnector() {
         />
         <StatusCard
           label="Total Requests"
-          value={connections.reduce((sum, c) => sum + c.requestsToday, 0).toLocaleString()}
+          value={connections.reduce((sum, c) => sum + (c.requestsToday || 0), 0).toLocaleString()}
           icon={<Activity className="w-4 h-4" />}
           color="text-accent-primary"
         />
@@ -413,7 +413,7 @@ function ConnectionCard({
               <div className="flex items-center gap-2">
                 <Lock className="w-3 h-3 text-foreground-muted" />
                 <span className="font-mono text-foreground-muted">
-                  {showSecret ? connection.apiKey : connection.apiKey.replace(/./g, '•')}
+                  {showSecret ? (connection.apiKey || '') : (connection.apiKey || '').replace(/./g, '•')}
                 </span>
                 <button onClick={onToggleSecret} className="text-foreground-muted hover:text-foreground-primary">
                   {showSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
@@ -432,7 +432,7 @@ function ConnectionCard({
               </div>
             )}
             <div className="text-foreground-muted">
-              <span className="font-mono">{connection.requestsToday.toLocaleString()}</span> requests today
+              <span className="font-mono">{(connection.requestsToday || 0).toLocaleString()}</span> requests today
             </div>
           </div>
 

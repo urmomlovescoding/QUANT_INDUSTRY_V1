@@ -81,12 +81,17 @@ export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide 
   const { addNotification } = useNotifications()
   const [prices, setPrices] = useState<Record<string, { bid: number; ask: number; last: number }>>({})
 
-  // Fetch prices from API
+  // Fetch prices from API with proper error handling
   useEffect(() => {
+    const controller = new AbortController()
+
     const fetchPrices = async () => {
-      for (const s of QUICK_SYMBOLS) {
+      const promises = QUICK_SYMBOLS.map(async (s) => {
         try {
-          const res = await fetch(`/api/market/quote/${s.symbol}`)
+          const res = await fetch(`/api/market/quote/${s.symbol}`, {
+            signal: controller.signal,
+          })
+          if (!res.ok) return // Skip non-200 responses silently
           const data = await res.json()
           if (data.price && data.price > 0) {
             const spread = data.price * 0.0001 // 1 basis point spread estimate
@@ -99,14 +104,18 @@ export function QuickTrade({ isOpen, onClose, defaultSymbol = 'ES', defaultSide 
               }
             }))
           }
-        } catch (e) {
-          console.error(`Failed to fetch price for ${s.symbol}`)
+        } catch {
+          // Silently ignore fetch errors (network issues, aborted requests)
         }
-      }
+      })
+      await Promise.allSettled(promises)
     }
     fetchPrices()
-    const interval = setInterval(fetchPrices, 5000) // Refresh every 5 seconds
-    return () => clearInterval(interval)
+    const interval = setInterval(fetchPrices, 10000) // Refresh every 10 seconds
+    return () => {
+      controller.abort()
+      clearInterval(interval)
+    }
   }, [])
 
   // Get current price from fetched data
