@@ -698,11 +698,11 @@ export function RiskDecomposition() {
                 )}
 
                 {/* High Correlation Pairs */}
-                {corrMonitor?.correlation_matrix?.high_correlation_pairs?.length > 0 && (
+                {(corrMonitor?.correlation_matrix?.high_correlation_pairs?.length ?? 0) > 0 && (
                   <div className="mt-4 pt-3 border-t border-border">
                     <p className="text-[10px] font-bold text-foreground-muted mb-2">HIGH CORRELATION PAIRS</p>
                     <div className="grid grid-cols-2 gap-2">
-                      {corrMonitor.correlation_matrix.high_correlation_pairs.slice(0, 6).map((pair, i) => (
+                      {corrMonitor!.correlation_matrix.high_correlation_pairs.slice(0, 6).map((pair, i) => (
                         <div key={i} className="flex justify-between text-xs p-2 bg-background-tertiary rounded">
                           <span className="text-foreground-secondary">{pair.symbol1} / {pair.symbol2}</span>
                           <span className="font-mono text-warning font-bold">{pair.correlation.toFixed(2)}</span>

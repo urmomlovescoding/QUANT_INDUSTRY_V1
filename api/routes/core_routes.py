@@ -41,18 +41,25 @@ def get_market_session() -> dict:
     minute = now.minute
     time_decimal = hour + minute / 60.0
 
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    base = {
+        "is_open": False, "is_pre_market": False, "is_after_hours": False,
+        "day": day_names[weekday],
+        "eastern_time": now.strftime("%H:%M ET"),
+    }
+
     if weekday >= 5:  # Saturday/Sunday
-        return {"session": "closed", "is_open": False, "is_pre_market": False, "is_after_hours": False}
+        return {**base, "session": "weekend", "message": f"Market closed — {day_names[weekday]}"}
     elif time_decimal < 4.0:
-        return {"session": "closed", "is_open": False, "is_pre_market": False, "is_after_hours": False}
+        return {**base, "session": "overnight", "message": "Market closed — overnight"}
     elif time_decimal < 9.5:
-        return {"session": "pre_market", "is_open": False, "is_pre_market": True, "is_after_hours": False}
+        return {**base, "session": "pre_market", "is_pre_market": True, "message": "Pre-market session"}
     elif time_decimal < 16.0:
-        return {"session": "regular", "is_open": True, "is_pre_market": False, "is_after_hours": False}
+        return {**base, "session": "regular", "is_open": True, "message": "Market open — regular session"}
     elif time_decimal < 20.0:
-        return {"session": "after_hours", "is_open": False, "is_pre_market": False, "is_after_hours": True}
+        return {**base, "session": "after_hours", "is_after_hours": True, "message": "After-hours session"}
     else:
-        return {"session": "closed", "is_open": False, "is_pre_market": False, "is_after_hours": False}
+        return {**base, "session": "overnight", "message": "Market closed — overnight"}
 
 router = APIRouter(prefix="/api", tags=["core"])
 

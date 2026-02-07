@@ -132,7 +132,7 @@ export function FuturesBrain() {
       // Fallback: get risk score from risk metrics
       if (riskRes?.ok && !brainMetrics) {
         const riskData = await riskRes.json()
-        setBrainMetrics(prev => ({
+        setBrainMetrics((prev: any) => ({
           ...(prev || {}),
           riskScore: riskData.risk_score < 40 ? 'Low' : riskData.risk_score < 70 ? 'Medium' : 'High',
         }))

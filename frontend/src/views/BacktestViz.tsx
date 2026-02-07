@@ -576,7 +576,7 @@ export function BacktestViz() {
                             </thead>
                             <tbody>
                               {heatmapData.map((row) => {
-                                const yearTotal = row.months.reduce((sum, v) => sum + (v ?? 0), 0)
+                                const yearTotal = row.months.reduce((sum: number, v: number | null) => sum + (v ?? 0), 0)
                                 return (
                                   <tr key={row.year}>
                                     <td className="p-2 text-xs font-bold text-foreground-secondary font-mono">{row.year}</td>
