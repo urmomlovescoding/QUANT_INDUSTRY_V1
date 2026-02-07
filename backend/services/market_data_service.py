@@ -258,11 +258,16 @@ class MarketDataService:
         if not HAS_YFINANCE:
             return None
 
+        # Normalize symbols for yfinance (VIX -> ^VIX, etc.)
+        yf_symbol = symbol
+        if symbol == "VIX":
+            yf_symbol = "^VIX"
+
         try:
             loop = asyncio.get_event_loop()
             # Run yfinance in a thread to avoid blocking the event loop
             info = await loop.run_in_executor(
-                None, lambda: yf.Ticker(symbol).info
+                None, lambda: yf.Ticker(yf_symbol).info
             )
 
             price = info.get('regularMarketPrice') or info.get('currentPrice', 0)
@@ -297,11 +302,16 @@ class MarketDataService:
         if not HAS_YFINANCE:
             return []
 
+        # Normalize symbols for yfinance (VIX -> ^VIX, etc.)
+        yf_symbol = symbol
+        if symbol == "VIX":
+            yf_symbol = "^VIX"
+
         try:
             loop = asyncio.get_event_loop()
 
             def _fetch():
-                ticker = yf.Ticker(symbol)
+                ticker = yf.Ticker(yf_symbol)
                 df = ticker.history(
                     start=start.strftime('%Y-%m-%d'),
                     end=end.strftime('%Y-%m-%d'),
@@ -338,6 +348,7 @@ class MarketDataService:
             "SPY": 585.42, "QQQ": 512.88, "DIA": 428.15, "IWM": 225.33,
             "AAPL": 242.50, "MSFT": 445.80, "NVDA": 142.30, "TSLA": 425.60,
             "GOOGL": 175.20, "AMZN": 225.40, "META": 620.30, "AMD": 125.40,
+            "VIX": 18.50, "^VIX": 18.50,
         }
         
         base = base_prices.get(symbol, 100 + hash(symbol) % 400)

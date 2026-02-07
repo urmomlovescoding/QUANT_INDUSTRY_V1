@@ -182,6 +182,14 @@ try:
 except Exception as e:
     logger.warning(f"Could not load API v2 routes: {e}")
 
+# Authentication Routes
+try:
+    from api.routes.auth_routes import router as auth_router
+    app.include_router(auth_router, prefix="/api")
+    logger.info("[OK] Authentication routes registered at /api/auth/*")
+except Exception as e:
+    logger.warning(f"Could not load authentication routes: {e}")
+
 # Note: Deprecation middleware already registered above via add_deprecation_middleware()
 
 
