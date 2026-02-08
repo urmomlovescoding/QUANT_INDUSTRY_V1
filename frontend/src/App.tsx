@@ -35,6 +35,8 @@ import { SlideDoctrine } from './views/SlideDoctrine'
 
 // Analytics views
 import { Backtesting } from './views/Backtesting'
+import { BacktestViz } from './views/BacktestViz'
+import { CrossExchange } from './views/CrossExchange'
 import { MonteCarlo } from './views/MonteCarlo'
 import { Correlation } from './views/Correlation'
 import { RiskDecomposition } from './views/RiskDecomposition'
@@ -64,6 +66,7 @@ import { News } from './views/News'
 // Portfolio views
 import { Portfolio } from './views/Portfolio'
 import { PairsTrading } from './views/PairsTrading'
+import { TaxLots } from './views/TaxLots'
 import { Reports } from './views/Reports'
 
 // System views
@@ -136,6 +139,8 @@ function AppContent() {
 
                 {/* Analytics */}
                 <Route path="/backtesting" element={<Backtesting />} />
+                <Route path="/backtest-viz" element={<BacktestViz />} />
+                <Route path="/cross-exchange" element={<CrossExchange />} />
                 <Route path="/monte-carlo" element={<MonteCarlo />} />
                 <Route path="/correlation" element={<Correlation />} />
                 <Route path="/risk-decomposition" element={<RiskDecomposition />} />
@@ -165,6 +170,7 @@ function AppContent() {
                 {/* Portfolio */}
                 <Route path="/portfolio" element={<Portfolio />} />
                 <Route path="/pairs-trading" element={<PairsTrading />} />
+                <Route path="/tax-lots" element={<TaxLots />} />
                 <Route path="/reports" element={<Reports />} />
 
                 {/* System */}

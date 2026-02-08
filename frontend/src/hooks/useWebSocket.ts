@@ -11,15 +11,44 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-export type ChannelType = 
-  | 'market_data'
-  | 'order_book'
-  | 'signals'
-  | 'portfolio'
-  | 'risk'
-  | 'executions'
-  | 'alerts'
-  | 'system';
+// Channel types matching backend websocket_routes.py channel_subscribers
+export type ChannelType =
+  | 'market'      // Real-time market data (backend: "market")
+  | 'signals'     // Trading signals (backend: "signals")
+  | 'trades'      // Trade executions (backend: "trades")
+  | 'brain'       // AI brain status (backend: "brain")
+  | 'system'      // System health (backend: "system")
+  | 'flow';       // Options flow (backend: "flow")
+
+// Legacy channel names for backward compatibility (map to backend channels)
+export type LegacyChannelType =
+  | 'market_data'  // maps to 'market'
+  | 'order_book'   // maps to 'market'
+  | 'portfolio'    // maps to 'trades'
+  | 'risk'         // maps to 'system'
+  | 'executions'   // maps to 'trades'
+  | 'alerts';      // maps to 'system'
+
+// Map legacy channel names to backend channel names
+const CHANNEL_MAP: Record<string, ChannelType> = {
+  'market_data': 'market',
+  'order_book': 'market',
+  'portfolio': 'trades',
+  'risk': 'system',
+  'executions': 'trades',
+  'alerts': 'system',
+  // Direct mappings
+  'market': 'market',
+  'signals': 'signals',
+  'trades': 'trades',
+  'brain': 'brain',
+  'system': 'system',
+  'flow': 'flow',
+};
+
+function mapChannel(channel: string): ChannelType {
+  return CHANNEL_MAP[channel] || 'market';
+}
 
 export type MessageType = 
   | 'subscribe'
@@ -62,16 +91,20 @@ export interface UseWebSocketReturn {
   clientId: string | null;
   lastMessage: WebSocketMessage | null;
   reconnectAttempt: number;
-  subscribe: (channel: ChannelType, symbols?: string[]) => void;
-  unsubscribe: (channel: ChannelType) => void;
+  subscribe: (channel: ChannelType | LegacyChannelType | string, symbols?: string[]) => void;
+  unsubscribe: (channel: ChannelType | LegacyChannelType | string) => void;
   send: (message: any) => void;
   connect: () => void;
   disconnect: () => void;
 }
 
-// Use environment variable or default to localhost:8000
-const WS_HOST = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8000`;
-const DEFAULT_WS_URL = `${WS_HOST}/ws/connect`;
+// Use environment variable or default based on environment
+// In dev mode, Vite proxy handles /ws/* -> ws://localhost:8000
+// In production, use explicit WS URL or same host as page
+const WS_HOST = import.meta.env.VITE_WS_URL ||
+  (import.meta.env.DEV ? '' : `ws://${window.location.hostname}:8000`);
+// FIXED: Use /ws/unified endpoint which exists on backend (not /ws/connect)
+const DEFAULT_WS_URL = `${WS_HOST}/ws/unified`;
 
 interface PendingSubscription {
   channel: ChannelType;
@@ -126,37 +159,55 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
     heartbeatTimeoutRef.current = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'heartbeat' }));
+        // Backend expects 'action: ping' not 'type: heartbeat'
+        wsRef.current.send(JSON.stringify({ action: 'ping' }));
       }
     }, heartbeatInterval);
   }, [heartbeatInterval]);
 
   const processPendingSubscriptions = useCallback(() => {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return;
-    
+
+    // Collect all pending channels
+    const channels: string[] = [];
     while (pendingSubscriptionsRef.current.length > 0) {
       const sub = pendingSubscriptionsRef.current.shift();
       if (sub) {
-        wsRef.current.send(JSON.stringify({
-          type: 'subscribe',
-          channel: sub.channel,
-          symbols: sub.symbols || [],
-        }));
+        const backendChannel = mapChannel(sub.channel);
+        if (!channels.includes(backendChannel)) {
+          channels.push(backendChannel);
+        }
       }
+    }
+
+    // Backend expects: { action: 'subscribe', channels: [...] }
+    if (channels.length > 0) {
+      wsRef.current.send(JSON.stringify({
+        action: 'subscribe',
+        channels,
+      }));
     }
   }, []);
 
   const resubscribeAll = useCallback(() => {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return;
-    
-    // Re-subscribe to all previously active subscriptions
+
+    // Collect all active channels and map to backend names
+    const channels: string[] = [];
     activeSubscriptionsRef.current.forEach((symbols, channel) => {
-      wsRef.current?.send(JSON.stringify({
-        type: 'subscribe',
-        channel,
-        symbols,
-      }));
+      const backendChannel = mapChannel(channel);
+      if (!channels.includes(backendChannel)) {
+        channels.push(backendChannel);
+      }
     });
+
+    // Backend expects: { action: 'subscribe', channels: [...] }
+    if (channels.length > 0) {
+      wsRef.current?.send(JSON.stringify({
+        action: 'subscribe',
+        channels,
+      }));
+    }
   }, []);
 
   const connect = useCallback(() => {
@@ -227,23 +278,48 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       wsRef.current.onmessage = (event) => {
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
+          const rawMessage = JSON.parse(event.data);
+
+          // Backend sends various message types:
+          // - { type: 'connected', connection_id, available_channels }
+          // - { type: 'subscribed' }
+          // - { type: 'pong' }
+          // - { type: 'market_update', data: [...], timestamp }
+          // - { type: 'brain_update', ... }
+          // - { type: 'system_health', ... }
+
+          // Normalize to our WebSocketMessage format
+          const message: WebSocketMessage = {
+            type: rawMessage.type === 'connected' ? 'ack' :
+                  rawMessage.type === 'subscribed' ? 'ack' :
+                  rawMessage.type === 'pong' ? 'ack' :
+                  rawMessage.type?.includes('update') || rawMessage.type?.includes('health') ? 'data' :
+                  rawMessage.type === 'error' ? 'error' : 'data',
+            channel: rawMessage.channel as ChannelType,
+            data: rawMessage.data || rawMessage,
+            timestamp: rawMessage.timestamp,
+            error: rawMessage.error,
+            client_id: rawMessage.connection_id,
+            action: rawMessage.type,
+          };
+
           setLastMessage(message);
 
-          // Handle ACK with client_id
-          if (message.type === 'ack' && message.client_id) {
-            setClientId(message.client_id);
+          // Handle connection confirmation
+          if (rawMessage.type === 'connected' && rawMessage.connection_id) {
+            setClientId(rawMessage.connection_id);
+            console.log('[WebSocket] Connected with ID:', rawMessage.connection_id);
+            console.log('[WebSocket] Available channels:', rawMessage.available_channels);
           }
 
-          // Track successful subscriptions
-          if (message.type === 'ack' && message.action === 'subscribe' && message.channel) {
-            const symbols = (message as any).symbols || [];
-            activeSubscriptionsRef.current.set(message.channel as ChannelType, symbols);
+          // Handle subscription confirmation
+          if (rawMessage.type === 'subscribed') {
+            console.log('[WebSocket] Subscription confirmed');
           }
 
-          // Track unsubscriptions
-          if (message.type === 'ack' && message.action === 'unsubscribe' && message.channel) {
-            activeSubscriptionsRef.current.delete(message.channel as ChannelType);
+          // Handle pong (heartbeat response)
+          if (rawMessage.type === 'pong') {
+            // Heartbeat received, connection is alive
           }
 
           onMessage?.(message);
@@ -282,39 +358,39 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, []);
 
-  const subscribe = useCallback((channel: ChannelType, symbols?: string[]) => {
-    const subscription = { channel, symbols };
-    
+  const subscribe = useCallback((channel: ChannelType | LegacyChannelType | string, symbols?: string[]) => {
+    // Map to backend channel name
+    const backendChannel = mapChannel(channel);
+    const subscription = { channel: backendChannel, symbols };
+
     // Track the intended subscription
-    activeSubscriptionsRef.current.set(channel, symbols || []);
-    
+    activeSubscriptionsRef.current.set(backendChannel, symbols || []);
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      send({
-        type: 'subscribe',
-        channel,
-        symbols: symbols || [],
-      });
+      // Backend expects: { action: 'subscribe', channels: [...] }
+      wsRef.current.send(JSON.stringify({
+        action: 'subscribe',
+        channels: [backendChannel],
+      }));
     } else {
       // Queue subscription for when connected
       pendingSubscriptionsRef.current.push(subscription);
     }
-  }, [send]);
+  }, []);
 
-  const unsubscribe = useCallback((channel: ChannelType) => {
-    activeSubscriptionsRef.current.delete(channel);
-    
+  const unsubscribe = useCallback((channel: ChannelType | LegacyChannelType | string) => {
+    const backendChannel = mapChannel(channel);
+    activeSubscriptionsRef.current.delete(backendChannel);
+
     // Remove from pending if queued
     pendingSubscriptionsRef.current = pendingSubscriptionsRef.current.filter(
-      sub => sub.channel !== channel
+      sub => mapChannel(sub.channel) !== backendChannel
     );
-    
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      send({
-        type: 'unsubscribe',
-        channel,
-      });
-    }
-  }, [send]);
+
+    // Note: Backend doesn't have unsubscribe - disconnect removes all subscriptions
+    // For now, just track locally
+    console.log('[WebSocket] Unsubscribed from:', backendChannel);
+  }, []);
 
   // Auto-connect on mount
   useEffect(() => {
@@ -400,7 +476,8 @@ export function useMarketData(symbols: string[]) {
 
   const { isConnected, subscribe, lastMessage } = useWebSocket({
     onMessage: (message) => {
-      if (message.channel === 'market_data' && message.type === 'data') {
+      // Backend sends channel as 'market' (mapped from legacy 'market_data')
+      if (message.channel === 'market' && message.type === 'data') {
         const data = message.data as MarketData;
         setQuotes((prev) => ({
           ...prev,
@@ -412,7 +489,8 @@ export function useMarketData(symbols: string[]) {
 
   useEffect(() => {
     if (isConnected && symbols.length > 0) {
-      subscribe('market_data', symbols);
+      // Subscribe using backend channel name 'market'
+      subscribe('market', symbols);
     }
   }, [isConnected, JSON.stringify(symbols)]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -432,7 +510,8 @@ export interface RiskMetrics {
 }
 
 export function useRiskMetrics() {
-  return useChannel<RiskMetrics>('risk');
+  // Risk metrics come through the 'system' channel on backend
+  return useChannel<RiskMetrics>('system');
 }
 
 /**
@@ -483,7 +562,8 @@ export function useAlerts() {
 
   const { isConnected, subscribe, lastMessage } = useWebSocket({
     onMessage: (message) => {
-      if (message.channel === 'alerts' && message.type === 'data') {
+      // Alerts come through the 'system' channel on backend
+      if (message.channel === 'system' && message.type === 'data') {
         setAlerts((prev) => [message.data as Alert, ...prev].slice(0, 50));
       }
     },
@@ -491,7 +571,8 @@ export function useAlerts() {
 
   useEffect(() => {
     if (isConnected) {
-      subscribe('alerts');
+      // Subscribe using backend channel name 'system'
+      subscribe('system');
     }
   }, [isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
 

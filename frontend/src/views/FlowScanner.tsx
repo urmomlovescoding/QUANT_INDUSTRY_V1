@@ -135,15 +135,16 @@ export function FlowScanner() {
   const { addNotification } = useNotifications()
 
   // Subscribe to flow channel when connected
+  // Backend uses 'flow' channel for options flow data
   useEffect(() => {
     if (isConnected) {
-      subscribe('alerts')
+      subscribe('flow')
     }
   }, [isConnected, subscribe])
 
   // Handle incoming WebSocket messages
   useEffect(() => {
-    if (lastMessage?.channel === 'alerts' && lastMessage.type === 'data') {
+    if (lastMessage?.channel === 'flow' && lastMessage.type === 'data') {
       const wsFlow = lastMessage.data as FlowUpdate
 
       const newFlow: Flow = {

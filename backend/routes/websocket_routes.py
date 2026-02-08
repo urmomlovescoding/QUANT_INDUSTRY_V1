@@ -175,9 +175,11 @@ data_engine = RealTimeDataEngine()
 
 # ============== WEBSOCKET ENDPOINTS ==============
 
-@router.websocket("/ws/unified")
-async def websocket_unified(websocket: WebSocket):
-    """Unified WebSocket supporting multiple channel subscriptions."""
+async def _handle_unified_websocket(websocket: WebSocket):
+    """
+    Internal handler for unified WebSocket connections.
+    Supports multiple channel subscriptions and heartbeat.
+    """
     connection_id = await ws_manager.connect(websocket, ["market"])
 
     try:
@@ -192,14 +194,28 @@ async def websocket_unified(websocket: WebSocket):
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
                 data = json.loads(message)
 
-                if data.get("action") == "subscribe":
-                    for channel in data.get("channels", []):
+                # Handle subscription requests
+                # Supports both formats:
+                # - { action: 'subscribe', channels: [...] }
+                # - { type: 'subscribe', channel: '...' } (legacy frontend format)
+                if data.get("action") == "subscribe" or data.get("type") == "subscribe":
+                    channels = data.get("channels", [])
+                    # Support single channel format
+                    if data.get("channel"):
+                        channels.append(data.get("channel"))
+
+                    for channel in channels:
                         if channel in ws_manager.channel_subscribers:
                             ws_manager.connections[connection_id]["channels"].add(channel)
                             ws_manager.channel_subscribers[channel].add(connection_id)
-                    await ws_manager.send_to_connection(connection_id, {"type": "subscribed"})
 
-                elif data.get("action") == "ping":
+                    await ws_manager.send_to_connection(connection_id, {
+                        "type": "subscribed",
+                        "channels": list(ws_manager.connections[connection_id]["channels"])
+                    })
+
+                # Handle ping/heartbeat
+                elif data.get("action") == "ping" or data.get("type") == "heartbeat":
                     await ws_manager.send_to_connection(connection_id, {"type": "pong"})
 
             except asyncio.TimeoutError:
@@ -211,6 +227,21 @@ async def websocket_unified(websocket: WebSocket):
 
     except WebSocketDisconnect:
         ws_manager.disconnect(connection_id)
+
+
+@router.websocket("/ws/unified")
+async def websocket_unified(websocket: WebSocket):
+    """Unified WebSocket supporting multiple channel subscriptions."""
+    await _handle_unified_websocket(websocket)
+
+
+@router.websocket("/ws/connect")
+async def websocket_connect(websocket: WebSocket):
+    """
+    Alias for /ws/unified for frontend compatibility.
+    The frontend may try to connect to /ws/connect by default.
+    """
+    await _handle_unified_websocket(websocket)
 
 
 @router.websocket("/ws/market")
