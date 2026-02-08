@@ -83,13 +83,18 @@ _portfolio_service = None
 
 
 def get_broker():
-    """Get paper broker instance."""
+    """Get broker instance.
+
+    Returns a real broker (Alpaca) when configured, or None when no broker
+    is available. Does NOT fall back to a paper broker with fake $100k --
+    that would mislead the frontend into displaying phantom equity.
+    """
     global _broker
-    
+
     # Check for Alpaca
     alpaca_key = os.getenv("ALPACA_API_KEY")
     alpaca_secret = os.getenv("ALPACA_SECRET_KEY")
-    
+
     if alpaca_key and alpaca_secret:
         try:
             from backend.execution.alpaca_broker import AlpacaBroker
@@ -97,12 +102,10 @@ def get_broker():
             if broker.connect():
                 return broker
         except Exception as e:
-            logger.warning(f"Alpaca broker connection failed, falling back to paper: {e}")
-    
-    # Fallback to paper
-    if _broker is None and BROKER_ADAPTER_AVAILABLE:
-        _broker = PaperBroker(initial_capital=100000.0)
-    return _broker
+            logger.warning(f"Alpaca broker connection failed: {e}")
+
+    # No broker available -- return None so endpoints report honestly
+    return None
 
 
 def get_portfolio_svc():
@@ -156,6 +159,8 @@ class HoldingsResponse(BaseModel):
     total_unrealized_pnl: float
     total_unrealized_pnl_percent: float
     cash: float
+    broker_connected: bool = Field(default=False, description="Whether a real broker is connected")
+    data_source: str = Field(default="none", description="Source of portfolio data")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -323,7 +328,9 @@ async def get_holdings() -> HoldingsResponse:
                     total_cost=total_cost,
                     total_unrealized_pnl=summary.total_pnl,
                     total_unrealized_pnl_percent=summary.total_pnl_pct,
-                    cash=cash
+                    cash=cash,
+                    broker_connected=True,
+                    data_source="portfolio_service"
                 )
         except Exception as e:
             logger.warning(f"Portfolio service error: {e}")
@@ -377,20 +384,25 @@ async def get_holdings() -> HoldingsResponse:
                 total_cost=total_cost,
                 total_unrealized_pnl=round(total_pnl, 2),
                 total_unrealized_pnl_percent=round(total_pnl_pct, 2),
-                cash=cash
+                cash=cash,
+                broker_connected=True,
+                data_source="broker"
             )
             
         except Exception as e:
             logger.warning(f"Broker positions error: {e}")
     
-    # Empty portfolio fallback
+    # No portfolio data available -- report honestly with zero equity
+    logger.warning("Portfolio holdings unavailable - no broker or service connected")
     return HoldingsResponse(
         holdings=[],
-        total_value=100000.00,
+        total_value=0,
         total_cost=0,
         total_unrealized_pnl=0,
         total_unrealized_pnl_percent=0,
-        cash=100000.00
+        cash=0,
+        broker_connected=False,
+        data_source="none"
     )
 
 
@@ -482,14 +494,15 @@ async def get_performance(
     
     # Get broker account for current values
     broker = get_broker()
-    current_equity = 100000
+    current_equity = 0  # Default to 0 when no broker is connected, not fake $100k
     if broker:
         try:
             account = broker.get_account()
             current_equity = account.equity
-            if total_return_dollar == 0:
-                total_return_dollar = current_equity - 100000
-                total_return_pct = (total_return_dollar / 100000) * 100
+            if total_return_dollar == 0 and current_equity > 0:
+                starting = getattr(account, 'initial_equity', current_equity)
+                total_return_dollar = current_equity - starting
+                total_return_pct = (total_return_dollar / starting) * 100 if starting > 0 else 0
         except Exception as e:
             logger.debug(f"Could not fetch account equity: {e}")
     
@@ -637,12 +650,13 @@ async def get_allocation() -> AllocationResponse:
         except Exception as e:
             logger.warning(f"Broker allocation error: {e}")
     
-    # Empty fallback
+    # No allocation data available
+    logger.warning("Portfolio allocation unavailable - no broker or service connected")
     return AllocationResponse(
-        by_sector=[AllocationItem(category="Cash", value=100000, weight=1.0)],
-        by_asset_type=[AllocationItem(category="Cash", value=100000, weight=1.0)],
+        by_sector=[],
+        by_asset_type=[],
         by_strategy=[],
-        cash_weight=1.0
+        cash_weight=0
     )
 
 
@@ -658,13 +672,13 @@ async def get_history(
     """
     Get historical portfolio value time series.
     """
-    from datetime import timedelta
-    
-    history = []
+    # Portfolio history requires real historical data from a database
+    # We do NOT generate fake random walks
+
     broker = get_broker()
-    current_value = 100000
-    cash = 100000
-    
+    current_value = 0
+    cash = 0
+
     if broker:
         try:
             account = broker.get_account()
@@ -672,46 +686,15 @@ async def get_history(
             cash = account.cash
         except Exception as e:
             logger.debug(f"Could not fetch account for history: {e}")
-    
-    # Generate synthetic history based on current value
-    # In a real implementation, this would come from a database
-    days = {"1d": 1, "1w": 7, "1m": 30, "3m": 90, "1y": 365, "ytd": 30, "all": 365}
-    num_days = days.get(period.value, 30)
-    
-    import random
-    today = date.today()
-    start_value = current_value * 0.95  # Assume 5% gain
-    
-    values = [start_value]
-    for i in range(num_days):
-        # Random walk with slight upward bias
-        daily_return = random.gauss(0.0003, 0.015)  # ~0.03% daily return, 1.5% volatility
-        values.append(values[-1] * (1 + daily_return))
-    
-    # Scale to match current value
-    scale = current_value / values[-1]
-    values = [v * scale for v in values]
-    
-    for i in range(min(num_days, len(values) - 1)):
-        d = today - timedelta(days=num_days - i)
-        daily_ret = (values[i+1] - values[i]) / values[i] * 100 if values[i] > 0 else 0
-        
-        history.append(HistoryPoint(
-            date=d,
-            value=round(values[i+1], 2),
-            cash=round(cash, 2),
-            invested=round(values[i+1] - cash, 2),
-            daily_return=round(daily_ret, 2)
-        ))
-    
-    total_return = ((current_value - start_value) / start_value * 100) if start_value > 0 else 0
-    
+
+    # No real historical data available - return empty history
+    logger.warning("Portfolio history unavailable - no historical data stored")
     return HistoryResponse(
-        history=history[-30:],  # Limit to last 30 points
+        history=[],
         period=period.value,
-        start_value=round(start_value, 2),
-        end_value=round(current_value, 2),
-        total_return=round(total_return, 2)
+        start_value=current_value,
+        end_value=current_value,
+        total_return=0
     )
 
 

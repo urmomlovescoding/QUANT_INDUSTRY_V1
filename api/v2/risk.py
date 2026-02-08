@@ -392,21 +392,26 @@ async def get_risk_summary() -> RiskSummary:
         except Exception as e:
             logger.error(f"Error getting risk summary: {e}")
     
-    # Fallback mock data
+    # Data unavailable - return zeroed risk summary
+    logger.warning("Risk service unavailable - returning empty risk summary")
     metrics = RiskMetrics(
-        portfolio_beta=1.15, portfolio_volatility=18.5,
-        value_at_risk_95=1850.00, value_at_risk_99=2750.00,
-        expected_shortfall=3200.00, sharpe_ratio=1.85, sortino_ratio=2.15,
-        max_drawdown=-8.5, current_drawdown=-2.1
+        portfolio_beta=0, portfolio_volatility=0,
+        value_at_risk_95=0, value_at_risk_99=0,
+        expected_shortfall=0, sharpe_ratio=0, sortino_ratio=0,
+        max_drawdown=0, current_drawdown=0
     )
     limits = RiskLimits(
-        max_position_size=25000.00, max_portfolio_risk=2.0,
-        max_daily_loss=2500.00, max_drawdown=15.0,
-        max_sector_concentration=40.0, max_correlation=0.8
+        max_position_size=0, max_portfolio_risk=0,
+        max_daily_loss=0, max_drawdown=0,
+        max_sector_concentration=0, max_correlation=0
     )
-    safety = SafetyStatus(is_safe=True, risk_level=RiskLevel.MEDIUM, violations=[], warnings=[])
-    
-    return RiskSummary(metrics=metrics, limits=limits, safety=safety, daily_pnl=520.00, daily_pnl_percent=0.85)
+    safety = SafetyStatus(
+        is_safe=False, risk_level=RiskLevel.CRITICAL,
+        violations=["Risk service unavailable - cannot assess risk"],
+        warnings=[]
+    )
+
+    return RiskSummary(metrics=metrics, limits=limits, safety=safety, daily_pnl=0, daily_pnl_percent=0)
 
 
 @router.get(
@@ -464,16 +469,11 @@ async def get_exposure() -> ExposureResponse:
         except Exception as e:
             logger.error(f"Error getting exposure: {e}")
     
-    # Fallback
-    by_sector = [
-        ExposureItem(category="Technology", gross_exposure=37075.00, net_exposure=37075.00,
-                     long_exposure=37075.00, short_exposure=0, weight=0.60),
-        ExposureItem(category="Financial", gross_exposure=9900.00, net_exposure=9900.00,
-                     long_exposure=9900.00, short_exposure=0, weight=0.16),
-    ]
+    # Data unavailable - return empty exposure
+    logger.warning("Exposure data unavailable")
     return ExposureResponse(
-        total_gross=46975.00, total_net=46975.00, total_long=46975.00,
-        total_short=0, by_sector=by_sector, by_asset=[], leverage=1.0
+        total_gross=0, total_net=0, total_long=0,
+        total_short=0, by_sector=[], by_asset=[], leverage=0
     )
 
 
@@ -523,18 +523,11 @@ async def get_correlation(
         except Exception as e:
             logger.error(f"Error getting correlation: {e}")
     
-    # Fallback
-    pairs = [
-        CorrelationPair(symbol1="AAPL", symbol2="NVDA", correlation=0.72, period_days=252),
-        CorrelationPair(symbol1="AAPL", symbol2="JPM", correlation=0.45, period_days=252),
-        CorrelationPair(symbol1="NVDA", symbol2="JPM", correlation=0.38, period_days=252),
-    ]
-    if symbol:
-        pairs = [p for p in pairs if symbol.upper() in (p.symbol1, p.symbol2)]
-    
+    # Data unavailable - return empty correlation
+    logger.warning("Correlation data unavailable")
     return CorrelationResponse(
-        pairs=pairs, avg_correlation=0.52, max_correlation=0.72,
-        min_correlation=0.38, high_correlation_count=1
+        pairs=[], avg_correlation=0, max_correlation=0,
+        min_correlation=0, high_correlation_count=0
     )
 
 
@@ -572,10 +565,12 @@ async def get_var() -> VaRReport:
         except Exception as e:
             logger.error(f"Error calculating VaR: {e}")
     
+    # Data unavailable - return null VaR
+    logger.warning("VaR calculation unavailable")
     return VaRReport(
-        confidence_95=1850.00, confidence_99=2750.00, expected_shortfall=3200.00,
-        historical_var=1920.00, parametric_var=1850.00, monte_carlo_var=1880.00,
-        worst_case_scenario=5500.00
+        confidence_95=0, confidence_99=0, expected_shortfall=0,
+        historical_var=0, parametric_var=0, monte_carlo_var=0,
+        worst_case_scenario=0
     )
 
 
@@ -765,11 +760,12 @@ async def run_monte_carlo(request: MonteCarloRequest) -> MonteCarloResult:
         except Exception as e:
             logger.error(f"Error running Monte Carlo: {e}")
     
-    # Fallback
+    # Data unavailable
+    logger.warning("Monte Carlo simulation unavailable")
     return MonteCarloResult(
-        var_amount=2500.00, var_percent=4.05, expected_return=1250.00,
-        worst_case=-8500.00, best_case=12000.00, median_outcome=800.00,
-        probability_of_loss=0.35, simulations_run=request.num_simulations
+        var_amount=0, var_percent=0, expected_return=0,
+        worst_case=0, best_case=0, median_outcome=0,
+        probability_of_loss=0, simulations_run=0
     )
 
 

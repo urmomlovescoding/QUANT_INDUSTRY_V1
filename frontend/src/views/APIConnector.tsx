@@ -113,56 +113,8 @@ const providers: APIProvider[] = [
   },
 ]
 
-const mockConnections: APIConnection[] = [
-  {
-    id: 'conn_1',
-    name: 'Alpaca Paper',
-    type: 'broker',
-    provider: 'alpaca',
-    status: 'connected',
-    apiKey: 'PK***************XYZ',
-    apiSecret: 'SK***************ABC',
-    lastPing: new Date().toISOString(),
-    latency: 45,
-    requestsToday: 1247,
-    rateLimit: 200,
-    features: ['trading', 'streaming', 'account'],
-    isPaper: true,
-  },
-  {
-    id: 'conn_2',
-    name: 'Polygon Data',
-    type: 'data',
-    provider: 'polygon',
-    status: 'connected',
-    apiKey: 'PG***************123',
-    apiSecret: '',
-    lastPing: new Date().toISOString(),
-    latency: 32,
-    requestsToday: 8542,
-    rateLimit: 5,
-    features: ['stocks', 'options', 'news'],
-    isPaper: false,
-  },
-  {
-    id: 'conn_3',
-    name: 'Finnhub Free',
-    type: 'data',
-    provider: 'finnhub',
-    status: 'error',
-    apiKey: 'FH***************ERR',
-    apiSecret: '',
-    lastPing: null,
-    latency: null,
-    requestsToday: 0,
-    rateLimit: 60,
-    features: ['stocks', 'forex'],
-    isPaper: false,
-  },
-]
-
 export function APIConnector() {
-  const [connections, setConnections] = useState<APIConnection[]>(mockConnections)
+  const [connections, setConnections] = useState<APIConnection[]>([])
   const [selectedConnection, setSelectedConnection] = useState<APIConnection | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({})
@@ -312,8 +264,8 @@ export function APIConnector() {
         {connections.length === 0 && (
           <div className="card p-8 text-center text-foreground-muted">
             <Wifi className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p className="text-lg font-medium">No Connections</p>
-            <p className="text-sm mt-2">Add your first API connection to get started</p>
+            <p className="text-lg font-medium">No API Connections Configured</p>
+            <p className="text-sm mt-2">Add a connection to get started</p>
           </div>
         )}
       </div>

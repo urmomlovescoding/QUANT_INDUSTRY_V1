@@ -505,28 +505,28 @@ async def get_status() -> BrainStatusResponse:
         if BEAST_AVAILABLE:
             models_status.append(ModelStatus(
                 model_type=ModelType.BEAST, status="ready", version="2.1.0",
-                accuracy=0.68, last_trained=datetime(2025, 1, 10, tzinfo=timezone.utc)
+                accuracy=None, last_trained=None
             ))
             models_loaded += 1
-            
+
         if RL_AVAILABLE:
             models_status.append(ModelStatus(
                 model_type=ModelType.RL, status="ready", version="1.5.0",
-                accuracy=0.62, last_trained=datetime(2025, 1, 9, tzinfo=timezone.utc)
+                accuracy=None, last_trained=None
             ))
             models_loaded += 1
-            
+
         if DL_AVAILABLE:
             models_status.append(ModelStatus(
                 model_type=ModelType.DL, status="ready", version="3.0.0",
-                accuracy=0.71, last_trained=datetime(2025, 1, 8, tzinfo=timezone.utc)
+                accuracy=None, last_trained=None
             ))
             models_loaded += 1
-            
+
         if EVOLUTION_AVAILABLE:
             models_status.append(ModelStatus(
                 model_type=ModelType.EVOLUTION, status="ready", version="1.2.0",
-                accuracy=0.65, last_trained=datetime(2025, 1, 7, tzinfo=timezone.utc)
+                accuracy=None, last_trained=None
             ))
             models_loaded += 1
             
@@ -673,13 +673,16 @@ async def generate_signal(request: GenerateSignalRequest) -> BrainSignal:
     market_data = await _get_market_data(request.symbol, lookback=60)
     
     if market_data is None:
-        # Create dummy data for testing
-        market_data = torch.randn(1, 60, 32)
-    else:
-        # Convert to tensor format expected by brain
-        market_data = torch.FloatTensor(market_data).unsqueeze(0)
-    
-    current_price = 150.0  # Would get from data service
+        raise HTTPException(
+            status_code=503,
+            detail=f"No market data available for {request.symbol}. Cannot generate signal without real data."
+        )
+
+    # Convert to tensor format expected by brain
+    market_data = torch.FloatTensor(market_data).unsqueeze(0)
+
+    # Get current price from the most recent bar
+    current_price = float(market_data[0, -1, 3])  # Close price from last bar
     
     try:
         signal = await brain.generate_signal(
@@ -717,25 +720,22 @@ async def get_prediction(
 ) -> Prediction:
     """Get price prediction from the ensemble model."""
     brain = _get_ml_brain()
-    
-    current_price = 150.0  # Would get from data service
-    
-    if brain and brain.trading_brain:
+
+    # Get market data first
+    market_data = await _get_market_data(symbol, lookback=60)
+
+    if brain and brain.trading_brain and market_data is not None:
         try:
-            # Get market data
-            market_data = await _get_market_data(symbol, lookback=60)
-            if market_data is None:
-                market_data = torch.randn(1, 60, 32)
-            else:
-                market_data = torch.FloatTensor(market_data).unsqueeze(0)
-            
-            output = brain.trading_brain.get_trading_signal(market_data, current_position=0.0)
-            
+            current_price = float(market_data[-1, 3])  # Close price from last bar
+            tensor_data = torch.FloatTensor(market_data).unsqueeze(0)
+
+            output = brain.trading_brain.get_trading_signal(tensor_data, current_position=0.0)
+
             # Calculate predicted price based on signal
             direction = 1 if output['signal'] == 'buy' else (-1 if output['signal'] == 'sell' else 0)
             change_pct = output.get('expected_return', 0.02) * direction
             predicted_price = current_price * (1 + change_pct)
-            
+
             return Prediction(
                 symbol=symbol.upper(),
                 current_price=current_price,
@@ -746,17 +746,13 @@ async def get_prediction(
                 model_used="ensemble"
             )
         except Exception as e:
-            logger.warning(f"Prediction failed, using fallback: {e}")
-    
-    # Fallback prediction
-    return Prediction(
-        symbol=symbol.upper(),
-        current_price=current_price,
-        predicted_price=current_price * 1.02,
-        predicted_change_percent=2.0,
-        confidence=0.65,
-        horizon=horizon,
-        model_used="ensemble"
+            logger.warning(f"Prediction failed: {e}")
+
+    # Data unavailable
+    logger.warning(f"Prediction unavailable for {symbol}: no market data or brain not initialized")
+    raise HTTPException(
+        status_code=503,
+        detail=f"Prediction unavailable for {symbol}. Real-time data or ML brain not available."
     )
 
 
@@ -801,14 +797,17 @@ async def analyze_symbol(symbol: str = Path(...)) -> Analysis:
     else:
         recommendation = "HOLD"
     
+    # Composite score uses only technical_score when fundamental/sentiment are unavailable
+    composite_score = max(-1.0, min(1.0, technical_score))
+
     return Analysis(
         symbol=symbol.upper(),
         prediction=prediction,
         regime=regime,
         technical_score=technical_score,
-        fundamental_score=0.55,
-        sentiment_score=0.48,
-        composite_score=technical_score * 0.6 + 0.55 * 0.25 + 0.48 * 0.15,
+        fundamental_score=None,
+        sentiment_score=None,
+        composite_score=composite_score,
         recommendation=recommendation,
         reasoning=f"Analysis based on {regime.value} regime with {prediction.confidence:.0%} confidence"
     )
@@ -848,21 +847,44 @@ async def train_models(request: TrainRequest) -> TrainingJob:
         job.status = TrainingStatus.RUNNING
         
         try:
-            # Get training data
-            training_data = np.random.randn(1000, 60, 32)  # Would get real data
-            
+            # Get real training data from data service
+            training_data = None
+            try:
+                from backend.routes._shared import get_data_service, SERVICES_AVAILABLE
+                if SERVICES_AVAILABLE:
+                    ds = get_data_service()
+                    symbols = request.symbols or ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
+                    all_data = []
+                    for sym in symbols:
+                        historical = ds.get_historical(sym, period="1y", interval="1d")
+                        if historical and len(historical) >= 60:
+                            data = np.array([[
+                                bar.open, bar.high, bar.low, bar.close, bar.volume
+                            ] for bar in historical])
+                            all_data.append(data)
+                    if all_data:
+                        training_data = np.stack(all_data)
+            except Exception as e:
+                logger.warning(f"Could not fetch training data: {e}")
+
+            if training_data is None:
+                job.status = TrainingStatus.FAILED
+                job.error = "No training data available. Connect a data source to train models."
+                logger.error("Training failed: no real data available")
+                return
+
             if brain:
                 metrics = await brain.train(
                     train_data=training_data,
                     epochs=request.epochs
                 )
                 job.metrics = metrics
-            
+
             job.status = TrainingStatus.COMPLETED
             job.progress = 100
             job.current_epoch = request.epochs
             job.completed_at = datetime.now(timezone.utc)
-            
+
         except Exception as e:
             job.status = TrainingStatus.FAILED
             job.error = str(e)
@@ -1174,12 +1196,12 @@ async def get_agents_status() -> AgentsStatusResponse:
                 accuracy=0.6
             ))
     
-    # Default agents if none registered
+    # Default agents if none registered - no fake accuracy values
     if not agents:
         agents = [
-            AgentStatus(agent_id="momentum", name="Momentum Agent", specialty="trend following", status="standby", accuracy=0.62),
-            AgentStatus(agent_id="mean-reversion", name="Mean Reversion Agent", specialty="reversion plays", status="standby", accuracy=0.58),
-            AgentStatus(agent_id="volatility", name="Volatility Agent", specialty="vol-based signals", status="standby", accuracy=0.55),
+            AgentStatus(agent_id="momentum", name="Momentum Agent", specialty="trend following", status="standby", accuracy=0.0),
+            AgentStatus(agent_id="mean-reversion", name="Mean Reversion Agent", specialty="reversion plays", status="standby", accuracy=0.0),
+            AgentStatus(agent_id="volatility", name="Volatility Agent", specialty="vol-based signals", status="standby", accuracy=0.0),
         ]
     
     return AgentsStatusResponse(
@@ -1201,36 +1223,35 @@ async def get_consensus(request: ConsensusRequest) -> ConsensusResponse:
         try:
             market_data = await _get_market_data(request.symbol, lookback=60)
             if market_data is None:
-                market_data = torch.randn(1, 60, 32)
+                logger.warning(f"No market data for consensus on {request.symbol}")
             else:
-                market_data = torch.FloatTensor(market_data).unsqueeze(0)
-            
-            output = brain.trading_brain.get_trading_signal(market_data, current_position=0.0)
-            
-            # Simulate multi-agent votes based on different signal aspects
-            votes = {
-                "momentum": {
-                    "direction": output['signal'],
-                    "confidence": output['confidence'] * 1.1
-                },
-                "mean-reversion": {
-                    "direction": "sell" if output['signal'] == 'buy' else "buy",  # Contrarian
-                    "confidence": (1 - output['confidence']) * 0.8
-                },
-                "volatility": {
-                    "direction": "hold" if output['confidence'] < 0.6 else output['signal'],
-                    "confidence": 0.5
+                tensor_data = torch.FloatTensor(market_data).unsqueeze(0)
+
+                output = brain.trading_brain.get_trading_signal(tensor_data, current_position=0.0)
+
+                # Multi-agent votes based on different signal aspects
+                votes = {
+                    "momentum": {
+                        "direction": output['signal'],
+                        "confidence": output['confidence'] * 1.1
+                    },
+                    "mean-reversion": {
+                        "direction": "sell" if output['signal'] == 'buy' else "buy",  # Contrarian
+                        "confidence": (1 - output['confidence']) * 0.8
+                    },
+                    "volatility": {
+                        "direction": "hold" if output['confidence'] < 0.6 else output['signal'],
+                        "confidence": 0.5
+                    }
                 }
-            }
         except Exception as e:
             logger.warning(f"Consensus generation failed: {e}")
     
     if not votes:
-        votes = {
-            "momentum": {"direction": "long", "confidence": 0.8},
-            "mean-reversion": {"direction": "long", "confidence": 0.65},
-            "volatility": {"direction": "neutral", "confidence": 0.5},
-        }
+        raise HTTPException(
+            status_code=503,
+            detail=f"Consensus unavailable for {request.symbol}. Brain not initialized or no market data."
+        )
     
     # Calculate consensus
     directions = [v["direction"] for v in votes.values()]
@@ -1276,35 +1297,35 @@ async def list_models() -> ModelsResponse:
         if BEAST_AVAILABLE:
             models.append(ModelInfo(
                 model_type=ModelType.BEAST, version="2.1.0", status="ready",
-                accuracy=0.68, sharpe_ratio=1.85
+                accuracy=None, sharpe_ratio=None
             ))
             ensemble_weights["beast"] = 0.3
-            
+
         if RL_AVAILABLE:
             models.append(ModelInfo(
                 model_type=ModelType.RL, version="1.5.0", status="ready",
-                accuracy=0.62, sharpe_ratio=1.45
+                accuracy=None, sharpe_ratio=None
             ))
             ensemble_weights["rl"] = 0.2
-            
+
         if DL_AVAILABLE:
             models.append(ModelInfo(
                 model_type=ModelType.DL, version="3.0.0", status="ready",
-                accuracy=0.71, sharpe_ratio=1.95
+                accuracy=None, sharpe_ratio=None
             ))
             ensemble_weights["dl"] = 0.35
-            
+
         if EVOLUTION_AVAILABLE:
             models.append(ModelInfo(
                 model_type=ModelType.EVOLUTION, version="1.2.0", status="ready",
-                accuracy=0.65, sharpe_ratio=1.55
+                accuracy=None, sharpe_ratio=None
             ))
             ensemble_weights["evolution"] = 0.15
             
     except ImportError:
         # Fallback models
         models = [
-            ModelInfo(model_type=ModelType.ENSEMBLE, version="1.0.0", status="ready", accuracy=0.65),
+            ModelInfo(model_type=ModelType.ENSEMBLE, version="1.0.0", status="ready", accuracy=None),
         ]
         ensemble_weights = {"ensemble": 1.0}
     
@@ -1341,13 +1362,13 @@ async def get_model_status(model_type: ModelType = Path(...)) -> ModelInfo:
         model_type=model_type,
         version="2.1.0",
         status=status,
-        accuracy=0.68 if model_available else None,
-        precision=0.72 if model_available else None,
-        recall=0.65 if model_available else None,
-        f1_score=0.68 if model_available else None,
-        sharpe_ratio=1.85 if model_available else None,
-        trained_on=datetime(2025, 1, 10, tzinfo=timezone.utc) if model_available else None,
-        training_samples=50000 if model_available else None
+        accuracy=None,
+        precision=None,
+        recall=None,
+        f1_score=None,
+        sharpe_ratio=None,
+        trained_on=None,
+        training_samples=None
     )
 
 
@@ -1368,18 +1389,29 @@ async def get_model_prediction(
 ) -> ModelPrediction:
     """Get prediction from a specific model."""
     brain = _get_ml_brain()
-    
-    prediction_value = 155.0
-    confidence = 0.72
-    features_used = ["price", "volume", "rsi", "macd", "regime"]
-    
-    if brain and brain.feature_importance:
-        features_used = list(brain.feature_importance.keys())[:5]
-    
-    return ModelPrediction(
-        model_type=model_type,
-        symbol=symbol.upper(),
-        prediction=prediction_value,
-        confidence=confidence,
-        features_used=features_used
+    market_data = await _get_market_data(symbol, lookback=60)
+
+    if brain and market_data is not None:
+        try:
+            tensor_data = torch.FloatTensor(market_data).unsqueeze(0)
+            current_price = float(market_data[-1, 3])
+
+            if brain.trading_brain:
+                output = brain.trading_brain.get_trading_signal(tensor_data, current_position=0.0)
+                features_used = list(brain.feature_importance.keys())[:5] if brain.feature_importance else []
+
+                return ModelPrediction(
+                    model_type=model_type,
+                    symbol=symbol.upper(),
+                    prediction=current_price * (1 + output.get('expected_return', 0)),
+                    confidence=output.get('confidence', 0),
+                    features_used=features_used
+                )
+        except Exception as e:
+            logger.warning(f"Model prediction failed for {symbol}: {e}")
+
+    # Data unavailable
+    raise HTTPException(
+        status_code=503,
+        detail=f"Prediction unavailable for {symbol}. Real-time data or model not available."
     )

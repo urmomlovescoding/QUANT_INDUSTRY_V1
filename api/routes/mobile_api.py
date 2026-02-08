@@ -13,11 +13,10 @@ Our Solution:
 - Battery-efficient polling
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Query, BackgroundTasks
+from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 import logging
 
@@ -132,33 +131,22 @@ class PushNotificationSettings(BaseModel):
 # Endpoints
 # =============================================================================
 
-@router.get("/summary", response_model=PortfolioSummary)
+@router.get("/summary")
 async def get_portfolio_summary():
     """
     Get lightweight portfolio summary.
-    
+
     Optimized for mobile with minimal data transfer.
     Includes only essential metrics for quick glance.
     """
-    # Mock data - would pull from actual portfolio service
-    return PortfolioSummary(
-        total_value=1_234_567.89,
-        daily_pnl=12_345.67,
-        daily_pnl_pct=0.0101,
-        total_pnl=234_567.89,
-        total_pnl_pct=0.234,
-        buying_power=500_000.00,
-        margin_used=234_567.89,
-        positions_count=15,
-        open_orders_count=3,
-        market_status="open",
-        alerts_count=2,
-        has_critical_alerts=False,
-        last_updated=datetime.now()
-    )
+    return {
+        "status": "unavailable",
+        "message": "Mobile portfolio summary requires a connected portfolio service. No live data available.",
+        "data": {}
+    }
 
 
-@router.get("/positions", response_model=List[PositionSummary])
+@router.get("/positions")
 async def get_positions(
     sort_by: str = Query("pnl", description="Sort by: pnl, value, symbol"),
     limit: int = Query(20, ge=1, le=50),
@@ -166,77 +154,31 @@ async def get_positions(
 ):
     """
     Get positions list optimized for mobile.
-    
+
     Returns sorted list with optional sparkline data for mini charts.
     """
-    # Mock data
-    positions = [
-        PositionSummary(
-            symbol="AAPL",
-            quantity=100,
-            market_value=15000,
-            pnl=500,
-            pnl_pct=0.0345,
-            side="long",
-            sparkline=[148, 149, 150, 149, 151, 152, 150, 151, 152, 153] if include_sparkline else []
-        ),
-        PositionSummary(
-            symbol="GOOGL",
-            quantity=50,
-            market_value=7000,
-            pnl=-200,
-            pnl_pct=-0.0278,
-            side="long",
-            sparkline=[138, 139, 140, 139, 138, 137, 139, 138, 137, 136] if include_sparkline else []
-        ),
-    ]
-    
-    # Sort
-    if sort_by == "pnl":
-        positions.sort(key=lambda p: p.pnl, reverse=True)
-    elif sort_by == "value":
-        positions.sort(key=lambda p: p.market_value, reverse=True)
-    elif sort_by == "symbol":
-        positions.sort(key=lambda p: p.symbol)
-        
-    return positions[:limit]
+    return {
+        "status": "unavailable",
+        "message": "Mobile positions require a connected portfolio service. No live data available.",
+        "data": []
+    }
 
 
-@router.get("/strategies", response_model=List[StrategySummary])
+@router.get("/strategies")
 async def get_strategies():
     """
     Get strategies list for mobile.
-    
+
     Shows status, P&L, and health indicators for each strategy.
     """
-    # Mock data
-    return [
-        StrategySummary(
-            strategy_id="momentum_1",
-            name="Cross-Asset Momentum",
-            status="active",
-            daily_pnl=5000,
-            daily_pnl_pct=0.02,
-            sharpe_30d=1.8,
-            allocation_pct=0.30,
-            positions_count=8,
-            health="good"
-        ),
-        StrategySummary(
-            strategy_id="mean_rev_1",
-            name="Mean Reversion",
-            status="active",
-            daily_pnl=-1000,
-            daily_pnl_pct=-0.005,
-            sharpe_30d=0.9,
-            allocation_pct=0.20,
-            positions_count=5,
-            health="warning"
-        ),
-    ]
+    return {
+        "status": "unavailable",
+        "message": "Mobile strategy summaries require a connected trading service. No live data available.",
+        "data": []
+    }
 
 
-@router.get("/alerts", response_model=List[AlertSummary])
+@router.get("/alerts")
 async def get_alerts(
     unacknowledged_only: bool = Query(False),
     priority: Optional[str] = Query(None, description="Filter by priority"),
@@ -244,40 +186,14 @@ async def get_alerts(
 ):
     """
     Get recent alerts for mobile.
-    
+
     Returns alerts sorted by priority and recency.
     """
-    # Mock data
-    alerts = [
-        AlertSummary(
-            alert_id="alert_1",
-            timestamp=datetime.now() - timedelta(minutes=5),
-            priority="high",
-            title="Position approaching limit",
-            message="AAPL position at 90% of max allocation",
-            symbol="AAPL",
-            acknowledged=False,
-            action_required=True
-        ),
-        AlertSummary(
-            alert_id="alert_2",
-            timestamp=datetime.now() - timedelta(hours=1),
-            priority="medium",
-            title="Strategy underperforming",
-            message="Mean Reversion strategy Sharpe dropped below 1.0",
-            symbol=None,
-            acknowledged=False,
-            action_required=False
-        ),
-    ]
-    
-    if unacknowledged_only:
-        alerts = [a for a in alerts if not a.acknowledged]
-        
-    if priority:
-        alerts = [a for a in alerts if a.priority == priority]
-        
-    return alerts[:limit]
+    return {
+        "status": "unavailable",
+        "message": "Mobile alerts require a connected alerting service. No live data available.",
+        "data": []
+    }
 
 
 @router.post("/alerts/{alert_id}/acknowledge")
@@ -373,39 +289,20 @@ async def _emergency_flatten():
 @router.get("/watchlist")
 async def get_watchlist(include_sparkline: bool = Query(True)):
     """Get user's watchlist with current prices."""
-    # Mock data
-    watchlist = [
-        {
-            "symbol": "TSLA",
-            "price": 250.50,
-            "change": 5.25,
-            "change_pct": 0.0214,
-            "sparkline": [245, 246, 248, 247, 249, 250, 251, 250, 251, 250] if include_sparkline else []
-        },
-        {
-            "symbol": "NVDA",
-            "price": 450.00,
-            "change": -10.00,
-            "change_pct": -0.0217,
-            "sparkline": [460, 458, 455, 453, 450, 452, 449, 450, 451, 450] if include_sparkline else []
-        }
-    ]
-    return watchlist
+    return {
+        "status": "unavailable",
+        "message": "Mobile watchlist requires a connected market data service. No live data available.",
+        "data": []
+    }
 
 
 @router.get("/market-status")
 async def get_market_status():
     """Get current market status and key indices."""
     return {
-        "status": "open",
-        "next_event": "close",
-        "next_event_time": "16:00 ET",
-        "indices": {
-            "SPY": {"price": 450.25, "change_pct": 0.0085},
-            "QQQ": {"price": 380.50, "change_pct": 0.0120},
-            "IWM": {"price": 195.75, "change_pct": 0.0045},
-            "VIX": {"price": 15.25, "change": -0.50}
-        }
+        "status": "unavailable",
+        "message": "Mobile market status requires a connected market data service. No live data available.",
+        "indices": {}
     }
 
 
@@ -438,41 +335,16 @@ async def get_chart_data(
 ):
     """
     Get chart data for mobile charts.
-    
+
     Returns OHLC data optimized for mobile chart rendering.
     """
-    import numpy as np
-    
-    # Generate mock data based on timeframe
-    points = {
-        "1D": 78,    # 5-min bars for 1 day
-        "1W": 168,   # Hourly bars for 1 week
-        "1M": 30,    # Daily bars for 1 month
-        "3M": 90,
-        "1Y": 252,
-        "ALL": 504
-    }.get(timeframe, 78)
-    
-    base_price = 150.0
-    data = []
-    
-    for i in range(points):
-        noise = np.random.randn() * 0.02
-        base_price *= (1 + noise)
-        data.append({
-            "t": i,  # Would be actual timestamp
-            "o": base_price * 0.999,
-            "h": base_price * 1.005,
-            "l": base_price * 0.995,
-            "c": base_price,
-            "v": np.random.randint(100000, 1000000)
-        })
-        
     return {
+        "status": "unavailable",
+        "message": "Mobile chart data requires a connected market data service. No live data available.",
         "symbol": symbol,
         "timeframe": timeframe,
         "interval": interval,
-        "data": data
+        "data": []
     }
 
 

@@ -1,27 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { formatNumber } from '@/utils/format'
 
-// Sample data for area chart
-const generateData = () => {
-  const data = []
-  let value = 100000
-
-  const now = new Date()
-  for (let i = 30; i >= 0; i--) {
-    const date = new Date(now)
-    date.setDate(date.getDate() - i)
-    value += (Math.random() - 0.45) * 2000
-    data.push({
-      date: date.toISOString().split('T')[0],
-      value: Math.max(value, 90000),
-    })
-  }
-  return data
+interface AreaChartProps {
+  data?: Array<{ date: string; value: number; benchmark?: number }>
 }
-
-const data = generateData()
-const maxValue = Math.max(...data.map((d) => d.value))
-const minValue = Math.min(...data.map((d) => d.value))
 
 // Theme colors - matching CSS variables
 const COLORS = {
@@ -38,7 +20,7 @@ const COLORS = {
   crosshair: 'rgba(255, 255, 255, 0.15)',
 }
 
-export function AreaChart() {
+export function AreaChart({ data }: AreaChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [tooltip, setTooltip] = useState<{
@@ -51,9 +33,23 @@ export function AreaChart() {
 
   const padding = { top: 20, right: 20, bottom: 30, left: 65 }
 
+  const hasBenchmark = useMemo(() => data && data.some((d) => d.benchmark != null), [data])
+  const maxValue = useMemo(() => {
+    if (!data || data.length === 0) return 0
+    const values = data.map((d) => d.value)
+    if (hasBenchmark) values.push(...data.filter((d) => d.benchmark != null).map((d) => d.benchmark!))
+    return Math.max(...values)
+  }, [data, hasBenchmark])
+  const minValue = useMemo(() => {
+    if (!data || data.length === 0) return 0
+    const values = data.map((d) => d.value)
+    if (hasBenchmark) values.push(...data.filter((d) => d.benchmark != null).map((d) => d.benchmark!))
+    return Math.min(...values)
+  }, [data, hasBenchmark])
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !data || data.length === 0) return
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -73,6 +69,8 @@ export function AreaChart() {
     // Clear with transparent background (card handles the bg)
     ctx.clearRect(0, 0, width, height)
 
+    const range = maxValue - minValue || 1
+
     // Draw subtle grid lines
     ctx.strokeStyle = COLORS.grid
     ctx.lineWidth = 1
@@ -86,7 +84,7 @@ export function AreaChart() {
       ctx.stroke()
 
       // Y-axis labels
-      const value = maxValue - ((maxValue - minValue) / numGridLines) * i
+      const value = maxValue - (range / numGridLines) * i
       ctx.fillStyle = COLORS.axisLabel
       ctx.font = '10px "JetBrains Mono", monospace'
       ctx.textAlign = 'right'
@@ -94,8 +92,8 @@ export function AreaChart() {
     }
 
     // Calculate line points
-    const xStep = chartWidth / (data.length - 1)
-    const yScale = chartHeight / (maxValue - minValue)
+    const xStep = data.length > 1 ? chartWidth / (data.length - 1) : chartWidth
+    const yScale = chartHeight / range
 
     const points = data.map((point, i) => ({
       x: padding.left + i * xStep,
@@ -137,6 +135,31 @@ export function AreaChart() {
     ctx.stroke()
     ctx.shadowBlur = 0
 
+    // Draw benchmark line if present
+    if (hasBenchmark) {
+      const benchmarkPoints = data
+        .map((point, i) => point.benchmark != null
+          ? { x: padding.left + i * xStep, y: padding.top + (maxValue - point.benchmark) * yScale }
+          : null
+        )
+        .filter((p): p is { x: number; y: number } => p !== null)
+
+      if (benchmarkPoints.length > 1) {
+        ctx.beginPath()
+        ctx.strokeStyle = 'rgba(113, 113, 122, 0.6)'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([4, 4])
+
+        ctx.moveTo(benchmarkPoints[0].x, benchmarkPoints[0].y)
+        for (let i = 1; i < benchmarkPoints.length; i++) {
+          const cpx = (benchmarkPoints[i - 1].x + benchmarkPoints[i].x) / 2
+          ctx.bezierCurveTo(cpx, benchmarkPoints[i - 1].y, cpx, benchmarkPoints[i].y, benchmarkPoints[i].x, benchmarkPoints[i].y)
+        }
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+    }
+
     // Draw end point dot
     const lastPoint = points[points.length - 1]
     ctx.beginPath()
@@ -166,7 +189,7 @@ export function AreaChart() {
         )
       }
     })
-  }, [])
+  }, [data, maxValue, minValue, hasBenchmark])
 
   useEffect(() => {
     draw()
@@ -182,19 +205,20 @@ export function AreaChart() {
   // Handle mouse hover for tooltip
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !data || data.length === 0) return
 
     const rect = canvas.getBoundingClientRect()
     const mouseX = e.clientX - rect.left
     const chartWidth = rect.width - padding.left - padding.right
-    const xStep = chartWidth / (data.length - 1)
+    const xStep = data.length > 1 ? chartWidth / (data.length - 1) : chartWidth
+    const range = maxValue - minValue || 1
 
     // Find closest data point
     const index = Math.round((mouseX - padding.left) / xStep)
     if (index >= 0 && index < data.length) {
       const point = data[index]
       const x = padding.left + index * xStep
-      const yScale = (rect.height - padding.top - padding.bottom) / (maxValue - minValue)
+      const yScale = (rect.height - padding.top - padding.bottom) / range
       const y = padding.top + (maxValue - point.value) * yScale
 
       setTooltip({
@@ -238,12 +262,20 @@ export function AreaChart() {
         ctx.restore()
       }
     }
-  }, [draw])
+  }, [draw, data, maxValue, minValue])
 
   const handleMouseLeave = useCallback(() => {
     setTooltip(prev => ({ ...prev, visible: false }))
     draw()
   }, [draw])
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="relative w-full h-[240px] flex items-center justify-center">
+        <span className="text-foreground-muted text-sm font-mono">No data available</span>
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef} className="relative w-full h-[240px]">

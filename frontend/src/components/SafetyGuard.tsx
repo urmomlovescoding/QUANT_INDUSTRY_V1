@@ -181,27 +181,14 @@ export function SafetyGuard({ onKillSwitch, onTradingToggle, className }: Safety
   const [showSettings, setShowSettings] = useState(false)
   const [alertsEnabled, setAlertsEnabled] = useState(true)
 
-  // Simulate real-time updates
+  // Check rules against current status values (no simulated random updates)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setStatus(prev => ({
-        ...prev,
-        currentDrawdown: prev.currentDrawdown + (Math.random() - 0.52) * 0.1,
-        dailyPnL: prev.dailyPnL + (Math.random() - 0.48) * 50,
-        openRisk: Math.max(0, prev.openRisk + (Math.random() - 0.5) * 0.1),
-        lastCheck: new Date().toISOString()
-      }))
-
-      // Check rules
-      setRules(prev => prev.map(rule => {
-        let triggered = false
-        if (rule.id === 'max_daily_loss' && status.dailyPnL < rule.threshold) triggered = true
-        if (rule.id === 'max_drawdown' && status.currentDrawdown < rule.threshold) triggered = true
-        return { ...rule, triggered }
-      }))
-    }, 2000)
-
-    return () => clearInterval(interval)
+    setRules(prev => prev.map(rule => {
+      let triggered = false
+      if (rule.id === 'max_daily_loss' && status.dailyPnL < rule.threshold) triggered = true
+      if (rule.id === 'max_drawdown' && status.currentDrawdown < rule.threshold) triggered = true
+      return { ...rule, triggered }
+    }))
   }, [status.dailyPnL, status.currentDrawdown])
 
   const handleKillSwitch = useCallback(() => {

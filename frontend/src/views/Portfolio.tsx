@@ -194,29 +194,12 @@ export function Portfolio() {
 
   // ─── Generate performance data ────────────────────────────────────────
 
-  const generatePerfData = useCallback((period: TimePeriod) => {
-    const points: PerformancePoint[] = []
-    const days = period === '1D' ? 1 : period === '1W' ? 7 : period === '1M' ? 30
-      : period === '3M' ? 90 : period === '6M' ? 180 : period === 'YTD' ?
-        Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000) : 365
-
-    const baseValue = livePortfolio?.equity || totalValue || 100000
-    const startValue = baseValue * (1 - (Math.random() * 0.1 + 0.02))
-
-    for (let i = 0; i <= Math.min(days, 90); i++) {
-      const date = new Date()
-      date.setDate(date.getDate() - (Math.min(days, 90) - i))
-      const progress = i / Math.min(days, 90)
-      const noise = (Math.random() - 0.48) * baseValue * 0.008
-      const trend = startValue + (baseValue - startValue) * progress
-      points.push({
-        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        value: Math.round((trend + noise) * 100) / 100,
-        benchmark: Math.round((startValue + (baseValue * 0.98 - startValue) * progress + (Math.random() - 0.5) * baseValue * 0.006) * 100) / 100,
-      })
-    }
-    setPerfData(points)
-  }, [livePortfolio])
+  // Performance data is only populated from real API data -- no fabricated data
+  const generatePerfData = useCallback((_period: TimePeriod) => {
+    // Only show real equity data from the API. No simulated data.
+    // perfData remains empty until the backend provides actual equity history.
+    setPerfData([])
+  }, [])
 
   // ─── Initial load ─────────────────────────────────────────────────────
 
@@ -694,63 +677,11 @@ export function Portfolio() {
             </div>
           </div>
           <div className="h-72">
-            {perfData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={perfData}>
-                  <defs>
-                    <linearGradient id="perfGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="benchGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6b7280" stopOpacity={0.1} />
-                      <stop offset="95%" stopColor="#6b7280" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#71717a', fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: '#71717a', fontSize: 10 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`}
-                    domain={['auto', 'auto']}
-                  />
-                  <Tooltip
-                    contentStyle={chartTooltipStyle}
-                    labelStyle={{ color: '#a1a1aa', fontSize: 11 }}
-                    formatter={(value: number) => [formatCurrency(value), '']}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="benchmark"
-                    stroke="#4b5563"
-                    strokeWidth={1}
-                    fill="url(#benchGradient)"
-                    dot={false}
-                    name="Benchmark"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    fill="url(#perfGradient)"
-                    dot={false}
-                    name="Portfolio"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-foreground-muted text-sm">
-                Add positions to see performance chart
-              </div>
-            )}
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <BarChart3 className="w-10 h-10 text-foreground-muted/30 mb-3" />
+              <p className="text-sm font-medium text-foreground-secondary mb-1">No Performance History</p>
+              <p className="text-xs text-foreground-muted max-w-[280px]">Connect a broker to view real equity performance data over time</p>
+            </div>
           </div>
           <div className="flex items-center gap-6 mt-2 text-xs text-foreground-muted">
             <span className="flex items-center gap-1.5">

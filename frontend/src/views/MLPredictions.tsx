@@ -88,89 +88,60 @@ export function MLPredictions() {
     ctx.fillStyle = '#0d1117'
     ctx.fillRect(0, 0, width, height)
 
-    // Generate historical prices
-    const numPoints = 60
-    const prices: number[] = []
-    let price = prediction.currentPrice * 0.95
-
-    for (let i = 0; i < numPoints; i++) {
-      price += (Math.random() - 0.48) * 3
-      prices.push(price)
-    }
-    prices[prices.length - 1] = prediction.currentPrice
-
-    // Generate prediction line
-    const predPoints = parseInt(horizon)
-    const predPrices: number[] = [prediction.currentPrice]
-    price = prediction.currentPrice
-    for (let i = 0; i < predPoints; i++) {
-      price += (prediction.predictedPrice - prediction.currentPrice) / predPoints + (Math.random() - 0.5) * 2
-      predPrices.push(price)
-    }
-    predPrices[predPrices.length - 1] = prediction.predictedPrice
-
-    const allPrices = [...prices, ...predPrices]
-    const minPrice = Math.min(...allPrices) - 5
-    const maxPrice = Math.max(...allPrices) + 5
-    const priceRange = maxPrice - minPrice
-
+    // Draw prediction summary on canvas (no fabricated price history)
     const chartWidth = width - 2 * padding
     const chartHeight = height - 2 * padding
 
-    // Draw grid
+    // Show current price and predicted price as reference points
+    const currentY = padding + chartHeight * 0.5
+    const predictedY = prediction.predictedPrice > prediction.currentPrice
+      ? padding + chartHeight * 0.3
+      : padding + chartHeight * 0.7
+    const midX = padding + chartWidth * 0.5
+
+    // Draw reference lines
     ctx.strokeStyle = '#1a1f2e'
     ctx.lineWidth = 1
-    for (let i = 0; i <= 4; i++) {
-      const y = padding + (chartHeight * i / 4)
-      ctx.beginPath()
-      ctx.moveTo(padding, y)
-      ctx.lineTo(width - padding, y)
-      ctx.stroke()
-
-      const priceLabel = maxPrice - (priceRange * i / 4)
-      ctx.fillStyle = '#666'
-      ctx.font = '10px monospace'
-      ctx.textAlign = 'right'
-      ctx.fillText(`$${priceLabel.toFixed(0)}`, padding - 5, y + 3)
-    }
-
-    // Draw historical line
-    ctx.strokeStyle = '#00c853'
-    ctx.lineWidth = 2
+    ctx.setLineDash([3, 3])
     ctx.beginPath()
-    prices.forEach((p, i) => {
-      const x = padding + (i / (numPoints + predPoints)) * chartWidth
-      const y = padding + (1 - (p - minPrice) / priceRange) * chartHeight
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
+    ctx.moveTo(padding, currentY)
+    ctx.lineTo(width - padding, currentY)
     ctx.stroke()
+    ctx.setLineDash([])
 
-    // Draw prediction line
+    // Current price marker
+    ctx.fillStyle = '#00c853'
+    ctx.beginPath()
+    ctx.arc(padding + chartWidth * 0.3, currentY, 6, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#999'
+    ctx.font = '11px monospace'
+    ctx.textAlign = 'left'
+    ctx.fillText(`Current: $${prediction.currentPrice.toFixed(2)}`, padding + chartWidth * 0.3 + 12, currentY + 4)
+
+    // Predicted price marker
+    ctx.fillStyle = '#f0b90b'
+    ctx.beginPath()
+    ctx.arc(padding + chartWidth * 0.7, predictedY, 6, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#999'
+    ctx.fillText(`Predicted: $${prediction.predictedPrice.toFixed(2)}`, padding + chartWidth * 0.7 + 12, predictedY + 4)
+
+    // Draw arrow from current to predicted
     ctx.strokeStyle = '#f0b90b'
     ctx.lineWidth = 2
     ctx.setLineDash([5, 5])
     ctx.beginPath()
-    predPrices.forEach((p, i) => {
-      const x = padding + ((numPoints - 1 + i) / (numPoints + predPoints)) * chartWidth
-      const y = padding + (1 - (p - minPrice) / priceRange) * chartHeight
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
+    ctx.moveTo(padding + chartWidth * 0.3 + 6, currentY)
+    ctx.lineTo(padding + chartWidth * 0.7 - 6, predictedY)
     ctx.stroke()
     ctx.setLineDash([])
 
-    // Draw prediction zone
-    const predStartX = padding + ((numPoints - 1) / (numPoints + predPoints)) * chartWidth
-    ctx.fillStyle = 'rgba(240, 185, 11, 0.1)'
-    ctx.fillRect(predStartX, padding, width - padding - predStartX, chartHeight)
-
     // Labels
-    ctx.fillStyle = '#666'
+    ctx.fillStyle = '#555'
     ctx.font = '10px sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Historical', padding + chartWidth * 0.3, height - 10)
-    ctx.fillText('Prediction', predStartX + (width - padding - predStartX) / 2, height - 10)
+    ctx.fillText('No historical price data available', midX, height - 10)
 
   }, [prediction, horizon])
 

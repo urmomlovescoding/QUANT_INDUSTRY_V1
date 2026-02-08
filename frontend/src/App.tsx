@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Toaster } from './components/ui/Toaster'
+import { ToastProvider } from './components/ui/Toast'
+import { ApiErrorToastBridge } from './components/ApiErrorToastBridge'
 import { Layout } from './components/layout/Layout'
 import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { CommandPalette, useCommandPalette } from './components/CommandPalette'
@@ -191,7 +192,7 @@ function AppContent() {
           </ProtectedRoute>
         } />
       </Routes>
-      <Toaster />
+      <ApiErrorToastBridge />
       <CommandPalette isOpen={commandPalette.isOpen} onClose={commandPalette.close} />
       <QuickTrade
         isOpen={quickTrade.isOpen}
@@ -212,11 +213,13 @@ export default function App() {
       }}
     >
       <BrowserRouter>
-        <NotificationProvider>
-          <AlertProvider>
-            <AppContent />
-          </AlertProvider>
-        </NotificationProvider>
+        <ToastProvider>
+          <NotificationProvider>
+            <AlertProvider>
+              <AppContent />
+            </AlertProvider>
+          </NotificationProvider>
+        </ToastProvider>
       </BrowserRouter>
     </ErrorBoundary>
   )

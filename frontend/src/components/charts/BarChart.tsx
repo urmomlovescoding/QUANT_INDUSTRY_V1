@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 
 interface BarChartProps {
   horizontal?: boolean
+  data?: Array<{ label: string; value: number }>
 }
 
 // Theme colors matching CSS variables
@@ -16,37 +17,19 @@ const COLORS = {
   grid: 'rgba(255, 255, 255, 0.04)',
 }
 
-// P&L distribution data
-const pnlData = [
-  { label: '-5K+', value: 2, color: COLORS.bearish },
-  { label: '-4K', value: 3, color: COLORS.bearish },
-  { label: '-3K', value: 4, color: COLORS.bearish },
-  { label: '-2K', value: 6, color: COLORS.bearish },
-  { label: '-1K', value: 8, color: COLORS.bearish },
-  { label: '0', value: 4, color: COLORS.neutral },
-  { label: '+1K', value: 12, color: COLORS.bullish },
-  { label: '+2K', value: 10, color: COLORS.bullish },
-  { label: '+3K', value: 7, color: COLORS.bullish },
-  { label: '+4K', value: 5, color: COLORS.bullish },
-  { label: '+5K+', value: 3, color: COLORS.bullish },
-]
+function getBarColor(value: number): string {
+  if (value > 0) return COLORS.bullish
+  if (value < 0) return COLORS.bearish
+  return COLORS.neutral
+}
 
-// Strategy performance data
-const strategyData = [
-  { label: 'Momentum', value: 2.4, color: COLORS.bullish },
-  { label: 'Mean Rev', value: 1.8, color: COLORS.bullish },
-  { label: 'Breakout', value: 1.5, color: COLORS.accent },
-  { label: 'Trend', value: 1.2, color: COLORS.accent },
-  { label: 'Scalping', value: 0.9, color: COLORS.accentSoft },
-]
-
-export function BarChart({ horizontal = false }: BarChartProps) {
+export function BarChart({ horizontal = false, data }: BarChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !data || data.length === 0) return
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -65,11 +48,11 @@ export function BarChart({ horizontal = false }: BarChartProps) {
     ctx.clearRect(0, 0, width, height)
 
     if (horizontal) {
-      drawHorizontalBars(ctx, width, height)
+      drawHorizontalBars(ctx, width, height, data)
     } else {
-      drawVerticalBars(ctx, width, height)
+      drawVerticalBars(ctx, width, height, data)
     }
-  }, [horizontal])
+  }, [horizontal, data])
 
   useEffect(() => {
     draw()
@@ -81,6 +64,14 @@ export function BarChart({ horizontal = false }: BarChartProps) {
     return () => observer.disconnect()
   }, [draw])
 
+  if (!data || data.length === 0) {
+    return (
+      <div className={`w-full ${horizontal ? 'h-[180px]' : 'h-[200px]'} flex items-center justify-center`}>
+        <span className="text-foreground-muted text-sm font-mono">No data available</span>
+      </div>
+    )
+  }
+
   return (
     <div ref={containerRef} className={horizontal ? 'w-full h-[180px]' : 'w-full h-[200px]'}>
       <canvas
@@ -91,13 +82,12 @@ export function BarChart({ horizontal = false }: BarChartProps) {
   )
 }
 
-function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: number, data: Array<{ label: string; value: number }>) {
   const padding = { top: 20, right: 10, bottom: 36, left: 30 }
   const chartWidth = width - padding.left - padding.right
   const chartHeight = height - padding.top - padding.bottom
 
-  const data = pnlData
-  const maxValue = Math.max(...data.map((d) => d.value))
+  const maxValue = data.length > 0 ? Math.max(...data.map((d) => Math.abs(d.value))) : 1
   const barWidth = (chartWidth / data.length) * 0.65
   const barGap = (chartWidth / data.length) * 0.35
 
@@ -114,14 +104,15 @@ function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: 
 
   // Draw bars with rounded tops
   data.forEach((item, i) => {
-    const barHeight = (item.value / maxValue) * chartHeight
+    const barHeight = (Math.abs(item.value) / maxValue) * chartHeight
     const x = padding.left + i * (barWidth + barGap) + barGap / 2
     const y = padding.top + chartHeight - barHeight
+    const color = getBarColor(item.value)
 
     // Bar with subtle gradient
     const gradient = ctx.createLinearGradient(x, y, x, y + barHeight)
-    gradient.addColorStop(0, item.color)
-    gradient.addColorStop(1, item.color + '80')
+    gradient.addColorStop(0, color)
+    gradient.addColorStop(1, color + '80')
 
     ctx.fillStyle = gradient
     ctx.beginPath()
@@ -147,26 +138,26 @@ function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: 
   }
 }
 
-function drawHorizontalBars(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawHorizontalBars(ctx: CanvasRenderingContext2D, width: number, height: number, data: Array<{ label: string; value: number }>) {
   const padding = { top: 10, right: 45, bottom: 10, left: 72 }
   const chartWidth = width - padding.left - padding.right
   const chartHeight = height - padding.top - padding.bottom
 
-  const data = strategyData
-  const maxValue = Math.max(...data.map((d) => d.value))
+  const maxValue = data.length > 0 ? Math.max(...data.map((d) => Math.abs(d.value))) : 1
   const barHeight = (chartHeight / data.length) * 0.65
   const barGap = (chartHeight / data.length) * 0.35
 
   // Draw bars
   data.forEach((item, i) => {
-    const barWidth = (item.value / maxValue) * chartWidth
+    const barWidth = (Math.abs(item.value) / maxValue) * chartWidth
     const x = padding.left
     const y = padding.top + i * (barHeight + barGap) + barGap / 2
+    const color = getBarColor(item.value)
 
     // Bar with horizontal gradient
     const gradient = ctx.createLinearGradient(x, y, x + barWidth, y)
-    gradient.addColorStop(0, item.color + 'CC')
-    gradient.addColorStop(1, item.color)
+    gradient.addColorStop(0, color + 'CC')
+    gradient.addColorStop(1, color)
 
     ctx.fillStyle = gradient
     ctx.beginPath()
@@ -183,6 +174,6 @@ function drawHorizontalBars(ctx: CanvasRenderingContext2D, width: number, height
     ctx.fillStyle = COLORS.valueLabel
     ctx.font = 'bold 11px "JetBrains Mono", monospace'
     ctx.textAlign = 'left'
-    ctx.fillText(item.value.toFixed(1) + 'x', x + barWidth + 8, y + barHeight / 2 + 4)
+    ctx.fillText(item.value.toFixed(1), x + barWidth + 8, y + barHeight / 2 + 4)
   })
 }

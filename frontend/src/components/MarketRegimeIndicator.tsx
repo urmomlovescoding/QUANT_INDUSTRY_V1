@@ -13,6 +13,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { useAppStore } from '@/store'
 
 export type MarketRegime = 'TRENDING_UP' | 'TRENDING_DOWN' | 'RANGING' | 'VOLATILE' | 'QUIET'
 export type VolatilityRegime = 'LOW' | 'NORMAL' | 'HIGH' | 'EXTREME'
@@ -80,52 +81,43 @@ const VOLATILITY_CONFIG: Record<VolatilityRegime, {
 }
 
 export function MarketRegimeIndicator() {
-  const [regimeData, setRegimeData] = useState<RegimeData>({
-    regime: 'TRENDING_UP',
-    volatility: 'NORMAL',
-    vix: 18.5,
-    confidence: 0.72,
-    trend_strength: 0.65
-  })
+  // Pull real data from the store instead of simulating
+  const brainStatus = useAppStore((s) => s.brainStatus)
+  const tickers = useAppStore((s) => s.tickers)
   const [showTooltip, setShowTooltip] = useState(false)
 
-  // Simulate regime updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const regimes: MarketRegime[] = ['TRENDING_UP', 'TRENDING_DOWN', 'RANGING', 'VOLATILE', 'QUIET']
-      const volatilities: VolatilityRegime[] = ['LOW', 'NORMAL', 'HIGH', 'EXTREME']
+  // Derive regime data from real brain status and market data
+  const vixTicker = tickers.find(t => t.symbol === 'VIX' || t.symbol === '^VIX')
+  const vixValue = vixTicker?.price ?? 0
 
-      // Small random changes to simulate regime detection
-      setRegimeData(prev => {
-        const newVix = Math.max(10, Math.min(50, prev.vix + (Math.random() - 0.5) * 2))
-        const newConfidence = Math.max(0.5, Math.min(0.95, prev.confidence + (Math.random() - 0.5) * 0.05))
-        const newStrength = Math.max(0.3, Math.min(0.9, prev.trend_strength + (Math.random() - 0.5) * 0.05))
+  // Map brain regime string to our MarketRegime type
+  const mapRegime = (regime?: string): MarketRegime => {
+    if (!regime) return 'QUIET'
+    const r = regime.toUpperCase()
+    if (r.includes('TREND') && r.includes('UP')) return 'TRENDING_UP'
+    if (r.includes('TREND') && r.includes('DOWN')) return 'TRENDING_DOWN'
+    if (r.includes('BULL')) return 'TRENDING_UP'
+    if (r.includes('BEAR')) return 'TRENDING_DOWN'
+    if (r.includes('VOLATIL')) return 'VOLATILE'
+    if (r.includes('RANG') || r.includes('SIDE')) return 'RANGING'
+    return 'QUIET'
+  }
 
-        // Regime changes based on conditions (simplified)
-        let newRegime = prev.regime
-        let newVolatility: VolatilityRegime = 'NORMAL'
+  const getVolatilityRegime = (vix: number): VolatilityRegime => {
+    if (vix <= 0) return 'NORMAL' // No data
+    if (vix < 15) return 'LOW'
+    if (vix < 22) return 'NORMAL'
+    if (vix < 30) return 'HIGH'
+    return 'EXTREME'
+  }
 
-        if (Math.random() > 0.95) {
-          newRegime = regimes[Math.floor(Math.random() * regimes.length)]
-        }
-
-        if (newVix < 15) newVolatility = 'LOW'
-        else if (newVix < 22) newVolatility = 'NORMAL'
-        else if (newVix < 30) newVolatility = 'HIGH'
-        else newVolatility = 'EXTREME'
-
-        return {
-          regime: newRegime,
-          volatility: newVolatility,
-          vix: newVix,
-          confidence: newConfidence,
-          trend_strength: newStrength
-        }
-      })
-    }, 5000)
-
-    return () => clearInterval(interval)
-  }, [])
+  const regimeData: RegimeData = {
+    regime: mapRegime(brainStatus?.current_regime),
+    volatility: getVolatilityRegime(vixValue),
+    vix: vixValue,
+    confidence: brainStatus?.metrics?.win_rate ?? 0,
+    trend_strength: brainStatus?.is_trained ? 0.75 : 0.4,
+  }
 
   const regimeConfig = REGIME_CONFIG[regimeData.regime]
   const volatilityConfig = VOLATILITY_CONFIG[regimeData.volatility]
@@ -242,21 +234,22 @@ export function MarketRegimeIndicator() {
 
 // Compact version for tight spaces
 export function MarketRegimeCompact() {
-  const [regime, setRegime] = useState<MarketRegime>('TRENDING_UP')
-  const [vix, setVix] = useState(18.5)
+  const brainStatus = useAppStore((s) => s.brainStatus)
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const regimes: MarketRegime[] = ['TRENDING_UP', 'TRENDING_DOWN', 'RANGING', 'VOLATILE', 'QUIET']
-      if (Math.random() > 0.9) {
-        setRegime(regimes[Math.floor(Math.random() * regimes.length)])
-      }
-      setVix(prev => Math.max(10, Math.min(50, prev + (Math.random() - 0.5) * 1)))
-    }, 3000)
+  // Map brain regime string to our type
+  const mapRegime = (r?: string): MarketRegime => {
+    if (!r) return 'QUIET'
+    const u = r.toUpperCase()
+    if (u.includes('TREND') && u.includes('UP')) return 'TRENDING_UP'
+    if (u.includes('TREND') && u.includes('DOWN')) return 'TRENDING_DOWN'
+    if (u.includes('BULL')) return 'TRENDING_UP'
+    if (u.includes('BEAR')) return 'TRENDING_DOWN'
+    if (u.includes('VOLATIL')) return 'VOLATILE'
+    if (u.includes('RANG') || u.includes('SIDE')) return 'RANGING'
+    return 'QUIET'
+  }
 
-    return () => clearInterval(interval)
-  }, [])
-
+  const regime = mapRegime(brainStatus?.current_regime)
   const config = REGIME_CONFIG[regime]
   const Icon = config.icon
 

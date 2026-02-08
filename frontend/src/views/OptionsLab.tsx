@@ -323,15 +323,15 @@ export function OptionsLab() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-xs text-foreground-muted">IV Rank</span>
-                    <span className="text-xs font-mono">{Math.floor(Math.random() * 100)}%</span>
+                    <span className="text-xs font-mono">--</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-xs text-foreground-muted">IV Percentile</span>
-                    <span className="text-xs font-mono">{Math.floor(Math.random() * 100)}%</span>
+                    <span className="text-xs font-mono">--</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-xs text-foreground-muted">HV 20d</span>
-                    <span className="text-xs font-mono">{(selectedOption.iv * 0.8 + Math.random() * 5).toFixed(1)}%</span>
+                    <span className="text-xs font-mono">--</span>
                   </div>
                 </div>
               </div>
@@ -343,28 +343,28 @@ export function OptionsLab() {
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-xs">Liquidity</span>
-                      <span className="text-xs font-mono">{Math.floor(70 + Math.random() * 30)}</span>
+                      <span className="text-xs font-mono">--</span>
                     </div>
                     <div className="h-1 bg-background-tertiary rounded-full">
-                      <div className="h-full bg-accent-primary rounded-full" style={{ width: '85%' }} />
+                      <div className="h-full bg-accent-primary rounded-full" style={{ width: '0%' }} />
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-xs">IV Value</span>
-                      <span className="text-xs font-mono">{Math.floor(60 + Math.random() * 40)}</span>
+                      <span className="text-xs font-mono">--</span>
                     </div>
                     <div className="h-1 bg-background-tertiary rounded-full">
-                      <div className="h-full bg-bullish rounded-full" style={{ width: '75%' }} />
+                      <div className="h-full bg-bullish rounded-full" style={{ width: '0%' }} />
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-xs">Risk/Reward</span>
-                      <span className="text-xs font-mono">{Math.floor(50 + Math.random() * 50)}</span>
+                      <span className="text-xs font-mono">--</span>
                     </div>
                     <div className="h-1 bg-background-tertiary rounded-full">
-                      <div className="h-full bg-warning rounded-full" style={{ width: '65%' }} />
+                      <div className="h-full bg-warning rounded-full" style={{ width: '0%' }} />
                     </div>
                   </div>
                 </div>

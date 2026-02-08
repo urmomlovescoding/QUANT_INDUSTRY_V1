@@ -364,29 +364,11 @@ async def get_option_chain(
         except Exception as e:
             logger.error(f"Error getting options chain for {symbol}: {e}")
     
-    # Fallback mock data
-    calls = [
-        OptionContract(
-            symbol=f"{symbol.upper()}250117C00150000", underlying=symbol.upper(),
-            option_type=OptionType.CALL, strike=150.0, expiration=date(2025, 1, 17),
-            bid=3.50, ask=3.60, last=3.55, volume=5000, open_interest=25000,
-            implied_volatility=0.25, delta=0.52, gamma=0.05, theta=-0.08, vega=0.15,
-            in_the_money=True
-        ),
-    ]
-    puts = [
-        OptionContract(
-            symbol=f"{symbol.upper()}250117P00150000", underlying=symbol.upper(),
-            option_type=OptionType.PUT, strike=150.0, expiration=date(2025, 1, 17),
-            bid=2.80, ask=2.90, last=2.85, volume=3500, open_interest=18000,
-            implied_volatility=0.26, delta=-0.48, gamma=0.05, theta=-0.07, vega=0.14,
-            in_the_money=False
-        ),
-    ]
+    # Data unavailable - return empty chain
+    logger.warning(f"Options chain data unavailable for {symbol}")
     return OptionChain(
-        underlying=symbol.upper(), underlying_price=150.50,
-        expirations=[date(2025, 1, 17), date(2025, 1, 24), date(2025, 1, 31)],
-        calls=calls, puts=puts
+        underlying=symbol.upper(), underlying_price=0,
+        expirations=[], calls=[], puts=[]
     )
 
 
@@ -435,16 +417,12 @@ async def get_gex(symbol: str = Path(..., description="Underlying symbol")) -> G
         except Exception as e:
             logger.error(f"Error getting GEX for {symbol}: {e}")
     
-    # Fallback
-    levels = [
-        GammaLevel(strike=145.0, call_gamma=0.02, put_gamma=0.08, net_gamma=-0.06, total_gamma=0.10),
-        GammaLevel(strike=150.0, call_gamma=0.05, put_gamma=0.05, net_gamma=0.00, total_gamma=0.10),
-        GammaLevel(strike=155.0, call_gamma=0.08, put_gamma=0.02, net_gamma=0.06, total_gamma=0.10),
-    ]
+    # Data unavailable - return empty GEX
+    logger.warning(f"GEX data unavailable for {symbol}")
     return GEXResponse(
-        symbol=symbol.upper(), spot_price=150.50,
-        total_gex=2500000000, call_gex=1800000000, put_gex=700000000,
-        flip_point=148.50, max_pain=150.0, levels=levels
+        symbol=symbol.upper(), spot_price=0,
+        total_gex=0, call_gex=0, put_gex=0,
+        flip_point=0, max_pain=0, levels=[]
     )
 
 
@@ -523,39 +501,13 @@ async def get_flow(
         except Exception as e:
             logger.error(f"Error getting options flow: {e}")
     
-    # Fallback mock data
-    flows = [
-        OptionsFlow(
-            id="flow-001", symbol="SPY250117C00600000", underlying="SPY",
-            option_type=OptionType.CALL, strike=600.0, expiration=date(2025, 1, 17),
-            flow_type=FlowType.SWEEP, sentiment=FlowSentiment.BULLISH,
-            premium=2500000, size=5000, spot_price=595.00, execution_price=5.00,
-            exchange="CBOE", timestamp=datetime.utcnow()
-        ),
-        OptionsFlow(
-            id="flow-002", symbol="TSLA250117P00250000", underlying="TSLA",
-            option_type=OptionType.PUT, strike=250.0, expiration=date(2025, 1, 17),
-            flow_type=FlowType.BLOCK, sentiment=FlowSentiment.BEARISH,
-            premium=1800000, size=3000, spot_price=248.00, execution_price=6.00,
-            exchange="PHLX", timestamp=datetime.utcnow()
-        ),
-    ]
-    
-    if symbol:
-        flows = [f for f in flows if f.underlying == symbol.upper()]
-    if flow_type:
-        flows = [f for f in flows if f.flow_type == flow_type]
-    if sentiment:
-        flows = [f for f in flows if f.sentiment == sentiment]
-    
-    bullish_premium = sum(f.premium for f in flows if f.sentiment == FlowSentiment.BULLISH)
-    bearish_premium = sum(f.premium for f in flows if f.sentiment == FlowSentiment.BEARISH)
-    
+    # Data unavailable - return empty flow
+    logger.warning("Options flow data unavailable")
     return FlowResponse(
-        flows=flows[:limit],
-        total_premium_bullish=bullish_premium,
-        total_premium_bearish=bearish_premium,
-        net_sentiment=FlowSentiment.BULLISH if bullish_premium > bearish_premium else FlowSentiment.BEARISH
+        flows=[],
+        total_premium_bullish=0,
+        total_premium_bearish=0,
+        net_sentiment=FlowSentiment.NEUTRAL
     )
 
 
@@ -601,21 +553,14 @@ async def get_dark_pool(
         except Exception as e:
             logger.error(f"Error getting dark pool data: {e}")
     
-    # Fallback
-    trades = [
-        DarkPoolTrade(id="dp-001", symbol="SPY", price=595.00, size=500000, notional=297500000, exchange="FINRA", timestamp=datetime.utcnow()),
-        DarkPoolTrade(id="dp-002", symbol="AAPL", price=150.00, size=250000, notional=37500000, exchange="FINRA", timestamp=datetime.utcnow()),
-    ]
-    
-    if symbol:
-        trades = [t for t in trades if t.symbol == symbol.upper()]
-    
+    # Data unavailable - return empty dark pool
+    logger.warning("Dark pool data unavailable")
     return DarkPoolResponse(
         symbol=symbol.upper() if symbol else None,
-        trades=trades[:limit],
-        total_volume=sum(t.size for t in trades),
-        total_notional=sum(t.notional for t in trades),
-        avg_trade_size=int(sum(t.size for t in trades) / len(trades)) if trades else 0
+        trades=[],
+        total_volume=0,
+        total_notional=0,
+        avg_trade_size=0
     )
 
 
@@ -649,25 +594,9 @@ async def get_flow_signals(symbol: Optional[str] = Query(None), limit: int = Que
         except Exception as e:
             logger.error(f"Error getting flow signals: {e}")
     
-    # Fallback
-    signals = [
-        FlowSignal(
-            id="flow-sig-001", symbol="SPY", signal_type="sweep_cluster", direction="bullish",
-            confidence=0.75, premium_involved=5000000,
-            description="Multiple bullish sweeps targeting 600 strike",
-            expiration_focus=date(2025, 1, 17), strike_focus=600.0
-        ),
-        FlowSignal(
-            id="flow-sig-002", symbol="NVDA", signal_type="unusual_volume", direction="bullish",
-            confidence=0.68, premium_involved=3500000,
-            description="10x normal call volume at 900 strike"
-        ),
-    ]
-    
-    if symbol:
-        signals = [s for s in signals if s.symbol == symbol.upper()]
-    
-    return FlowSignalsResponse(signals=signals[:limit], total=len(signals))
+    # Data unavailable - return empty signals
+    logger.warning("Flow signals data unavailable")
+    return FlowSignalsResponse(signals=[], total=0)
 
 
 @router.get(
@@ -708,18 +637,6 @@ async def get_smart_money(limit: int = Query(20, ge=1, le=100)) -> SmartMoneyRes
         except Exception as e:
             logger.error(f"Error getting smart money data: {e}")
     
-    # Fallback
-    activities = [
-        SmartMoneyActivity(
-            symbol="SPY", net_premium=15000000, call_premium=20000000, put_premium=5000000,
-            sentiment=FlowSentiment.BULLISH, unusual_activity_count=12, block_trade_count=5,
-            sweep_count=7, largest_trade=5000000, institutional_bias="strongly bullish"
-        ),
-        SmartMoneyActivity(
-            symbol="QQQ", net_premium=8000000, call_premium=12000000, put_premium=4000000,
-            sentiment=FlowSentiment.BULLISH, unusual_activity_count=8, block_trade_count=3,
-            sweep_count=5, largest_trade=3000000, institutional_bias="moderately bullish"
-        ),
-    ]
-    
-    return SmartMoneyResponse(activities=activities[:limit], market_sentiment=FlowSentiment.BULLISH)
+    # Data unavailable - return empty smart money
+    logger.warning("Smart money data unavailable")
+    return SmartMoneyResponse(activities=[], market_sentiment=FlowSentiment.NEUTRAL)

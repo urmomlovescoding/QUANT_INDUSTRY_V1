@@ -4,23 +4,18 @@
  * Shows reasoning, contributing factors, and confidence breakdown
  */
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   Brain,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   CheckCircle,
   XCircle,
   Info,
   ChevronDown,
   ChevronRight,
-  Zap,
   Target,
   Shield,
   Activity,
-  BarChart3,
-  Clock,
   Layers,
   X,
 } from 'lucide-react'
@@ -410,84 +405,11 @@ function FactorCard({ factor }: { factor: ContributingFactor }) {
   )
 }
 
-// Demo/Mock Explanation Generator
-export function generateMockExplanation(symbol: string = 'AAPL'): TradeExplanation {
-  const isLong = Math.random() > 0.4
-  const basePrice = 150 + Math.random() * 50
-  const slPct = 0.02
-  const tpPct = 0.04
-
-  return {
-    id: `EXP_${Date.now()}`,
-    symbol,
-    direction: isLong ? 'LONG' : 'SHORT',
-    confidence: 0.65 + Math.random() * 0.25,
-    timestamp: new Date().toLocaleTimeString(),
-    entry_price: basePrice,
-    stop_loss: isLong ? basePrice * (1 - slPct) : basePrice * (1 + slPct),
-    take_profit: isLong ? basePrice * (1 + tpPct) : basePrice * (1 - tpPct),
-    risk_reward: tpPct / slPct,
-    position_size: Math.floor(Math.random() * 100) + 10,
-    account_risk_pct: 1 + Math.random(),
-    timeframe: ['5m', '15m', '1h', '4h'][Math.floor(Math.random() * 4)],
-    regime: ['TRENDING', 'RANGING', 'VOLATILE'][Math.floor(Math.random() * 3)],
-    factors: [
-      {
-        name: 'ML Ensemble Signal',
-        weight: 25,
-        signal: isLong ? 'bullish' : 'bearish',
-        confidence: 0.75 + Math.random() * 0.2,
-        explanation: `XGBoost and Random Forest models agree on ${isLong ? 'upward' : 'downward'} price movement. Feature importance shows momentum and volume indicators driving the prediction.`
-      },
-      {
-        name: 'Transformer Attention',
-        weight: 20,
-        signal: isLong ? 'bullish' : 'bearish',
-        confidence: 0.7 + Math.random() * 0.2,
-        explanation: `Self-attention mechanism identified key price patterns similar to historical ${isLong ? 'rallies' : 'selloffs'}. Temporal context suggests continuation.`
-      },
-      {
-        name: 'Order Flow Imbalance',
-        weight: 18,
-        signal: isLong ? 'bullish' : 'neutral',
-        confidence: 0.65 + Math.random() * 0.2,
-        explanation: `${isLong ? 'Buying' : 'Selling'} pressure detected at key levels. Institutional footprint suggests smart money is ${isLong ? 'accumulating' : 'distributing'}.`
-      },
-      {
-        name: 'Regime Detection',
-        weight: 15,
-        signal: 'bullish',
-        confidence: 0.72,
-        explanation: 'Market regime classifier indicates trending conditions favorable for momentum strategies.'
-      },
-      {
-        name: 'RSI Divergence',
-        weight: 12,
-        signal: isLong ? 'neutral' : 'bearish',
-        confidence: 0.6,
-        explanation: `${isLong ? 'No significant divergence detected' : 'Bearish divergence forming on higher timeframes'}.`
-      },
-      {
-        name: 'Options Flow',
-        weight: 10,
-        signal: isLong ? 'bullish' : 'bearish',
-        confidence: 0.68,
-        explanation: `Unusual ${isLong ? 'call' : 'put'} activity detected. Premium flow suggests institutional ${isLong ? 'bullish' : 'bearish'} positioning.`
-      }
-    ],
-    strategies_agreeing: isLong
-      ? ['PPO Neural Trader', 'Transformer Attention', 'XGBoost Trend', 'Order Flow', 'GEX Positioning']
-      : ['Mean Reversion', 'RSI Divergence', 'Volatility Sell', 'TD3 Hedging'],
-    strategies_disagreeing: isLong
-      ? ['Mean Reversion', 'RSI Overbought']
-      : ['Trend Following', 'MA Crossover', 'Momentum Factor'],
-    warnings: [
-      'Earnings announcement in 3 days - increased volatility expected',
-      `Position size adjusted due to ${Math.random() > 0.5 ? 'elevated VIX' : 'low liquidity'}`,
-      ...(Math.random() > 0.7 ? ['Near major support/resistance level'] : [])
-    ],
-    thesis: isLong
-      ? `Multiple AI strategies converge on bullish outlook for ${symbol}. Strong momentum signals combined with favorable order flow suggest continuation. Risk managed with tight stop below recent swing low.`
-      : `Bearish divergence and weakening momentum indicate potential reversal for ${symbol}. Mean reversion strategies activated with volatility-adjusted position sizing. Target set at key support level.`
-  }
+/**
+ * Returns null - no mock data.
+ * Use real trade explanations from the API instead.
+ * @deprecated Do not use mock explanations. Fetch real data from /api/brain-v6/explain endpoint.
+ */
+export function generateMockExplanation(_symbol: string = 'AAPL'): TradeExplanation | null {
+  return null
 }

@@ -376,7 +376,13 @@ async def feedback_status():
 @router.get("/signals")
 @router.get("/signals/active")
 async def get_signals():
-    """Get active trading signals from the brain's signal history."""
+    """Get active trading signals from the brain's signal history.
+
+    Filters out signals with confidence below 50% -- no institutional desk
+    would act on a 0% confidence signal.
+    """
+    MIN_CONFIDENCE_THRESHOLD = 0.50
+
     try:
         from backend.brain.propfirm_brain_v6 import get_propfirm_brain_v6
         brain = get_propfirm_brain_v6()
@@ -385,22 +391,33 @@ async def get_signals():
         signals = []
         if brain.last_signal:
             sig = brain.last_signal
-            signals.append({
-                "id": f"sig-latest",
-                "symbol": sig.get("symbol", "N/A"),
-                "direction": sig.get("direction", "NEUTRAL"),
-                "confidence": round(sig.get("confidence", 0), 3),
-                "strategy": sig.get("strategy", ""),
-                "entry_price": sig.get("entry_price", 0),
-                "stop_loss": sig.get("stop_loss", 0),
-                "take_profit": sig.get("take_profit", 0),
-                "risk_reward": round(sig.get("risk_reward", 0), 2),
-                "timeframe": sig.get("timeframe", "1D"),
-                "regime": brain.current_regime.value,
-                "timestamp": sig.get("timestamp", datetime.now().isoformat()),
-                "status": "active",
-                "data_source": "propfirm_brain_v6"
-            })
+            # Default None/missing confidence to 0 so it gets filtered out
+            confidence = sig.get("confidence") or 0
+            confidence = round(float(confidence), 3)
+
+            # Only surface signals that meet the minimum confidence threshold
+            if confidence >= MIN_CONFIDENCE_THRESHOLD:
+                signals.append({
+                    "id": f"sig-latest",
+                    "symbol": sig.get("symbol", "N/A"),
+                    "direction": sig.get("direction", "NEUTRAL"),
+                    "confidence": confidence,
+                    "strategy": sig.get("strategy", ""),
+                    "entry_price": sig.get("entry_price", 0),
+                    "stop_loss": sig.get("stop_loss", 0),
+                    "take_profit": sig.get("take_profit", 0),
+                    "risk_reward": round(sig.get("risk_reward", 0), 2),
+                    "timeframe": sig.get("timeframe", "1D"),
+                    "regime": brain.current_regime.value,
+                    "timestamp": sig.get("timestamp", datetime.now().isoformat()),
+                    "status": "active",
+                    "data_source": "propfirm_brain_v6"
+                })
+            else:
+                logger.info(
+                    f"Filtered out signal for {sig.get('symbol', 'N/A')} "
+                    f"with confidence {confidence} (below threshold {MIN_CONFIDENCE_THRESHOLD})"
+                )
         return signals
     except Exception as e:
         logger.warning(f"Could not fetch signals from brain: {e}")
@@ -429,6 +446,7 @@ async def get_portfolio_summary():
         account = trading.get_account_info()
         positions = trading.get_all_positions()
         return {
+            "broker_connected": True,
             "equity": round(account.equity, 2),
             "cash": round(account.cash, 2),
             "buying_power": round(account.buying_power, 2),
@@ -442,6 +460,7 @@ async def get_portfolio_summary():
     except Exception as e:
         logger.warning(f"Could not fetch portfolio from trading service: {e}")
         return {
+            "broker_connected": False,
             "equity": 0.0,
             "cash": 0.0,
             "buying_power": 0.0,
@@ -782,6 +801,7 @@ async def get_live_portfolio():
     if not portfolio:
         return {
             "error": "Portfolio module not available",
+            "broker_connected": False,
             "equity": 0.0,
             "cash": 0.0,
             "positions": [],
@@ -789,7 +809,9 @@ async def get_live_portfolio():
             "data_source": "none"
         }
 
-    return portfolio.to_dict()
+    result = portfolio.to_dict()
+    result["broker_connected"] = True
+    return result
 
 
 @router.get("/portfolio/positions")
@@ -1633,3 +1655,171 @@ async def get_portfolio_allocation(
     except Exception as e:
         logger.error(f"Portfolio allocation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# ROUTE ALIASES - Forward /api/* paths to V2 handlers
+# ==============================================================================
+# Many frontend components call /api/... paths, but the real implementations
+# live under /api/v2/... These forwarding routes prevent 404 errors.
+
+
+@router.get("/market/sectors")
+async def get_sectors_alias():
+    """Forward to V2 sectors endpoint."""
+    try:
+        from api.v2.market import get_sectors as v2_get_sectors
+        return await v2_get_sectors()
+    except Exception as e:
+        logger.warning(f"Sectors endpoint failed: {e}")
+        return []
+
+
+@router.get("/market/movers")
+async def get_movers_alias(limit: int = 10):
+    """Forward to V2 movers endpoint."""
+    try:
+        from api.v2.market import get_movers as v2_get_movers
+        return await v2_get_movers(limit=limit)
+    except Exception as e:
+        logger.warning(f"Movers endpoint failed: {e}")
+        return {"gainers": [], "losers": [], "most_active": []}
+
+
+@router.get("/charts/ohlcv/{symbol}")
+async def get_charts_ohlcv_alias(
+    symbol: str,
+    timeframe: str = "1d",
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 100
+):
+    """Forward to V2 market bars endpoint."""
+    try:
+        from api.v2.market import get_bars as v2_get_bars, Timeframe
+        # Map timeframe string to Timeframe enum
+        tf_map = {
+            "1m": Timeframe.M1, "5m": Timeframe.M5, "15m": Timeframe.M15,
+            "30m": Timeframe.M30, "1h": Timeframe.H1, "4h": Timeframe.H4,
+            "1d": Timeframe.D1, "1w": Timeframe.W1,
+            # Common aliases
+            "1D": Timeframe.D1, "1Day": Timeframe.D1, "daily": Timeframe.D1,
+            "1W": Timeframe.W1, "1Week": Timeframe.W1,
+        }
+        tf = tf_map.get(timeframe, Timeframe.D1)
+        from datetime import date as date_type
+        start_date = date_type.fromisoformat(start) if start else None
+        end_date = date_type.fromisoformat(end) if end else None
+        return await v2_get_bars(symbol=symbol, timeframe=tf, start=start_date, end=end_date, limit=limit)
+    except Exception as e:
+        logger.warning(f"Charts OHLCV endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "timeframe": timeframe, "bars": [], "count": 0, "source": "none"}
+
+
+@router.get("/options/chain/{symbol}")
+async def get_options_chain_alias(symbol: str, strikes_around: int = 10):
+    """Forward to V2 options chain endpoint."""
+    try:
+        from api.v2.options import get_option_chain as v2_get_option_chain
+        return await v2_get_option_chain(symbol=symbol, strikes_around=strikes_around)
+    except Exception as e:
+        logger.warning(f"Options chain endpoint failed: {e}")
+        return {"underlying": symbol.upper(), "underlying_price": 0, "expirations": [], "calls": [], "puts": []}
+
+
+@router.get("/gex/{symbol}")
+async def get_gex_alias(symbol: str):
+    """Forward to V2 options GEX endpoint."""
+    try:
+        from api.v2.options import get_gex as v2_get_gex
+        return await v2_get_gex(symbol=symbol)
+    except Exception as e:
+        logger.warning(f"GEX endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "spot_price": 0, "total_gex": 0, "call_gex": 0, "put_gex": 0, "flip_point": 0, "max_pain": 0, "levels": []}
+
+
+@router.get("/options/flow")
+async def get_options_flow_alias(
+    symbol: Optional[str] = None,
+    min_premium: float = 100000,
+    limit: int = 50
+):
+    """Forward to V2 options flow endpoint."""
+    try:
+        from api.v2.options import get_flow as v2_get_flow
+        return await v2_get_flow(symbol=symbol, min_premium=min_premium, limit=limit)
+    except Exception as e:
+        logger.warning(f"Options flow endpoint failed: {e}")
+        return {"flows": [], "total_premium_bullish": 0, "total_premium_bearish": 0, "net_sentiment": "neutral"}
+
+
+@router.get("/neural/analyze/{symbol}")
+async def get_neural_analyze_alias(symbol: str):
+    """Forward to V2 brain analyze endpoint."""
+    try:
+        from api.v2.brain import analyze_symbol as v2_analyze_symbol
+        return await v2_analyze_symbol(symbol=symbol)
+    except Exception as e:
+        logger.warning(f"Neural analyze endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "recommendation": "HOLD", "reasoning": f"Analysis unavailable: {e}"}
+
+
+@router.get("/ml/predict/{symbol}")
+async def get_ml_predict_alias(symbol: str, horizon: str = "1d"):
+    """Forward to V2 brain predict endpoint."""
+    try:
+        from api.v2.brain import get_prediction as v2_get_prediction
+        return await v2_get_prediction(symbol=symbol, horizon=horizon)
+    except Exception as e:
+        logger.warning(f"ML predict endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "predicted_price": 0, "confidence": 0, "horizon": horizon}
+
+
+@router.get("/research/13f/{symbol}")
+async def get_research_13f_alias(symbol: str):
+    """Forward to V2 research 13F endpoint."""
+    try:
+        from api.v2.research import get_institutional_ownership as v2_get_13f
+        return await v2_get_13f(symbol=symbol)
+    except Exception as e:
+        logger.warning(f"Research 13F endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "status": "unavailable", "message": f"13F data unavailable: {e}", "source": "none"}
+
+
+@router.get("/research/sec/{symbol}")
+async def get_research_sec_alias(symbol: str, limit: int = 20):
+    """Forward to V2 research SEC endpoint."""
+    try:
+        from api.v2.research import get_sec_filings as v2_get_sec
+        return await v2_get_sec(symbol=symbol, limit=limit)
+    except Exception as e:
+        logger.warning(f"Research SEC endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "filings": [], "total": 0, "status": "unavailable", "message": f"SEC data unavailable: {e}", "source": "none"}
+
+
+@router.get("/research/darkpool/{symbol}")
+async def get_research_darkpool_alias(symbol: str):
+    """Forward to V2 research dark pool endpoint."""
+    try:
+        from api.v2.research import get_dark_pool as v2_get_darkpool
+        return await v2_get_darkpool(symbol=symbol)
+    except Exception as e:
+        logger.warning(f"Research dark pool endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "status": "unavailable", "message": f"Dark pool data unavailable: {e}", "source": "none"}
+
+
+@router.get("/research/earnings/{symbol}")
+async def get_research_earnings_alias(symbol: str, quarters: int = 8):
+    """Forward to V2 research earnings endpoint."""
+    try:
+        from api.v2.research import get_earnings_history as v2_get_earnings
+        return await v2_get_earnings(symbol=symbol, quarters=quarters)
+    except Exception as e:
+        logger.warning(f"Research earnings endpoint failed: {e}")
+        return {"symbol": symbol.upper(), "earnings": [], "status": "unavailable", "message": f"Earnings data unavailable: {e}", "source": "none"}
+
+
+@router.get("/screener/presets")
+async def get_screener_presets():
+    """Return available screener presets (placeholder)."""
+    return []

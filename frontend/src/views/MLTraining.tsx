@@ -106,7 +106,7 @@ const NeuralNetworkViz: React.FC<{ layers: NeuralLayer[]; isTraining: boolean }>
     if (isTraining) {
       const interval = setInterval(() => {
         const newActivations = layers.map((layer) =>
-          Array.from({ length: Math.min(layer.units, 8) }, () => Math.random())
+          Array.from({ length: Math.min(layer.units, 8) }, (_, i) => (i + 1) / (Math.min(layer.units, 8) + 1))
         );
         setActivations(newActivations);
       }, 200);

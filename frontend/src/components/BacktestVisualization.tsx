@@ -686,40 +686,17 @@ export const BacktestVisualization: React.FC<BacktestVisualizationProps> = ({
     [filteredEquity]
   );
 
-  // Generate mock data if not provided
-  const mockRollingMetrics = useMemo(() => {
-    if (rollingMetrics) return filteredRolling;
-    return filteredEquity.map((e) => ({
-      date: e.date,
-      sharpe: 1.5 + Math.random() * 1,
-      sortino: 2 + Math.random() * 1,
-      volatility: 0.15 + Math.random() * 0.1,
-      beta: 0.8 + Math.random() * 0.4,
-      alpha: 0.05 + Math.random() * 0.05,
-    }));
-  }, [rollingMetrics, filteredEquity, filteredRolling]);
+  // Use real data or empty arrays - no mock/random data
+  const displayRollingMetrics = useMemo(() => {
+    return rollingMetrics ? filteredRolling : [];
+  }, [rollingMetrics, filteredRolling]);
 
-  const mockTrades = useMemo(() => {
-    if (trades) return trades;
-    return Array.from({ length: 50 }, (_, i) => ({
-      date: filteredEquity[Math.floor(Math.random() * filteredEquity.length)]?.date || '',
-      pnl: (Math.random() - 0.4) * 10000,
-      holdingDays: Math.floor(Math.random() * 30) + 1,
-      symbol: ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META'][Math.floor(Math.random() * 5)],
-      side: Math.random() > 0.5 ? 'long' : 'short',
-    })) as TradePoint[];
-  }, [trades, filteredEquity]);
+  const displayTrades = useMemo(() => {
+    return trades || [];
+  }, [trades]);
 
-  const mockFactorExposures = useMemo(() => {
-    if (factorExposures) return factorExposures;
-    return [
-      { factor: 'Market', exposure: 0.85, contribution: 0.065 },
-      { factor: 'Size', exposure: -0.15, contribution: -0.008 },
-      { factor: 'Value', exposure: 0.25, contribution: 0.012 },
-      { factor: 'Momentum', exposure: 0.45, contribution: 0.028 },
-      { factor: 'Quality', exposure: 0.35, contribution: 0.018 },
-      { factor: 'Volatility', exposure: -0.20, contribution: -0.005 },
-    ];
+  const displayFactorExposures = useMemo(() => {
+    return factorExposures || [];
   }, [factorExposures]);
 
   const renderChart = () => {
@@ -727,13 +704,34 @@ export const BacktestVisualization: React.FC<BacktestVisualizationProps> = ({
       case 'equity':
         return <EquityCurveChart data={filteredEquity} benchmarkName={benchmarkName} />;
       case 'rolling':
-        return <RollingMetricsChart data={mockRollingMetrics} />;
+        if (displayRollingMetrics.length === 0) {
+          return (
+            <div className="flex items-center justify-center h-[400px] text-gray-500">
+              No backtest data available
+            </div>
+          );
+        }
+        return <RollingMetricsChart data={displayRollingMetrics} />;
       case 'distribution':
         return <ReturnDistributionChart data={returnDistribution} />;
       case 'trades':
-        return <TradeAnalysisChart trades={mockTrades} />;
+        if (displayTrades.length === 0) {
+          return (
+            <div className="flex items-center justify-center h-[400px] text-gray-500">
+              No backtest data available
+            </div>
+          );
+        }
+        return <TradeAnalysisChart trades={displayTrades} />;
       case 'factors':
-        return <FactorExposureChart exposures={mockFactorExposures} />;
+        if (displayFactorExposures.length === 0) {
+          return (
+            <div className="flex items-center justify-center h-[400px] text-gray-500">
+              No backtest data available
+            </div>
+          );
+        }
+        return <FactorExposureChart exposures={displayFactorExposures} />;
       default:
         return null;
     }

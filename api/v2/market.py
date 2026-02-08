@@ -360,25 +360,9 @@ async def get_quotes(
         except Exception as e:
             logger.warning(f"Quote fetch failed: {e}")
     
-    # Fallback mock
-    quotes = []
-    for symbol in symbol_list:
-        quotes.append(Quote(
-            symbol=symbol,
-            bid=100.00,
-            ask=100.05,
-            last=100.02,
-            volume=1000000,
-            change=1.50,
-            change_percent=1.52,
-            high=101.00,
-            low=98.50,
-            open=99.00,
-            prev_close=98.52,
-            source="fallback"
-        ))
-    
-    return QuotesResponse(quotes=quotes)
+    # Data unavailable - return empty quotes
+    logger.warning(f"Quote data unavailable for symbols: {symbol_list}")
+    return QuotesResponse(quotes=[])
 
 
 @router.get(
@@ -431,20 +415,21 @@ async def get_quote(
         except Exception as e:
             logger.warning(f"Quote fetch failed for {symbol}: {e}")
     
-    # Fallback
+    # Data unavailable
+    logger.warning(f"Quote data unavailable for {symbol}")
     return Quote(
         symbol=symbol,
-        bid=150.00,
-        ask=150.05,
-        last=150.02,
-        volume=50000000,
-        change=2.50,
-        change_percent=1.69,
-        high=152.00,
-        low=148.00,
-        open=149.00,
-        prev_close=147.52,
-        source="fallback"
+        bid=0,
+        ask=0,
+        last=0,
+        volume=0,
+        change=0,
+        change_percent=0,
+        high=0,
+        low=0,
+        open=0,
+        prev_close=0,
+        source="unavailable"
     )
 
 
@@ -512,26 +497,14 @@ async def get_bars(
         except Exception as e:
             logger.warning(f"Bars fetch failed for {symbol}: {e}")
     
-    # Fallback mock
-    bars = [
-        Bar(
-            timestamp=datetime(2025, 1, 10, 9, 30),
-            open=100.0, high=101.0, low=99.5, close=100.5,
-            volume=1000000, vwap=100.25
-        ),
-        Bar(
-            timestamp=datetime(2025, 1, 9, 9, 30),
-            open=99.0, high=100.5, low=98.5, close=100.0,
-            volume=1200000, vwap=99.5
-        ),
-    ]
-    
+    # Data unavailable - return empty bars
+    logger.warning(f"Bar data unavailable for {symbol}")
     return BarsResponse(
         symbol=symbol,
         timeframe=timeframe.value,
-        bars=bars,
-        count=len(bars),
-        source="fallback"
+        bars=[],
+        count=0,
+        source="unavailable"
     )
 
 
@@ -612,26 +585,11 @@ async def get_indicators(
         except Exception as e:
             logger.warning(f"Indicators calc failed for {symbol}: {e}")
     
-    # Fallback
+    # Data unavailable - return null indicators
+    logger.warning(f"Indicator data unavailable for {symbol}")
     return TechnicalIndicators(
         symbol=symbol,
-        sma_20=150.50,
-        sma_50=148.25,
-        sma_200=142.00,
-        ema_12=151.00,
-        ema_26=149.50,
-        rsi_14=58.5,
-        macd=1.50,
-        macd_signal=1.25,
-        macd_histogram=0.25,
-        bollinger_upper=155.00,
-        bollinger_middle=150.00,
-        bollinger_lower=145.00,
-        atr_14=2.50,
-        adx_14=25.0,
-        obv=50000000.0,
-        vwap=150.25,
-        source="fallback"
+        source="unavailable"
     )
 
 
@@ -700,23 +658,9 @@ async def get_sectors() -> SectorsResponse:
         except Exception as e:
             logger.warning(f"Sector fetch failed: {e}")
     
-    # Fallback
-    sectors = [
-        SectorPerformance(
-            sector="Technology", change_percent=1.25, volume=500000000,
-            market_cap=15000000000000, top_gainer="NVDA", top_loser="INTC"
-        ),
-        SectorPerformance(
-            sector="Healthcare", change_percent=-0.50, volume=200000000,
-            market_cap=5000000000000, top_gainer="LLY", top_loser="PFE"
-        ),
-        SectorPerformance(
-            sector="Financial", change_percent=0.75, volume=300000000,
-            market_cap=8000000000000, top_gainer="JPM", top_loser="WFC"
-        ),
-    ]
-    
-    return SectorsResponse(sectors=sectors, source="fallback")
+    # Data unavailable - return empty sectors
+    logger.warning("Sector performance data unavailable")
+    return SectorsResponse(sectors=[], source="unavailable")
 
 
 @router.get(
@@ -805,36 +749,13 @@ async def get_movers(
         except Exception as e:
             logger.warning(f"Movers fetch failed: {e}")
     
-    # Fallback
-    gainers = [
-        Mover(
-            symbol="NVDA", name="NVIDIA Corp", price=875.50,
-            change=45.00, change_percent=5.42,
-            volume=80000000, avg_volume=50000000, volume_ratio=1.6
-        ),
-    ]
-    
-    losers = [
-        Mover(
-            symbol="BA", name="Boeing Co", price=175.25,
-            change=-8.50, change_percent=-4.63,
-            volume=25000000, avg_volume=15000000, volume_ratio=1.67
-        ),
-    ]
-    
-    most_active = [
-        Mover(
-            symbol="TSLA", name="Tesla Inc", price=245.00,
-            change=5.00, change_percent=2.08,
-            volume=150000000, avg_volume=100000000, volume_ratio=1.5
-        ),
-    ]
-    
+    # Data unavailable - return empty movers
+    logger.warning("Market movers data unavailable")
     return MoversResponse(
-        gainers=gainers[:limit],
-        losers=losers[:limit],
-        most_active=most_active[:limit],
-        source="fallback"
+        gainers=[],
+        losers=[],
+        most_active=[],
+        source="unavailable"
     )
 
 

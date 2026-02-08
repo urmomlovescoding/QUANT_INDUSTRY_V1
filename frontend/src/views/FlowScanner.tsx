@@ -540,13 +540,13 @@ export function FlowScanner() {
               <div className="flex justify-between items-center">
                 <span className="text-xs text-foreground-muted">Unusual %</span>
                 <span className="text-sm font-mono text-yellow-500">
-                  {((stats.totalUnusual / flows.length) * 100).toFixed(1)}%
+                  {flows.length > 0 ? ((stats.totalUnusual / flows.length) * 100).toFixed(1) : '0.0'}%
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-foreground-muted">Sweep %</span>
                 <span className="text-sm font-mono text-purple-500">
-                  {((stats.totalSweeps / flows.length) * 100).toFixed(1)}%
+                  {flows.length > 0 ? ((stats.totalSweeps / flows.length) * 100).toFixed(1) : '0.0'}%
                 </span>
               </div>
 

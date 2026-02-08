@@ -198,202 +198,31 @@ const SECTOR_COLORS: Record<string, string> = {
 const TIME_PERIODS: TimePeriod[] = ['1H', '4H', '1D', '1W', '1M', 'YTD', 'ALL']
 
 // =============================================================================
-// MOCK DATA GENERATOR (Enhanced)
+// EMPTY DATA (shown when no real data is available)
 // =============================================================================
 
-function generateMockPnLData(): PnLAttributionData {
-  const totalPnL = (Math.random() - 0.3) * 50000
-  const now = new Date()
-
-  // Generate factor attribution with proper breakdown
-  const byFactor: FactorAttribution[] = [
-    {
-      factorName: 'alpha',
-      displayName: 'Alpha',
-      pnl: totalPnL * 0.35 + (Math.random() - 0.5) * 5000,
-      pnlPercent: (Math.random() - 0.3) * 3,
-      contribution: 35 + (Math.random() - 0.5) * 10,
-      exposure: 1.0,
-      tStat: 1.5 + Math.random() * 1.5,
-      description: 'Skill-based returns from active management',
-      color: FACTOR_COLORS.alpha,
-      breakdown: [
-        { name: 'Stock Selection', pnl: totalPnL * 0.2, contribution: 20, exposure: 1.0 },
-        { name: 'Timing', pnl: totalPnL * 0.1, contribution: 10, exposure: 0.8 },
-        { name: 'Execution', pnl: totalPnL * 0.05, contribution: 5, exposure: 1.0 },
-      ],
-    },
-    {
-      factorName: 'beta',
-      displayName: 'Market Beta',
-      pnl: totalPnL * 0.25 + (Math.random() - 0.5) * 4000,
-      pnlPercent: (Math.random() - 0.3) * 2,
-      contribution: 25 + (Math.random() - 0.5) * 8,
-      exposure: 0.85 + Math.random() * 0.3,
-      tStat: 2.0 + Math.random(),
-      description: 'Returns from market exposure',
-      color: FACTOR_COLORS.beta,
-      breakdown: [
-        { name: 'SPY Beta', pnl: totalPnL * 0.15, contribution: 15, exposure: 0.9 },
-        { name: 'QQQ Beta', pnl: totalPnL * 0.1, contribution: 10, exposure: 0.7 },
-      ],
-    },
-    {
-      factorName: 'sector',
-      displayName: 'Sector',
-      pnl: totalPnL * 0.2 + (Math.random() - 0.5) * 3000,
-      pnlPercent: (Math.random() - 0.4) * 2,
-      contribution: 20 + (Math.random() - 0.5) * 6,
-      exposure: (Math.random() - 0.5) * 0.4,
-      tStat: (Math.random() - 0.5) * 3,
-      description: 'Returns from sector allocation',
-      color: FACTOR_COLORS.sector,
-      breakdown: Object.entries(SECTOR_COLORS).slice(0, 5).map(([name]) => ({
-        name,
-        pnl: (Math.random() - 0.4) * 3000,
-        contribution: (Math.random() - 0.4) * 8,
-        exposure: (Math.random() - 0.5) * 0.2,
-      })),
-    },
-    {
-      factorName: 'currency',
-      displayName: 'Currency',
-      pnl: totalPnL * 0.1 + (Math.random() - 0.5) * 2000,
-      pnlPercent: (Math.random() - 0.5) * 1.5,
-      contribution: 10 + (Math.random() - 0.5) * 4,
-      exposure: (Math.random() - 0.5) * 0.3,
-      tStat: (Math.random() - 0.5) * 2,
-      description: 'Returns from currency exposure',
-      color: FACTOR_COLORS.currency,
-      breakdown: [
-        { name: 'EUR/USD', pnl: (Math.random() - 0.5) * 1500, contribution: 4, exposure: 0.15 },
-        { name: 'GBP/USD', pnl: (Math.random() - 0.5) * 1000, contribution: 3, exposure: 0.1 },
-        { name: 'JPY/USD', pnl: (Math.random() - 0.5) * 800, contribution: 2, exposure: 0.08 },
-        { name: 'Other', pnl: (Math.random() - 0.5) * 500, contribution: 1, exposure: 0.05 },
-      ],
-    },
-    {
-      factorName: 'momentum',
-      displayName: 'Momentum',
-      pnl: totalPnL * 0.05 + (Math.random() - 0.5) * 1500,
-      pnlPercent: (Math.random() - 0.5) * 1,
-      contribution: 5 + (Math.random() - 0.5) * 3,
-      exposure: (Math.random() - 0.3) * 0.5,
-      tStat: (Math.random() - 0.3) * 2,
-      description: 'Price momentum factor exposure',
-      color: FACTOR_COLORS.momentum,
-    },
-    {
-      factorName: 'volatility',
-      displayName: 'Volatility',
-      pnl: totalPnL * 0.05 + (Math.random() - 0.5) * 1000,
-      pnlPercent: (Math.random() - 0.5) * 0.8,
-      contribution: 5 + (Math.random() - 0.5) * 2,
-      exposure: (Math.random() - 0.5) * 0.3,
-      tStat: (Math.random() - 0.5) * 1.5,
-      description: 'Low volatility anomaly exposure',
-      color: FACTOR_COLORS.volatility,
-    },
-  ]
-
-  // Generate asset attribution
-  const assets = [
-    { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology' },
-    { symbol: 'GOOGL', name: 'Alphabet Inc.', sector: 'Technology' },
-    { symbol: 'MSFT', name: 'Microsoft Corp.', sector: 'Technology' },
-    { symbol: 'TSLA', name: 'Tesla Inc.', sector: 'Consumer' },
-    { symbol: 'NVDA', name: 'NVIDIA Corp.', sector: 'Technology' },
-    { symbol: 'META', name: 'Meta Platforms', sector: 'Communication' },
-    { symbol: 'AMZN', name: 'Amazon.com', sector: 'Consumer' },
-    { symbol: 'JPM', name: 'JPMorgan Chase', sector: 'Financial' },
-    { symbol: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare' },
-    { symbol: 'XOM', name: 'Exxon Mobil', sector: 'Energy' },
-  ]
-
-  const assetPnLs = assets.map(() => (Math.random() - 0.4) * 5000)
-  const totalAssetPnL = assetPnLs.reduce((a, b) => a + Math.abs(b), 0) || 1
-
-  const byAsset: AssetAttribution[] = assets.map((asset, i) => {
-    const basePrice = 100 + Math.random() * 400
-    const position = Math.floor(Math.random() * 200) - 50
-    const unrealized = position * (Math.random() - 0.5) * 10
-
-    return {
-      ...asset,
-      pnl: assetPnLs[i],
-      pnlPercent: assetPnLs[i] / 10000 * 100,
-      contribution: (Math.abs(assetPnLs[i]) / totalAssetPnL) * 100 * Math.sign(assetPnLs[i]),
-      position,
-      avgEntry: basePrice * (1 - Math.random() * 0.1),
-      currentPrice: basePrice,
-      unrealized,
-      realized: assetPnLs[i] - unrealized,
-      factors: {
-        alpha: (Math.random() - 0.5) * 1000,
-        beta: (Math.random() - 0.3) * 2000,
-        sector: (Math.random() - 0.5) * 800,
-        currency: (Math.random() - 0.5) * 500,
-      },
-    }
-  })
-
-  // Generate time-based attribution (hourly for the last 24 hours)
-  const byTime: TimeAttribution[] = []
-  let cumulativePnl = 0
-  for (let i = 23; i >= 0; i--) {
-    const timestamp = new Date(now.getTime() - i * 60 * 60 * 1000)
-    const hourPnl = (Math.random() - 0.45) * 2000
-    cumulativePnl += hourPnl
-    byTime.push({
-      period: `${timestamp.getHours().toString().padStart(2, '0')}:00`,
-      timestamp: timestamp.toISOString(),
-      pnl: hourPnl,
-      pnlPercent: hourPnl / 100000 * 100,
-      cumulativePnl,
-      trades: Math.floor(Math.random() * 10),
-      winRate: 0.4 + Math.random() * 0.3,
-      factors: {
-        alpha: hourPnl * 0.35 + (Math.random() - 0.5) * 200,
-        beta: hourPnl * 0.25 + (Math.random() - 0.5) * 150,
-        sector: hourPnl * 0.2 + (Math.random() - 0.5) * 100,
-        currency: hourPnl * 0.1 + (Math.random() - 0.5) * 80,
-      },
-    })
-  }
-
-  // Generate historical P&L for the chart
-  const historicalPnL = byTime.map(t => ({
-    timestamp: t.timestamp,
-    pnl: t.pnl,
-    cumulative: t.cumulativePnl,
-  }))
-
-  const factorTotal = byFactor.reduce((a, b) => a + b.pnl, 0)
-  const residual = totalPnL - factorTotal
-
-  return {
-    summary: {
-      totalPnL,
-      totalPnLPercent: totalPnL / 1000000 * 100,
-      unrealizedPnL: totalPnL * 0.35,
-      realizedPnL: totalPnL * 0.65,
-      tradingCosts: Math.abs(totalPnL) * 0.015,
-      netPnL: totalPnL * 0.985,
-      alpha: byFactor.find(f => f.factorName === 'alpha')?.pnl || 0,
-      beta: byFactor.find(f => f.factorName === 'beta')?.pnl || 0,
-      sectorPnL: byFactor.find(f => f.factorName === 'sector')?.pnl || 0,
-      currencyPnL: byFactor.find(f => f.factorName === 'currency')?.pnl || 0,
-      residual,
-      sharpeRatio: (Math.random() - 0.2) * 2.5,
-      informationRatio: (Math.random() - 0.3) * 1.5,
-      maxDrawdown: Math.random() * 0.08,
-      timestamp: now.toISOString(),
-    },
-    byFactor,
-    byAsset,
-    byTime,
-    historicalPnL,
-  }
+const EMPTY_PNL_DATA: PnLAttributionData = {
+  summary: {
+    totalPnL: 0,
+    totalPnLPercent: 0,
+    unrealizedPnL: 0,
+    realizedPnL: 0,
+    tradingCosts: 0,
+    netPnL: 0,
+    alpha: 0,
+    beta: 0,
+    sectorPnL: 0,
+    currencyPnL: 0,
+    residual: 0,
+    sharpeRatio: 0,
+    informationRatio: 0,
+    maxDrawdown: 0,
+    timestamp: new Date().toISOString(),
+  },
+  byFactor: [],
+  byAsset: [],
+  byTime: [],
+  historicalPnL: [],
 }
 
 // =============================================================================
@@ -463,7 +292,7 @@ export function PnLAttribution({
   onAssetSelect,
   compact = false,
 }: PnLAttributionProps) {
-  const [data, setData] = useState<PnLAttributionData>(initialData || generateMockPnLData())
+  const [data, setData] = useState<PnLAttributionData>(initialData || EMPTY_PNL_DATA)
   const [activeTab, setActiveTab] = useState<TabType>('summary')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('1D')
@@ -473,26 +302,17 @@ export function PnLAttribution({
   const [filterSector, setFilterSector] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Auto-refresh logic
+  // Update data when initialData prop changes
   useEffect(() => {
-    if (!autoRefresh) return
-
-    const interval = setInterval(() => {
-      setData(generateMockPnLData())
-    }, refreshInterval)
-
-    return () => clearInterval(interval)
-  }, [autoRefresh, refreshInterval])
+    if (initialData) {
+      setData(initialData)
+    }
+  }, [initialData])
 
   const handleRefresh = useCallback(() => {
+    if (!onRefresh) return
     setIsRefreshing(true)
-
-    if (onRefresh) {
-      onRefresh()
-    } else {
-      setData(generateMockPnLData())
-    }
-
+    onRefresh()
     setTimeout(() => setIsRefreshing(false), 500)
   }, [onRefresh])
 
@@ -564,6 +384,32 @@ export function PnLAttribution({
   }, [data.summary])
 
   const isProfitable = data.summary.totalPnL >= 0
+  const hasData = data.byFactor.length > 0 || data.byAsset.length > 0 || data.byTime.length > 0
+
+  if (!hasData) {
+    return (
+      <div
+        ref={containerRef}
+        className={cn('card overflow-hidden', className)}
+      >
+        <div className="flex items-center gap-3 p-4 border-b border-border">
+          <div className="p-2 rounded-lg bg-background-tertiary">
+            <Activity className="w-5 h-5 text-foreground-muted" />
+          </div>
+          <h3 className="text-sm font-bold text-foreground-primary">P&L ATTRIBUTION</h3>
+        </div>
+        <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+          <DollarSign className="w-12 h-12 text-foreground-muted/30 mb-4" />
+          <h4 className="text-base font-semibold text-foreground-secondary mb-2">
+            No P&L Attribution Data
+          </h4>
+          <p className="text-sm text-foreground-muted max-w-md">
+            Execute trades to generate attribution analysis. Factor, asset, and time-based breakdowns will appear here once trading activity is recorded.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -1973,5 +1819,4 @@ function formatCurrency(value: number): string {
 // EXPORTS
 // =============================================================================
 
-export { generateMockPnLData }
 export type { PnLAttributionData, PnLAttributionProps, FactorAttribution, AssetAttribution, TimeAttribution }

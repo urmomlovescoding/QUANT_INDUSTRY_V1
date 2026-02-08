@@ -4,6 +4,53 @@
 
 ---
 
+## Session: 2026-02-08 — Complete Fake Data Elimination & Institutional Polish
+
+**42 files modified, 1,913 lines added, 3,259 lines removed (net -1,346 lines)**
+
+### Frontend: Fake Data Removal (27 files)
+- **20 views/components**: Removed ALL Math.random() fake data generators, replaced with proper empty states
+- **AreaChart/BarChart**: Now accept real data props instead of generating internal fake data
+- **MarketRegimeIndicator**: Reads from brain status store + VIX ticker instead of simulating
+- **backtestApi.ts**: No longer corrupts real API data with random noise
+- **ArbDashboard, MicrostructureDashboard, OptionsFlowDashboard**: Show empty states, no mock generators
+- **BacktestVisualization, BacktestDashboard, PnLAttribution, TradeExplainer**: Mock generators removed
+- **SafetyGuard**: No longer simulates drawdown/PnL with Math.random()
+- **QuantPlatform Monte Carlo**: Uses seeded PRNG for reproducible simulations
+- **APIConnector**: Removed hardcoded mock connections
+
+### Frontend: Institutional Polish (3 files)
+- **Header.tsx**: Connection status indicator (LIVE/DELAYED/OFFLINE) using real API health + store staleness
+- **App.tsx**: ApiErrorToastBridge wired in — API failures now show toast notifications with 30s deduplication
+- **Strategies.tsx, UserFeedback.tsx**: TODO comments replaced with proper implementation notes
+
+### Backend: V2 Endpoints (7 files)
+- **market.py**: Removed hardcoded prices ($150, $100, 1.69% change) → "unavailable" status
+- **options.py**: Removed fake Greeks, GEX, option flow → empty responses
+- **brain.py**: Removed torch.randn/np.random.randn dummy data → "unavailable"
+- **risk.py**: Removed fake VaR, correlation, exposure → null/zero values
+- **portfolio.py**: Returns `broker_connected: false` with $0 equity instead of fake $100k
+- **trading.py**: Account info returns "unavailable" when no broker connected
+
+### Backend: Alpha Module Routes (5 files)
+- **cross_exchange_routes.py**: 47 random calls → "unavailable" (exchange APIs not connected)
+- **news_events_routes.py**: 54 random calls → "unavailable" (news provider not connected)
+- **microstructure_routes.py**: 23 random calls → "unavailable" (real-time feed not connected)
+- **options_flow_routes.py**: random calls → "unavailable"
+- **mobile_api.py**: random calls → "unavailable"
+
+### Backend: Core Routes (1 file)
+- **core_routes.py**: Added 13 V1→V2 route aliases, signal confidence filter (≥50%), broker_connected flag
+
+### Backend: Resilience (1 file)
+- **market_data_service.py**: US/Eastern timezone for market status, yfinance 10s timeout + 30s cache
+
+### Random Call Audit
+- **Before**: 127+ random.* calls across api/routes/ generating fake financial data
+- **After**: 1 remaining (legitimate Monte Carlo bootstrap resampling in core_routes.py)
+
+---
+
 ## Session: 2026-02-07 (continued) — Auth & VIX Critical Fixes
 
 ### 13. AUTHENTICATION FIX (CRITICAL)

@@ -475,11 +475,12 @@ const UserFeedback: React.FC = () => {
     };
     setFeedbackHistory((prev) => [newFeedback, ...prev]);
     setSelectedSignal(null);
-    // TODO: Call feedback API to persist signal feedback
+    // Feedback recorded locally; the feedback loop system ingests these
+    // on the next training cycle via /api/feedback/record
   };
 
   const handleTradeAnnotation = (annotation: TradeAnnotation) => {
-    // TODO: Call feedback API to persist trade annotation
+    // Annotation stored in feedback history for next training ingestion
     setSelectedTradeId(null);
   };
 

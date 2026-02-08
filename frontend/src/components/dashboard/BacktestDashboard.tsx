@@ -5,7 +5,7 @@
  * Interactive backtesting interface with performance visualization
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   LineChart,
   Line,
@@ -476,93 +476,7 @@ export const BacktestDashboard: React.FC = () => {
     }
   }, [config]);
 
-  // Mock data for demo
-  useEffect(() => {
-    // Generate mock result for demonstration
-    const mockEquity: EquityPoint[] = [];
-    const mockDrawdowns: DrawdownPoint[] = [];
-    let equity = 100000;
-    let maxEquity = equity;
-    const startDate = new Date('2020-01-01');
-
-    for (let i = 0; i < 1000; i++) {
-      const date = new Date(startDate);
-      date.setDate(date.getDate() + i);
-      
-      const dailyReturn = (Math.random() - 0.48) * 0.02;
-      equity *= (1 + dailyReturn);
-      maxEquity = Math.max(maxEquity, equity);
-      const drawdown = (equity - maxEquity) / maxEquity;
-
-      mockEquity.push({
-        date: date.toISOString().split('T')[0],
-        equity: equity,
-        benchmark: 100000 * Math.pow(1.0003, i),
-        drawdown: drawdown,
-      });
-
-      mockDrawdowns.push({
-        date: date.toISOString().split('T')[0],
-        drawdown: drawdown,
-        duration: 0,
-      });
-    }
-
-    const mockTrades: Trade[] = Array.from({ length: 100 }, (_, i) => ({
-      id: `trade_${i}`,
-      symbol: ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'META'][Math.floor(Math.random() * 5)],
-      side: Math.random() > 0.5 ? 'long' : 'short',
-      entryDate: '2023-01-15',
-      entryPrice: 150 + Math.random() * 50,
-      exitDate: '2023-02-15',
-      exitPrice: 150 + Math.random() * 50,
-      quantity: Math.floor(Math.random() * 100) + 10,
-      pnl: (Math.random() - 0.4) * 5000,
-      pnlPercent: (Math.random() - 0.4) * 0.2,
-      holdingDays: Math.floor(Math.random() * 30) + 1,
-    }));
-
-    const mockMonthly: MonthlyReturn[] = [];
-    for (let year = 2020; year <= 2023; year++) {
-      for (let month = 1; month <= 12; month++) {
-        mockMonthly.push({
-          year,
-          month,
-          return: (Math.random() - 0.45) * 0.1,
-        });
-      }
-    }
-
-    setResult({
-      id: 'mock_1',
-      status: 'completed',
-      config,
-      metrics: {
-        totalReturn: 0.45,
-        annualizedReturn: 0.12,
-        sharpeRatio: 1.85,
-        sortinoRatio: 2.1,
-        calmarRatio: 1.5,
-        maxDrawdown: -0.15,
-        maxDrawdownDuration: 45,
-        winRate: 0.58,
-        profitFactor: 1.8,
-        avgWin: 2500,
-        avgLoss: -1200,
-        totalTrades: 156,
-        avgHoldingPeriod: 12,
-        beta: 0.85,
-        alpha: 0.08,
-        informationRatio: 0.95,
-        volatility: 0.18,
-      },
-      equity: mockEquity,
-      trades: mockTrades,
-      drawdowns: mockDrawdowns,
-      monthlyReturns: mockMonthly,
-      positionHistory: [],
-    });
-  }, []);
+  // No mock data - result starts as null until a real backtest is run
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
@@ -617,6 +531,13 @@ export const BacktestDashboard: React.FC = () => {
         {error && (
           <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg mb-6">
             {error}
+          </div>
+        )}
+
+        {!result && !loading && !error && (
+          <div className="flex flex-col items-center justify-center h-[400px] bg-gray-800 rounded-lg">
+            <div className="text-gray-500 text-lg mb-2">Run a backtest to see results</div>
+            <div className="text-gray-600 text-sm">Configure your strategy above and click "Run Backtest"</div>
           </div>
         )}
 

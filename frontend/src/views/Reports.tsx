@@ -195,10 +195,8 @@ export function Reports() {
         }
       }
 
-      // Generate sample drawdown and daily P&L data if API didn't return it
-      if (dailyPnl.length === 0 && summary && summary.totalTrades > 0) {
-        generateSampleData()
-      }
+      // Chart data (dailyPnl, drawdowns, strategies, monthlyReturns) is only
+      // shown when the API provides it. No fabricated fallback data.
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch report')
     } finally {
@@ -206,60 +204,8 @@ export function Reports() {
     }
   }, [dateRange])
 
-  // Generate sample visualization data when API returns stats but no chart data
-  const generateSampleData = () => {
-    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 365
-    const pnlData: DailyPnl[] = []
-    const ddData: DrawdownPoint[] = []
-    let cumulative = 0
-    let peak = 0
-
-    for (let i = 0; i < days; i++) {
-      const date = new Date()
-      date.setDate(date.getDate() - (days - i))
-      const dailyReturn = (Math.random() - 0.45) * 200
-      cumulative += dailyReturn
-      peak = Math.max(peak, cumulative)
-      const dd = peak > 0 ? ((cumulative - peak) / peak) * 100 : 0
-
-      pnlData.push({
-        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        pnl: Math.round(dailyReturn * 100) / 100,
-        cumulative: Math.round(cumulative * 100) / 100,
-      })
-      ddData.push({
-        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        drawdown: Math.round(dd * 100) / 100,
-        equity: Math.round((100000 + cumulative) * 100) / 100,
-        peak: Math.round((100000 + peak) * 100) / 100,
-      })
-    }
-    setDailyPnl(pnlData)
-    setDrawdowns(ddData)
-
-    // Generate sample strategy breakdown
-    if (strategies.length === 0) {
-      setStrategies([
-        { name: 'Momentum', pnl: cumulative * 0.4, trades: 12, winRate: 67, profitFactor: 1.8, color: STRATEGY_COLORS[0] },
-        { name: 'Mean Reversion', pnl: cumulative * 0.25, trades: 8, winRate: 62, profitFactor: 1.5, color: STRATEGY_COLORS[1] },
-        { name: 'Breakout', pnl: cumulative * 0.2, trades: 15, winRate: 53, profitFactor: 1.3, color: STRATEGY_COLORS[2] },
-        { name: 'Pairs', pnl: cumulative * 0.1, trades: 6, winRate: 72, profitFactor: 2.1, color: STRATEGY_COLORS[3] },
-        { name: 'ML Signals', pnl: cumulative * 0.05, trades: 3, winRate: 58, profitFactor: 1.2, color: STRATEGY_COLORS[4] },
-      ])
-    }
-
-    // Generate monthly returns
-    if (monthlyReturns.length === 0) {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-      const year = new Date().getFullYear()
-      const currentMonth = new Date().getMonth()
-      setMonthlyReturns(months.slice(0, currentMonth + 1).map((m, i) => ({
-        month: m,
-        year,
-        return_pct: Math.round((Math.random() - 0.4) * 10 * 100) / 100,
-      })))
-    }
-  }
+  // No fabricated sample data -- chart sections show empty states when API
+  // doesn't return dailyPnl, drawdowns, strategies, or monthlyReturns.
 
   useEffect(() => {
     fetchReport()
@@ -484,6 +430,56 @@ function MetricCard({ label, value, positive, negative, icon }: {
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({ summary, dailyPnl }: { summary: ReportSummary; dailyPnl: DailyPnl[] }) {
+  if (dailyPnl.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-8 card p-4">
+            <div className="chart-header">
+              <h3 className="chart-title">Cumulative P&L</h3>
+            </div>
+            <div className="h-64 flex items-center justify-center text-foreground-muted text-sm">
+              <div className="text-center">
+                <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p>Daily P&L chart data not available from the API</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-span-4 card p-4">
+            <div className="chart-header">
+              <h3 className="chart-title">Win/Loss Distribution</h3>
+            </div>
+            <div className="flex items-center justify-center h-36">
+              <DonutChart
+                data={[
+                  { name: 'Wins', value: summary.winRate, color: '#10b981' },
+                  { name: 'Losses', value: 100 - summary.winRate, color: '#ef4444' },
+                ]}
+                centerLabel={`${summary.winRate.toFixed(0)}%`}
+                centerSubLabel="Win Rate"
+                size={120}
+              />
+            </div>
+            <div className="space-y-2.5 mt-3">
+              <div className="flex justify-between text-xs">
+                <span className="text-foreground-muted">Total Trades</span>
+                <span className="font-mono font-bold">{summary.totalTrades}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-foreground-muted">Avg Win</span>
+                <span className="font-mono text-bullish">{summary.avgWin > 0 ? formatCurrency(summary.avgWin) : 'N/A'}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-foreground-muted">Avg Loss</span>
+                <span className="font-mono text-bearish">{summary.avgLoss !== 0 ? formatCurrency(summary.avgLoss) : 'N/A'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-12 gap-4">
@@ -590,6 +586,16 @@ function OverviewTab({ summary, dailyPnl }: { summary: ReportSummary; dailyPnl: 
 // ─── Drawdown Tab ─────────────────────────────────────────────────────────────
 
 function DrawdownTab({ drawdowns, maxDrawdown }: { drawdowns: DrawdownPoint[]; maxDrawdown: number }) {
+  if (drawdowns.length === 0) {
+    return (
+      <div className="card p-12 text-center text-foreground-muted">
+        <TrendingDown className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p className="text-sm font-medium text-foreground-secondary">No Drawdown Data Available</p>
+        <p className="text-xs mt-1">Drawdown analysis will appear when the API provides equity curve data</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="card p-4">
@@ -733,6 +739,16 @@ function RiskMetricRow({ label, value, good, warning }: {
 // ─── Attribution Tab ──────────────────────────────────────────────────────────
 
 function AttributionTab({ strategies }: { strategies: StrategyBreakdown[] }) {
+  if (strategies.length === 0) {
+    return (
+      <div className="card p-12 text-center text-foreground-muted">
+        <Layers className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p className="text-sm font-medium text-foreground-secondary">No Strategy Attribution Data</p>
+        <p className="text-xs mt-1">Strategy breakdown will appear when the API provides attribution data</p>
+      </div>
+    )
+  }
+
   const totalPnl = strategies.reduce((sum, s) => sum + s.pnl, 0)
 
   return (
@@ -838,6 +854,16 @@ function AttributionTab({ strategies }: { strategies: StrategyBreakdown[] }) {
 // ─── Monthly Tab ──────────────────────────────────────────────────────────────
 
 function MonthlyTab({ monthlyReturns }: { monthlyReturns: MonthlyReturn[] }) {
+  if (monthlyReturns.length === 0) {
+    return (
+      <div className="card p-12 text-center text-foreground-muted">
+        <Calendar className="w-10 h-10 mx-auto mb-3 opacity-30" />
+        <p className="text-sm font-medium text-foreground-secondary">No Monthly Returns Data</p>
+        <p className="text-xs mt-1">Monthly returns will appear when the API provides historical performance data</p>
+      </div>
+    )
+  }
+
   const ytdReturn = monthlyReturns.reduce((sum, m) => sum + m.return_pct, 0)
 
   return (

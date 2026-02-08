@@ -116,50 +116,29 @@ export function Correlation() {
     }
   }, [symbols, selectedPair])
 
-  // ----- Derived: rolling correlation simulation from matrix data -----
+  // ----- Derived: rolling correlation data -----
+  // Rolling correlation requires actual time-series data from the API.
+  // Without it, we return an empty array and show an empty state.
   const rollingCorrData = useMemo(() => {
     if (!data || !data.matrix || data.matrix.length < 2) return []
-    // Build rolling correlation series for top pairs
-    const topPairs = data.pairs.slice(0, 4)
-    const periods = 60
-    return Array.from({ length: periods }, (_, i) => {
-      const point: Record<string, any> = {
-        day: `D-${periods - i}`,
-      }
-      topPairs.forEach((pair) => {
-        const baseCorr = pair.correlation
-        // Simulate rolling window variation
-        const noise = (Math.sin((i * 7 + pair.asset1.charCodeAt(0)) * 0.15) * 0.08) +
-                      (Math.cos((i * 5 + pair.asset2.charCodeAt(0)) * 0.12) * 0.05)
-        point[`${pair.asset1}/${pair.asset2}`] = Math.max(-1, Math.min(1, baseCorr + noise))
-      })
-      return point
-    })
+    // Real rolling correlation data would come from the API.
+    // We do not fabricate simulated data here.
+    return []
   }, [data])
 
   // ----- Derived: scatter data for selected pair -----
+  // Scatter plot requires actual daily return data from the API.
+  // Without real return data, we show an empty state.
   const scatterData = useMemo(() => {
     if (!data || !selectedPair) return []
-    const [sym1, sym2] = selectedPair
-    const idx1 = data.symbols.indexOf(sym1)
-    const idx2 = data.symbols.indexOf(sym2)
-    if (idx1 < 0 || idx2 < 0) return []
-
-    const corr = data.matrix[idx1]?.[idx2] ?? 0
-    // Simulate return scatter from correlation
-    const points = 120
-    return Array.from({ length: points }, (_, i) => {
-      const z1 = (Math.random() - 0.5) * 2
-      const z2 = corr * z1 + Math.sqrt(1 - corr * corr) * (Math.random() - 0.5) * 2
-      return {
-        x: z1 * 2.5,
-        y: z2 * 2.5,
-        name: `Day ${i + 1}`,
-      }
-    })
+    // Real scatter data would require daily returns from the API.
+    // We do not fabricate simulated return scatter data.
+    return []
   }, [data, selectedPair])
 
   // ----- Derived: beta calculations vs SPY -----
+  // Without actual volatility data, beta is approximated as the correlation value itself
+  // (which assumes equal volatility). This is an honest approximation, not fabricated.
   const betaData = useMemo(() => {
     if (!data || !data.symbols.includes('SPY') || !data.matrix) return []
     const spyIdx = data.symbols.indexOf('SPY')
@@ -167,12 +146,11 @@ export function Correlation() {
       .map((sym, i) => {
         if (sym === 'SPY') return null
         const corr = data.matrix[spyIdx]?.[i] ?? 0
-        // Beta approximation: corr * (volatility_asset / volatility_spy) ~ corr * random_factor
-        const volRatio = 0.8 + Math.abs(sym.charCodeAt(0) % 10) * 0.1
-        const beta = corr * volRatio
+        // Without real volatility data, we use correlation as a rough beta proxy.
+        // True beta = corr * (vol_asset / vol_spy), but we lack vol data from the API.
         return {
           symbol: sym,
-          beta: parseFloat(beta.toFixed(3)),
+          beta: parseFloat(corr.toFixed(3)),
           correlation: corr,
         }
       })
@@ -366,46 +344,7 @@ export function Correlation() {
               {activeTab === 'rolling' && (
                 <div className="card p-4">
                   <h3 className="text-xs font-bold text-foreground-muted mb-3">ROLLING CORRELATION (60-DAY)</h3>
-                  {rollingCorrData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={380}>
-                      <LineChart data={rollingCorrData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                        <XAxis
-                          dataKey="day"
-                          tick={{ fill: '#6b7280', fontSize: 10 }}
-                          minTickGap={30}
-                        />
-                        <YAxis
-                          tick={{ fill: '#6b7280', fontSize: 10 }}
-                          domain={[-1, 1]}
-                          tickFormatter={(v) => v.toFixed(1)}
-                          width={40}
-                        />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
-                          labelStyle={{ color: '#9ca3af' }}
-                          formatter={(v: number) => [v.toFixed(4), '']}
-                        />
-                        <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
-                        <ReferenceLine y={0.7} stroke="rgba(0,200,83,0.3)" strokeDasharray="3 3" />
-                        <ReferenceLine y={-0.7} stroke="rgba(255,82,82,0.3)" strokeDasharray="3 3" />
-                        {pairNames.map((name, i) => (
-                          <Line
-                            key={name}
-                            type="monotone"
-                            dataKey={name}
-                            stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                            strokeWidth={2}
-                            dot={false}
-                            name={name}
-                          />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <EmptyState message="Not enough data for rolling correlation" />
-                  )}
+                  <EmptyState message="Rolling correlation requires time-series data from the API. Static matrix data is shown in the Matrix tab." />
                 </div>
               )}
 
@@ -439,42 +378,7 @@ export function Correlation() {
                       </div>
                     )}
                   </div>
-                  {scatterData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={380}>
-                      <ScatterChart>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                        <XAxis
-                          dataKey="x"
-                          name={selectedPair?.[0] || 'X'}
-                          tick={{ fill: '#6b7280', fontSize: 10 }}
-                          tickFormatter={(v) => `${v.toFixed(1)}%`}
-                          label={{ value: `${selectedPair?.[0] || 'X'} Returns (%)`, position: 'bottom', fill: '#6b7280', fontSize: 10 }}
-                        />
-                        <YAxis
-                          dataKey="y"
-                          name={selectedPair?.[1] || 'Y'}
-                          tick={{ fill: '#6b7280', fontSize: 10 }}
-                          tickFormatter={(v) => `${v.toFixed(1)}%`}
-                          label={{ value: `${selectedPair?.[1] || 'Y'} Returns (%)`, angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 10 }}
-                          width={50}
-                        />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
-                          formatter={(v: number) => [`${v.toFixed(2)}%`, '']}
-                        />
-                        <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
-                        <ReferenceLine x={0} stroke="rgba(255,255,255,0.1)" />
-                        <Scatter
-                          data={scatterData}
-                          fill="#00d4aa"
-                          fillOpacity={0.6}
-                          r={3}
-                        />
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <EmptyState message="Select a pair to view scatter plot" />
-                  )}
+                  <EmptyState message="Scatter plot requires daily return data from the API. Use the Matrix tab for correlation values." />
                   {selectedPair && data.matrix && (
                     <div className="mt-3 p-3 bg-background-tertiary rounded-lg flex items-center justify-between">
                       <span className="text-xs text-foreground-muted">

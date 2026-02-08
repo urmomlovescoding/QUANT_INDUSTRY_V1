@@ -137,28 +137,10 @@ function transformPairData(apiPair: any, index: number): TradingPair {
   }
 }
 
-function generateSpreadHistory(mean: number, std: number, days: number) {
-  const history: any[] = []
-  let spread = mean
-  for (let i = 0; i < days; i++) {
-    const date = new Date()
-    date.setDate(date.getDate() - (days - i))
-    // Ornstein-Uhlenbeck process simulation
-    const dt = 1 / 252
-    const theta = 0.1 // mean reversion speed
-    const sigma = std * 0.3
-    spread = spread + theta * (mean - spread) * dt + sigma * Math.sqrt(dt) * (Math.random() * 2 - 1)
-    const z = (spread - mean) / std
-    history.push({
-      date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      spread: Math.round(spread * 1000) / 1000,
-      upper: Math.round((mean + 2 * std) * 1000) / 1000,
-      lower: Math.round((mean - 2 * std) * 1000) / 1000,
-      mean: Math.round(mean * 1000) / 1000,
-      zScore: Math.round(z * 100) / 100,
-    })
-  }
-  return history
+// Returns an empty array -- spread history should come from the API.
+// No simulated Ornstein-Uhlenbeck data is generated.
+function generateSpreadHistory(_mean: number, _std: number, _days: number) {
+  return [] as { date: string; spread: number; upper: number; lower: number; mean: number; zScore: number }[]
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -622,16 +604,22 @@ function PairCard({
 
         {/* Mini spread chart */}
         <div className="h-14 -mx-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={pair.spreadHistory.slice(-30)}>
-              <Area type="monotone" dataKey="upper" stroke="none" fill="rgba(239,68,68,0.05)" />
-              <Area type="monotone" dataKey="lower" stroke="none" fill="rgba(16,185,129,0.05)" />
-              <Line type="monotone" dataKey="upper" stroke="#6b728040" strokeDasharray="2 2" dot={false} strokeWidth={1} />
-              <Line type="monotone" dataKey="lower" stroke="#6b728040" strokeDasharray="2 2" dot={false} strokeWidth={1} />
-              <Line type="monotone" dataKey="mean" stroke="#f59e0b40" strokeDasharray="4 4" dot={false} strokeWidth={1} />
-              <Line type="monotone" dataKey="spread" stroke="#f4f4f5" dot={false} strokeWidth={1.5} />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {pair.spreadHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={pair.spreadHistory.slice(-30)}>
+                <Area type="monotone" dataKey="upper" stroke="none" fill="rgba(239,68,68,0.05)" />
+                <Area type="monotone" dataKey="lower" stroke="none" fill="rgba(16,185,129,0.05)" />
+                <Line type="monotone" dataKey="upper" stroke="#6b728040" strokeDasharray="2 2" dot={false} strokeWidth={1} />
+                <Line type="monotone" dataKey="lower" stroke="#6b728040" strokeDasharray="2 2" dot={false} strokeWidth={1} />
+                <Line type="monotone" dataKey="mean" stroke="#f59e0b40" strokeDasharray="4 4" dot={false} strokeWidth={1} />
+                <Line type="monotone" dataKey="spread" stroke="#f4f4f5" dot={false} strokeWidth={1.5} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-[10px] text-foreground-muted">
+              Spread history requires live market data
+            </div>
+          )}
         </div>
 
         {/* Stats row */}
@@ -709,26 +697,35 @@ function PairDetailPanel({ pair, onToggle }: { pair: TradingPair; onToggle: () =
       <div className="card p-4">
         <div className="chart-header">
           <h3 className="chart-title">Spread with Bollinger Bands</h3>
-          <div className="flex items-center gap-4 text-xs text-foreground-muted">
-            <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-white rounded" /> Spread</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-accent-primary rounded" /> Mean</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-gray-500 rounded" /> +/-2\u03C3</span>
-          </div>
+          {pair.spreadHistory.length > 0 && (
+            <div className="flex items-center gap-4 text-xs text-foreground-muted">
+              <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-white rounded" /> Spread</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-accent-primary rounded" /> Mean</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-gray-500 rounded" /> +/-2\u03C3</span>
+            </div>
+          )}
         </div>
         <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={pair.spreadHistory}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-              <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: '#a1a1aa', fontSize: 11 }} />
-              <Area type="monotone" dataKey="upper" stroke="none" fill="rgba(239,68,68,0.04)" stackId="band" />
-              <Line type="monotone" dataKey="upper" stroke="#ef444450" strokeDasharray="3 3" dot={false} strokeWidth={1} name="+2\u03C3" />
-              <Line type="monotone" dataKey="lower" stroke="#10b98150" strokeDasharray="3 3" dot={false} strokeWidth={1} name="-2\u03C3" />
-              <Line type="monotone" dataKey="mean" stroke="#f59e0b" strokeDasharray="5 5" dot={false} strokeWidth={1} name="Mean" />
-              <Line type="monotone" dataKey="spread" stroke="#f4f4f5" dot={false} strokeWidth={2} name="Spread" />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {pair.spreadHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={pair.spreadHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: '#a1a1aa', fontSize: 11 }} />
+                <Area type="monotone" dataKey="upper" stroke="none" fill="rgba(239,68,68,0.04)" stackId="band" />
+                <Line type="monotone" dataKey="upper" stroke="#ef444450" strokeDasharray="3 3" dot={false} strokeWidth={1} name="+2\u03C3" />
+                <Line type="monotone" dataKey="lower" stroke="#10b98150" strokeDasharray="3 3" dot={false} strokeWidth={1} name="-2\u03C3" />
+                <Line type="monotone" dataKey="mean" stroke="#f59e0b" strokeDasharray="5 5" dot={false} strokeWidth={1} name="Mean" />
+                <Line type="monotone" dataKey="spread" stroke="#f4f4f5" dot={false} strokeWidth={2} name="Spread" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-foreground-muted">
+              <BarChart3 className="w-8 h-8 mb-2 opacity-30" />
+              <p className="text-sm">Historical spread data requires live market connection</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -741,26 +738,32 @@ function PairDetailPanel({ pair, onToggle }: { pair: TradingPair; onToggle: () =
           </span>
         </div>
         <div className="h-32">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={zScoreHistory}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 9 }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} domain={[-3, 3]} />
-              <ReferenceLine y={2} stroke="#ef4444" strokeDasharray="3 3" />
-              <ReferenceLine y={-2} stroke="#10b981" strokeDasharray="3 3" />
-              <ReferenceLine y={0} stroke="#71717a" />
-              <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: '#a1a1aa', fontSize: 11 }} />
-              <Bar dataKey="zScore" name="Z-Score" radius={[2, 2, 0, 0]}>
-                {zScoreHistory.map((entry, i) => (
-                  <Cell
-                    key={i}
-                    fill={entry.zScore > 2 ? '#ef4444' : entry.zScore < -2 ? '#10b981' : entry.zScore > 1 ? '#f59e0b' : entry.zScore < -1 ? '#f59e0b' : '#4b5563'}
-                    fillOpacity={0.7}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {zScoreHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={zScoreHistory}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 9 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fill: '#71717a', fontSize: 10 }} tickLine={false} axisLine={false} domain={[-3, 3]} />
+                <ReferenceLine y={2} stroke="#ef4444" strokeDasharray="3 3" />
+                <ReferenceLine y={-2} stroke="#10b981" strokeDasharray="3 3" />
+                <ReferenceLine y={0} stroke="#71717a" />
+                <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: '#a1a1aa', fontSize: 11 }} />
+                <Bar dataKey="zScore" name="Z-Score" radius={[2, 2, 0, 0]}>
+                  {zScoreHistory.map((entry, i) => (
+                    <Cell
+                      key={i}
+                      fill={entry.zScore > 2 ? '#ef4444' : entry.zScore < -2 ? '#10b981' : entry.zScore > 1 ? '#f59e0b' : entry.zScore < -1 ? '#f59e0b' : '#4b5563'}
+                      fillOpacity={0.7}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-foreground-muted text-sm">
+              Z-Score history requires live spread data
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-center gap-6 mt-2 text-xs text-foreground-muted">
           <span>Short Entry: z &gt; +2</span>

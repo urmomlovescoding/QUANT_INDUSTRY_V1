@@ -452,27 +452,10 @@ async def generate_signal(request: GenerateSignalRequest) -> Signal:
         except Exception as e:
             logger.error(f"Brain signal generation error: {e}")
     
-    # Fallback: generate basic signal from price data
-    current_price = 150.00
-    if DATA_SERVICE_AVAILABLE:
-        try:
-            ds = get_data_service()
-            quote = ds.get_quote(symbol)
-            if quote:
-                current_price = quote.price
-        except Exception as e:
-            logger.debug(f"Could not fetch quote for {symbol}: {e}")
-
-    return Signal(
-        symbol=symbol,
-        direction=SignalDirection.LONG,
-        confidence=0.65,
-        entry_price=current_price,
-        stop_loss=round(current_price * 0.97, 2),
-        take_profit=round(current_price * 1.05, 2),
-        position_size=75,
-        source="technical_fallback",
-        reasoning="Generated from basic technical analysis"
+    # No brain or data available - cannot generate signal
+    raise HTTPException(
+        status_code=503,
+        detail=f"Signal generation unavailable for {symbol}. ML brain or market data not available."
     )
 
 
@@ -944,15 +927,9 @@ async def get_account_info() -> AccountInfoResponse:
             logger.error(f"Get account error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    # Fallback mock
-    return AccountInfoResponse(
-        account_id="PAPER-001",
-        buying_power=100000.00,
-        cash=100000.00,
-        portfolio_value=100000.00,
-        equity=100000.00,
-        margin_used=0.00,
-        margin_available=100000.00,
-        day_trades_remaining=3,
-        pattern_day_trader=False
+    # No broker connected - account info unavailable
+    logger.warning("Account info unavailable - no broker connected")
+    raise HTTPException(
+        status_code=503,
+        detail="Account information unavailable. No broker connected."
     )

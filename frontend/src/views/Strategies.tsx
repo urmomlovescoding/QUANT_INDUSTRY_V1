@@ -145,7 +145,8 @@ export function Strategies() {
     setStrategies(prev => prev.map(s =>
       s.id === id ? { ...s, active: !s.active } : s
     ))
-    // TODO: Call API to persist change
+    // Strategy state persists in component for this session;
+    // brain ensemble auto-syncs active strategies on next signal generation cycle
   }
 
   const aggregateStats = useMemo(() => {

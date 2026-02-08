@@ -14,6 +14,15 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
+// Seeded PRNG for reproducible Monte Carlo simulations
+function seededRandom(seed: number): () => number {
+  let s = seed
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0xffffffff
+    return (s >>> 0) / 0xffffffff
+  }
+}
+
 // ==================== TYPES ====================
 
 type TabId = 'optimizer' | 'strategies' | 'backtest' | 'walkforward' | 'risk' | 'montecarlo' | 'mlbrain' | 'learning'
@@ -1256,6 +1265,7 @@ function MonteCarloSimulation() {
       const maxDrawdown = perfData?.max_drawdown ?? riskData?.current_drawdown ?? 10
 
       // Run Monte Carlo simulation client-side using real parameters
+      const rng = seededRandom(42)
       const simResults: number[] = []
       let maxDDs: number[] = []
 
@@ -1265,8 +1275,8 @@ function MonteCarloSimulation() {
         let maxDD = 0
 
         for (let day = 0; day < horizon; day++) {
-          const isWin = Math.random() * 100 < winRate
-          const pnl = isWin ? avgWin * (0.5 + Math.random()) : -avgLoss * (0.5 + Math.random())
+          const isWin = rng() * 100 < winRate
+          const pnl = isWin ? avgWin * (0.5 + rng()) : -avgLoss * (0.5 + rng())
           equity += pnl
           if (equity > peak) peak = equity
           const dd = ((peak - equity) / peak) * 100

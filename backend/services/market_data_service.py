@@ -9,9 +9,11 @@ This is the SINGLE source of truth for market data in the application.
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +111,11 @@ class MarketDataService:
         bars = await service.get_bars("AAPL", timeframe="1Day", days=30)
     """
     
+    # In-memory cache for yfinance data: {cache_key: (timestamp, data)}
+    _yf_cache: Dict[str, Tuple[float, Any]] = {}
+    _YF_CACHE_TTL = 30  # seconds before cached yfinance data expires
+    _YF_TIMEOUT = 10.0  # seconds before a yfinance request times out
+
     def __init__(self):
         self._alpaca = None
         self._use_yfinance = False
@@ -253,10 +260,32 @@ class MarketDataService:
 
         return {s: self._mock_quote(s) for s in symbols}
     
+    def _yf_cache_get(self, key: str) -> Optional[Any]:
+        """Return cached yfinance data if still fresh, else None."""
+        entry = self._yf_cache.get(key)
+        if entry is None:
+            return None
+        cached_time, data = entry
+        if time.monotonic() - cached_time > self._YF_CACHE_TTL:
+            del self._yf_cache[key]
+            return None
+        return data
+
+    def _yf_cache_set(self, key: str, data: Any) -> None:
+        """Store data in the yfinance cache."""
+        self._yf_cache[key] = (time.monotonic(), data)
+
     async def _yfinance_quote(self, symbol: str) -> Optional[Quote]:
-        """Get quote from yfinance (free, no API key required)."""
+        """Get quote from yfinance with timeout and caching."""
         if not HAS_YFINANCE:
             return None
+
+        # Check cache first
+        cache_key = f"quote:{symbol}"
+        cached = self._yf_cache_get(cache_key)
+        if cached is not None:
+            logger.debug(f"yfinance cache hit for {symbol} quote")
+            return cached
 
         # Normalize symbols for yfinance (VIX -> ^VIX, etc.)
         yf_symbol = symbol
@@ -265,9 +294,10 @@ class MarketDataService:
 
         try:
             loop = asyncio.get_event_loop()
-            # Run yfinance in a thread to avoid blocking the event loop
-            info = await loop.run_in_executor(
-                None, lambda: yf.Ticker(yf_symbol).info
+            # Run yfinance in a thread with a timeout to prevent hangs
+            info = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: yf.Ticker(yf_symbol).info),
+                timeout=self._YF_TIMEOUT,
             )
 
             price = info.get('regularMarketPrice') or info.get('currentPrice', 0)
@@ -278,7 +308,7 @@ class MarketDataService:
             ask = info.get('ask', price)
             volume = info.get('regularMarketVolume', 0)
 
-            return Quote(
+            quote = Quote(
                 symbol=symbol,
                 bid=bid or price,
                 ask=ask or price,
@@ -287,6 +317,11 @@ class MarketDataService:
                 timestamp=datetime.now(),
                 source="yfinance"
             )
+            self._yf_cache_set(cache_key, quote)
+            return quote
+        except asyncio.TimeoutError:
+            logger.warning(f"yfinance quote timed out for {symbol} after {self._YF_TIMEOUT}s")
+            return None
         except Exception as e:
             logger.warning(f"yfinance quote failed for {symbol}: {e}")
             return None
@@ -298,9 +333,16 @@ class MarketDataService:
         end: datetime,
         interval: str = "1d"
     ) -> List['Bar']:
-        """Get historical bars from yfinance (free, no API key required)."""
+        """Get historical bars from yfinance with timeout and caching."""
         if not HAS_YFINANCE:
             return []
+
+        # Check cache first
+        cache_key = f"bars:{symbol}:{start.date()}:{end.date()}:{interval}"
+        cached = self._yf_cache_get(cache_key)
+        if cached is not None:
+            logger.debug(f"yfinance cache hit for {symbol} bars")
+            return cached
 
         # Normalize symbols for yfinance (VIX -> ^VIX, etc.)
         yf_symbol = symbol
@@ -319,7 +361,11 @@ class MarketDataService:
                 )
                 return df
 
-            df = await loop.run_in_executor(None, _fetch)
+            # Run in executor with timeout to prevent hangs
+            df = await asyncio.wait_for(
+                loop.run_in_executor(None, _fetch),
+                timeout=self._YF_TIMEOUT,
+            )
 
             if df is None or df.empty:
                 return []
@@ -335,7 +381,12 @@ class MarketDataService:
                     volume=float(row['Volume']),
                     source="yfinance"
                 ))
+
+            self._yf_cache_set(cache_key, bars)
             return bars
+        except asyncio.TimeoutError:
+            logger.warning(f"yfinance bars timed out for {symbol} after {self._YF_TIMEOUT}s")
+            return []
         except Exception as e:
             logger.warning(f"yfinance bars failed for {symbol}: {e}")
             return []
@@ -619,12 +670,13 @@ class MarketDataService:
     # =========================================================================
     
     async def get_market_status(self) -> Dict[str, Any]:
-        """Get market open/close status."""
-        # For now, simple time-based check
-        now = datetime.now()
+        """Get market open/close status using US/Eastern timezone."""
+        eastern = ZoneInfo("America/New_York")
+        now = datetime.now(eastern)
         hour = now.hour
+        minute = now.minute
         weekday = now.weekday()
-        
+
         if weekday >= 5:  # Weekend
             return {
                 "session": "closed",
@@ -633,16 +685,22 @@ class MarketDataService:
                 "is_after_hours": False,
                 "source": self.data_mode
             }
-        
-        if 9 <= hour < 16:
+
+        # US market hours in Eastern time:
+        # Pre-market:    04:00 - 09:30 ET
+        # Regular:       09:30 - 16:00 ET
+        # After-hours:   16:00 - 20:00 ET
+        current_minutes = hour * 60 + minute
+
+        if 570 <= current_minutes < 960:  # 09:30 - 16:00
             session, is_open = "regular", True
-        elif 4 <= hour < 9:
+        elif 240 <= current_minutes < 570:  # 04:00 - 09:30
             session, is_open = "pre_market", True
-        elif 16 <= hour < 20:
+        elif 960 <= current_minutes < 1200:  # 16:00 - 20:00
             session, is_open = "after_hours", True
         else:
             session, is_open = "closed", False
-        
+
         return {
             "session": session,
             "is_open": is_open,

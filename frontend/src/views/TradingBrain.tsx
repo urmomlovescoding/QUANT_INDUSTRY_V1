@@ -68,17 +68,18 @@ async function fetchBrainStatus(): Promise<BrainStatus> {
 }
 
 // Fetch market data for economic indicators
-async function fetchMarketData(): Promise<{ vix: number; spy_change: number }> {
+async function fetchMarketData(): Promise<{ vix: number | null; spy_change: number | null }> {
   const response = await fetch('/api/market/tickers?symbols=VIX,SPY')
   if (!response.ok) {
-    return { vix: 17.5, spy_change: 0.5 }
+    return { vix: null, spy_change: null }
   }
   const data = await response.json()
-  const vix = data.find((t: any) => t.symbol === 'VIX' || t.symbol === '^VIX')
-  const spy = data.find((t: any) => t.symbol === 'SPY')
+  const tickers = data?.data || data?.tickers || (Array.isArray(data) ? data : [])
+  const vix = tickers.find((t: any) => t.symbol === 'VIX' || t.symbol === '^VIX')
+  const spy = tickers.find((t: any) => t.symbol === 'SPY')
   return {
-    vix: vix?.price || 17.5,
-    spy_change: spy?.change_pct || 0.5
+    vix: vix?.price ?? null,
+    spy_change: spy?.change_pct ?? null
   }
 }
 
@@ -140,65 +141,58 @@ export function TradingBrain() {
   }
 
   // Derive cycle signals from regime data
+  // Only VIX and presidential cycle year are factual; other economic
+  // indicators (yield curve, ISM, credit spreads) require dedicated API
+  // endpoints and are shown as N/A until available.
   const getCycleSignals = () => {
     if (!regimeData) return []
 
     const consensus = getConsensusSignal()
-    const vix = marketData?.vix || 17
 
-    return cycles.slice(1).map((cycle, i) => {
-      let signal = consensus.signal
-      let value = '0.00'
+    return cycles.slice(1).map((cycle) => {
+      let signal = 'NEUTRAL'
+      let value = 'N/A'
 
-      // Customize based on cycle type
       switch (cycle.id) {
         case 'yield_curve':
-          // Yield curve: inverted = bearish
-          value = ((regimeData.confidence / 100) * 0.5 - 0.25).toFixed(2)
-          signal = parseFloat(value) < 0 ? 'BEARISH' : 'BULLISH'
+          // Real yield curve data requires a Treasury API
+          value = 'N/A'
+          signal = 'NEUTRAL'
           break
         case 'ism':
-          // ISM PMI typically between 45-60
-          value = (50 + (regimeData.confidence / 100) * 10 - 5).toFixed(1)
-          signal = parseFloat(value) > 50 ? 'BULLISH' : 'BEARISH'
+          // Real ISM PMI data requires an economic data API
+          value = 'N/A'
+          signal = 'NEUTRAL'
           break
         case 'credit_spreads':
-          // Credit spreads: higher = more stress
-          value = (1.5 + (100 - regimeData.confidence) / 50).toFixed(2)
-          signal = parseFloat(value) > 2 ? 'BEARISH' : 'BULLISH'
+          // Real credit spread data requires bond market API
+          value = 'N/A'
+          signal = 'NEUTRAL'
           break
         case 'presidential':
-          // Presidential cycle: year 3 & 4 typically bullish
+          // Presidential cycle year is factual
           const year = new Date().getFullYear()
           const cycleYear = ((year - 2021) % 4) + 1
           signal = cycleYear >= 3 ? 'BULLISH' : 'NEUTRAL'
-          value = cycleYear.toString()
+          value = `Year ${cycleYear}`
           break
         default:
-          // Use consensus for others
-          value = ((regimeData.confidence / 100) * 2 - 1).toFixed(2)
+          // Use consensus signal for others without fabricating values
+          signal = consensus.signal
+          value = '--'
       }
 
       return { ...cycle, signal, value }
     })
   }
 
-  // Get economic indicators
+  // Get economic indicators -- only VIX comes from real market data
   const getIndicators = () => {
-    if (!regimeData) {
-      return {
-        yield_curve: '0.00',
-        credit_spread: '1.50',
-        vix: '17.0',
-        ism_pmi: '52.0'
-      }
-    }
-
     return {
-      yield_curve: ((regimeData.confidence / 100) * 0.5 - 0.25).toFixed(2),
-      credit_spread: (1.5 + (100 - regimeData.confidence) / 50).toFixed(2),
-      vix: (marketData?.vix || 17).toFixed(1),
-      ism_pmi: (50 + (regimeData.confidence / 100) * 10 - 5).toFixed(1)
+      yield_curve: '--',
+      credit_spread: '--',
+      vix: marketData?.vix ? marketData.vix.toFixed(1) : '--',
+      ism_pmi: '--'
     }
   }
 
@@ -207,20 +201,20 @@ export function TradingBrain() {
     if (!regimeData) return 'Analyzing market conditions...'
 
     const consensus = getConsensusSignal()
-    const vix = marketData?.vix || 17
+    const vix = marketData?.vix
 
     if (consensus.signal === 'BULLISH') {
-      if (vix < 15) {
-        return `Multiple cycles align for continued expansion with low volatility (VIX: ${vix.toFixed(1)}). Risk appetite favored. Consider growth-oriented positioning with momentum strategies.`
+      if (vix != null && vix < 15) {
+        return `Regime analysis shows ${regimeData.current_regime} conditions with low volatility (VIX: ${vix.toFixed(1)}). Risk appetite favored. Consider growth-oriented positioning with momentum strategies.`
       }
       return `Regime analysis shows ${regimeData.current_regime} conditions with ${consensus.confidence.toFixed(0)}% confidence. Consider opportunistic long positions while monitoring volatility.`
     } else if (consensus.signal === 'BEARISH') {
-      if (vix > 25) {
-        return `Warning signals across multiple cycles with elevated volatility (VIX: ${vix.toFixed(1)}). Defensive positioning strongly recommended. Consider hedging strategies and reducing exposure.`
+      if (vix != null && vix > 25) {
+        return `Warning signals with elevated volatility (VIX: ${vix.toFixed(1)}). Defensive positioning strongly recommended. Consider hedging strategies and reducing exposure.`
       }
       return `Regime detector indicates ${regimeData.current_regime} conditions. Exercise caution with new positions. Consider defensive sectors and quality names.`
     }
-    return `Mixed signals across cycles with ${regimeData.volatility_regime} volatility regime. Wait for clearer confirmation before major positioning changes. Current regime duration: ${regimeData.regime_duration_days} days.`
+    return `Mixed signals with ${regimeData.volatility_regime} volatility regime. Wait for clearer confirmation before major positioning changes. Current regime duration: ${regimeData.regime_duration_days} days.`
   }
 
   const consensus = getConsensusSignal()
@@ -369,26 +363,21 @@ export function TradingBrain() {
             <div className="space-y-3">
               <div className="p-3 bg-background-tertiary rounded">
                 <div className="text-xs text-foreground-muted">Yield Curve</div>
-                <div className={cn(
-                  'text-lg font-mono font-bold',
-                  parseFloat(indicators.yield_curve) < 0 ? 'text-bearish' : 'text-bullish'
-                )}>
-                  {indicators.yield_curve}%
+                <div className="text-lg font-mono font-bold text-foreground-muted">
+                  {indicators.yield_curve === '--' ? '--' : `${indicators.yield_curve}%`}
                 </div>
               </div>
               <div className="p-3 bg-background-tertiary rounded">
                 <div className="text-xs text-foreground-muted">Credit Spread</div>
-                <div className={cn(
-                  'text-lg font-mono font-bold',
-                  parseFloat(indicators.credit_spread) > 2 ? 'text-warning' : 'text-bullish'
-                )}>
-                  {indicators.credit_spread}%
+                <div className="text-lg font-mono font-bold text-foreground-muted">
+                  {indicators.credit_spread === '--' ? '--' : `${indicators.credit_spread}%`}
                 </div>
               </div>
               <div className="p-3 bg-background-tertiary rounded">
                 <div className="text-xs text-foreground-muted">VIX Level</div>
                 <div className={cn(
                   'text-lg font-mono font-bold',
+                  indicators.vix === '--' ? 'text-foreground-muted' :
                   parseFloat(indicators.vix) > 20 ? 'text-warning' : 'text-bullish'
                 )}>
                   {indicators.vix}
@@ -396,11 +385,8 @@ export function TradingBrain() {
               </div>
               <div className="p-3 bg-background-tertiary rounded">
                 <div className="text-xs text-foreground-muted">ISM PMI</div>
-                <div className={cn(
-                  'text-lg font-mono font-bold',
-                  parseFloat(indicators.ism_pmi) < 50 ? 'text-bearish' : 'text-bullish'
-                )}>
-                  {indicators.ism_pmi}
+                <div className="text-lg font-mono font-bold text-foreground-muted">
+                  {indicators.ism_pmi === '--' ? '--' : indicators.ism_pmi}
                 </div>
               </div>
             </div>

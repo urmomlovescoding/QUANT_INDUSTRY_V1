@@ -159,8 +159,8 @@ export function Dashboard() {
         <MetricCard
           title="Win Rate"
           value={feedbackStatus ? formatPercent(winRate) : '--'}
-          change={feedbackStatus ? 3.2 : undefined}
-          changePercent={feedbackStatus ? 4.9 : undefined}
+          change={undefined}
+          changePercent={undefined}
           icon={Target}
           trend="up"
           isLoading={isLoading}
@@ -268,7 +268,7 @@ export function Dashboard() {
           </div>
           <div className="flex items-center justify-center h-44">
             <GaugeChart
-              value={riskMetrics?.risk_score ?? 42}
+              value={riskMetrics?.risk_score ?? 0}
               maxValue={100}
               label="Portfolio Risk"
             />

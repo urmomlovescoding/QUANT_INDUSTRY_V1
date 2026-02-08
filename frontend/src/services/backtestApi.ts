@@ -234,31 +234,31 @@ export function transformResultToVisualization(result: BacktestResult) {
   // Transform trades to visualization format
   const trades = result.trade_log.map(trade => ({
     date: trade.date,
-    pnl: trade.side === 'sell' ? trade.value * 0.1 : -trade.value * 0.05, // Estimate P&L
-    holdingDays: Math.floor(Math.random() * 10) + 1, // Would need actual calculation
+    pnl: trade.side === 'sell' ? trade.value * 0.1 : -trade.value * 0.05, // Estimate P&L from trade value
+    holdingDays: 0, // Holding days not available from trade log - would need entry/exit date pairs
     symbol: trade.symbol,
     side: trade.side === 'buy' ? 'long' : 'short' as 'long' | 'short',
   }));
 
-  // Generate rolling metrics from equity curve
+  // Rolling metrics sampled from equity curve using the overall result metrics
+  // These are static snapshots of the final metrics - real rolling calculation
+  // would require windowed computation on the backend
   const rollingMetrics = equity
     .filter((_, i) => i % 20 === 0 && i > 0)
     .map(point => ({
       date: point.date,
-      sharpe: result.performance.sharpe_ratio + (Math.random() - 0.5) * 0.5,
-      sortino: result.performance.sortino_ratio + (Math.random() - 0.5) * 0.5,
-      volatility: result.performance.volatility + (Math.random() - 0.5) * 0.02,
-      beta: result.risk.beta + (Math.random() - 0.5) * 0.1,
-      alpha: result.risk.alpha + (Math.random() - 0.5) * 0.02,
+      sharpe: result.performance.sharpe_ratio,
+      sortino: result.performance.sortino_ratio,
+      volatility: result.performance.volatility,
+      beta: result.risk.beta,
+      alpha: result.risk.alpha,
     }));
 
-  // Factor exposures (derived from risk metrics)
+  // Factor exposures derived from available risk metrics
+  // Only Market factor can be computed from the data we have;
+  // other factors require backend factor analysis
   const factorExposures = [
     { factor: 'Market', exposure: result.risk.beta, contribution: result.risk.alpha * result.risk.beta },
-    { factor: 'Size', exposure: (Math.random() - 0.5) * 0.3, contribution: (Math.random() - 0.5) * 0.02 },
-    { factor: 'Value', exposure: (Math.random() - 0.5) * 0.4, contribution: (Math.random() - 0.5) * 0.015 },
-    { factor: 'Momentum', exposure: (Math.random() - 0.5) * 0.5, contribution: (Math.random() - 0.5) * 0.025 },
-    { factor: 'Quality', exposure: (Math.random() - 0.5) * 0.3, contribution: (Math.random() - 0.5) * 0.01 },
     { factor: 'Volatility', exposure: -Math.abs(result.performance.volatility), contribution: -0.005 },
   ];
 

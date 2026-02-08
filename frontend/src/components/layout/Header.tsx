@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Maximize2, TrendingUp, TrendingDown } from 'lucide-react'
@@ -11,6 +11,7 @@ import { KillSwitch } from '../KillSwitch'
 import { UserMenu } from '../auth'
 import { marketApi, healthApi, MarketTicker as MarketTickerType } from '@/api/client'
 import { formatNumber } from '@/utils/format'
+import { useAppStore } from '@/store'
 
 const APP_VERSION = 'v10.0'
 
@@ -46,12 +47,44 @@ export function Header() {
   // Get data status from health endpoint
   const healthData = healthResponse?.ok ? healthResponse.data : null
   const dataStatus = (healthData as any)?.data || { is_live: false, primary_source: 'none', quality_score: 0 }
-  const isLiveData = dataStatus.is_live && dataStatus.quality_score >= 0.5
   const dataSource = dataStatus.primary_source || 'offline'
 
   // Determine connection status based on successful API calls
   const tickersData = tickersResponse?.ok ? tickersResponse.data : null
   const isConnected = isSuccess && tickersData && tickersData.length > 0
+
+  // Check store-level data freshness and errors for a comprehensive status
+  const storeErrors = useAppStore((s) => s.errors)
+  const storeLastUpdated = useAppStore((s) => s.lastUpdated)
+
+  const connectionStatus = useMemo(() => {
+    // If we can't even reach the API, we're offline
+    if (!isConnected) {
+      return 'offline' as const
+    }
+
+    // Check if health endpoint reports live data
+    const healthReportsLive = dataStatus.is_live && dataStatus.quality_score >= 0.5
+
+    // Check if any critical store data is stale (> 60 seconds old)
+    const now = Date.now()
+    const STALE_THRESHOLD_MS = 60_000
+    const criticalKeys = ['marketStatus', 'brainStatus', 'portfolio', 'signals']
+    const hasStaleData = criticalKeys.some((key) => {
+      const ts = storeLastUpdated[key]
+      return ts && (now - ts > STALE_THRESHOLD_MS)
+    })
+
+    // Check if any store fetches have errors
+    const activeErrorCount = Object.values(storeErrors).filter(Boolean).length
+
+    if (healthReportsLive && !hasStaleData && activeErrorCount === 0) {
+      return 'live' as const
+    }
+
+    // Connected but degraded: stale data, errors, or health says not live
+    return 'delayed' as const
+  }, [isConnected, dataStatus, storeErrors, storeLastUpdated])
 
   // Use live data if available, otherwise fallback (now includes VIX)
   const marketData = isConnected
@@ -128,16 +161,29 @@ export function Header() {
         <NotificationBell />
 
         {/* System status indicator */}
-        <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-background-tertiary/40">
+        <div
+          className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-background-tertiary/40"
+          title={
+            connectionStatus === 'live'
+              ? `Connected to ${dataSource} - all systems nominal`
+              : connectionStatus === 'delayed'
+              ? `Connected to ${dataSource} - some data may be stale or endpoints failing`
+              : 'Backend unreachable - showing cached/fallback data'
+          }
+        >
           <span className={cn(
             'status-dot',
-            isLiveData ? 'online' : isConnected ? 'warning' : 'offline'
+            connectionStatus === 'live' ? 'online' : connectionStatus === 'delayed' ? 'warning' : 'offline'
           )} />
           <span className={cn(
             'text-[11px] font-bold tracking-wide',
-            isLiveData ? 'text-bullish' : isConnected ? 'text-warning' : 'text-bearish'
+            connectionStatus === 'live'
+              ? 'text-bullish'
+              : connectionStatus === 'delayed'
+              ? 'text-warning'
+              : 'text-bearish'
           )}>
-            {isLiveData ? 'LIVE' : isConnected ? 'DELAYED' : 'OFFLINE'}
+            {connectionStatus === 'live' ? 'LIVE' : connectionStatus === 'delayed' ? 'DELAYED' : 'OFFLINE'}
           </span>
           {isConnected && (
             <span className="text-[9px] text-foreground-muted uppercase tracking-wider">
