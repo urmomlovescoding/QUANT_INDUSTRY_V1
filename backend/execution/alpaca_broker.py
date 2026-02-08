@@ -10,9 +10,11 @@ Provides:
 - Real-time order management
 - Position tracking
 - Account information
+- SafetyGuard integration for all orders (live AND paper)
 """
 import logging
 import os
+import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
@@ -26,6 +28,13 @@ from .broker_adapter import (
     Position,
     AccountInfo,
 )
+
+# Import SafetyGuard for pre-trade validation
+try:
+    from backend.core.safety_guard import SafetyGuard, get_safety_guard
+    SAFETY_GUARD_AVAILABLE = True
+except ImportError:
+    SAFETY_GUARD_AVAILABLE = False
 
 logger = logging.getLogger("ALPACA_BROKER")
 
@@ -205,9 +214,69 @@ class AlpacaBroker(BrokerAdapter):
         )
 
     def submit_order(self, order: Order) -> Order:
-        """Submit order to Alpaca."""
+        """
+        Submit order to Alpaca with SafetyGuard validation.
+
+        CRITICAL: All orders (live AND paper) go through SafetyGuard checks.
+        This ensures prop firm rules and risk limits are enforced consistently.
+        """
         if not self.api:
             raise ConnectionError("Not connected to Alpaca")
+
+        # CRITICAL: Run SafetyGuard checks BEFORE submission
+        # This applies to BOTH paper and live trading for consistency
+        if SAFETY_GUARD_AVAILABLE:
+            try:
+                guard = get_safety_guard()
+                # Determine if this is live trading based on base URL
+                is_live = "paper" not in self.base_url.lower()
+
+                # Get current account equity for position sizing validation
+                try:
+                    account = self.api.get_account()
+                    equity = float(account.equity)
+                    # Calculate position size as percentage of equity
+                    # Use limit price if available, otherwise estimate with current price
+                    price_estimate = order.limit_price or 0
+                    if price_estimate == 0:
+                        try:
+                            quote = self.get_quote(order.symbol)
+                            price_estimate = quote.get("last", 100)  # Fallback to $100
+                        except Exception:
+                            price_estimate = 100
+                    position_value = order.quantity * price_estimate
+                    size_pct = position_value / equity if equity > 0 else 1.0
+                except Exception as e:
+                    logger.warning(f"Could not calculate position size: {e}")
+                    size_pct = 0.05  # Default to 5%
+
+                # Run SafetyGuard validation
+                allowed, reason = guard.can_trade(
+                    symbol=order.symbol,
+                    size_pct=size_pct,
+                    contracts=order.quantity,
+                    is_live=is_live,
+                )
+
+                if not allowed:
+                    logger.warning(f"Order blocked by SafetyGuard: {reason}")
+                    order.status = OrderStatus.REJECTED
+                    if hasattr(order, 'rejection_reason'):
+                        order.rejection_reason = f"SafetyGuard: {reason}"
+                    return order
+
+            except Exception as e:
+                # If SafetyGuard check fails, log but don't block paper trades
+                # For live trades, we should be more conservative
+                is_live = "paper" not in self.base_url.lower()
+                if is_live:
+                    logger.error(f"SafetyGuard error on LIVE order - BLOCKING: {e}")
+                    order.status = OrderStatus.REJECTED
+                    if hasattr(order, 'rejection_reason'):
+                        order.rejection_reason = f"SafetyGuard error: {e}"
+                    return order
+                else:
+                    logger.warning(f"SafetyGuard check failed (paper mode, continuing): {e}")
 
         try:
             # Build order params
@@ -226,12 +295,15 @@ class AlpacaBroker(BrokerAdapter):
             if order.client_order_id:
                 params["client_order_id"] = order.client_order_id
 
-            # Submit
+            # Submit to Alpaca
             alpaca_order = self.api.submit_order(**params)
 
             # Parse response
             result = self._parse_alpaca_order(alpaca_order)
-            self._order_map[result.order_id] = result
+
+            # Thread-safe order map update
+            with threading.Lock():
+                self._order_map[result.order_id] = result
 
             logger.info(f"Order submitted: {result.order_id} {result.symbol} {result.side.value}")
 

@@ -42,6 +42,22 @@ from .structured_logging import (
     ws_logger,
     health_logger,
 )
+from .timezone import (
+    UTC,
+    EASTERN,
+    utc_now,
+    to_utc,
+    to_eastern,
+    from_timestamp,
+    to_timestamp,
+    is_market_hours,
+    is_premarket,
+    is_afterhours,
+    get_market_open_time,
+    get_market_close_time,
+    format_iso,
+    parse_iso,
+)
 
 __all__ = [
     # Errors
@@ -83,4 +99,19 @@ __all__ = [
     "execution_logger",
     "ws_logger",
     "health_logger",
+    # Timezone utilities (ALWAYS use utc_now() instead of datetime.now())
+    "UTC",
+    "EASTERN",
+    "utc_now",
+    "to_utc",
+    "to_eastern",
+    "from_timestamp",
+    "to_timestamp",
+    "is_market_hours",
+    "is_premarket",
+    "is_afterhours",
+    "get_market_open_time",
+    "get_market_close_time",
+    "format_iso",
+    "parse_iso",
 ]

@@ -6700,6 +6700,193 @@ async def get_brain_v6_drift():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============== SVM KERNEL COMPARISON API ==============
+# Based on: "Differences Between SVM Kernels and a Backtesting Methodology for Stock-Market Prediction"
+
+try:
+    from brain.svm_kernel_comparison import (
+        SVMKernelComparison, SVMKernel, KernelComparisonReport
+    )
+    SVM_KERNEL_AVAILABLE = True
+except ImportError:
+    SVM_KERNEL_AVAILABLE = False
+    logger.warning("SVM kernel comparison module not available")
+
+
+@app.get("/api/svm/kernels")
+async def get_available_kernels():
+    """Get list of available SVM kernels for comparison."""
+    return {
+        "kernels": [
+            {"id": "linear", "name": "Linear", "description": "Hyperplane in original space; most stable for weak/noisy signals"},
+            {"id": "poly", "name": "Polynomial", "description": "Captures feature interactions; sensitive to degree parameter"},
+            {"id": "rbf", "name": "RBF (Gaussian)", "description": "Flexible nonlinear boundaries; risk of overfitting"},
+            {"id": "sigmoid", "name": "Sigmoid", "description": "Neural-network-like; non-PSD risk, use with caution"}
+        ],
+        "available": SVM_KERNEL_AVAILABLE
+    }
+
+
+@app.post("/api/svm/compare")
+async def run_kernel_comparison(
+    symbol: str = "SPY",
+    kernels: List[str] = ["linear", "rbf", "poly"],
+    n_splits: int = 5,
+    lookback_days: int = 252,
+    label_horizon: int = 1,
+    transaction_cost: float = 0.001
+):
+    """
+    Run SVM kernel comparison on historical data.
+
+    Implements walk-forward validation with purging and embargo
+    as described in the SVM backtesting methodology document.
+    """
+    if not SVM_KERNEL_AVAILABLE:
+        raise HTTPException(status_code=503, detail="SVM kernel comparison not available")
+
+    try:
+        # Get historical data
+        data_service = get_data_service()
+        df = data_service.get_historical_data(symbol, period=f"{lookback_days}d")
+
+        if df is None or len(df) < 100:
+            raise HTTPException(status_code=400, detail=f"Insufficient data for {symbol}")
+
+        # Create features (simplified - in production use beast_ml FeatureEngineer)
+        features = pd.DataFrame(index=df.index)
+
+        # Returns
+        for period in [1, 5, 10, 20]:
+            features[f'return_{period}d'] = df['close'].pct_change(period)
+
+        # Moving averages
+        for period in [5, 10, 20, 50]:
+            sma = df['close'].rolling(period).mean()
+            features[f'sma_{period}_dist'] = (df['close'] - sma) / sma
+
+        # Volatility
+        features['volatility_20d'] = df['close'].pct_change().rolling(20).std()
+
+        # Volume
+        if 'volume' in df.columns:
+            features['volume_sma_ratio'] = df['volume'] / df['volume'].rolling(20).mean()
+
+        # RSI
+        delta = df['close'].diff()
+        gain = delta.where(delta > 0, 0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        features['rsi'] = 100 - (100 / (1 + gain / loss.replace(0, 0.001)))
+
+        # Clean data
+        features = features.dropna()
+
+        # Create labels (next-day direction)
+        future_returns = df['close'].pct_change(label_horizon).shift(-label_horizon)
+        labels = (future_returns > 0).astype(int)
+
+        # Align
+        common_idx = features.index.intersection(labels.dropna().index)
+        X = features.loc[common_idx].values
+        y = labels.loc[common_idx].values
+        returns = future_returns.loc[common_idx].values
+
+        if len(X) < 100:
+            raise HTTPException(status_code=400, detail="Not enough data after feature engineering")
+
+        # Map kernel strings to enum
+        kernel_map = {
+            "linear": SVMKernel.LINEAR,
+            "poly": SVMKernel.POLYNOMIAL,
+            "rbf": SVMKernel.RBF,
+            "sigmoid": SVMKernel.SIGMOID
+        }
+        selected_kernels = [kernel_map[k] for k in kernels if k in kernel_map]
+
+        # Run comparison
+        comparator = SVMKernelComparison(
+            task='classification',
+            n_splits=n_splits,
+            embargo_pct=0.02,
+            label_horizon=label_horizon
+        )
+
+        report = comparator.compare_kernels(
+            X, y, returns,
+            kernels=selected_kernels,
+            transaction_cost=transaction_cost
+        )
+
+        # Format results for API response
+        results = {
+            "symbol": symbol,
+            "n_samples": len(X),
+            "n_features": X.shape[1],
+            "n_splits": n_splits,
+            "best_kernel": report.best_kernel.value if report.best_kernel else None,
+            "ranking": [
+                {"kernel": k.value, "score": float(s)}
+                for k, s in report.ranking
+            ],
+            "kernel_metrics": {
+                k.value: {
+                    key: float(v) if isinstance(v, (int, float, np.number)) else v
+                    for key, v in metrics.items()
+                }
+                for k, metrics in report.aggregate_metrics.items()
+            },
+            "deflated_sharpe_ratios": {
+                k.value: float(v) for k, v in report.deflated_sharpe_ratios.items()
+            },
+            "summary": report.summary()
+        }
+
+        return results
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SVM kernel comparison error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/svm/methodology")
+async def get_svm_methodology():
+    """
+    Get information about the SVM kernel comparison methodology.
+    Based on the referenced research document.
+    """
+    return {
+        "title": "SVM Kernel Comparison Methodology",
+        "based_on": "Differences Between SVM Kernels and a Backtesting Methodology for Stock-Market Prediction",
+        "key_concepts": {
+            "walk_forward_validation": "Train on past, test on future, roll forward",
+            "purged_kfold": "Remove training samples whose labels overlap test period",
+            "embargo": "Buffer after test fold to prevent autocorrelation leakage",
+            "nested_tuning": "Inner CV for hyperparameters, outer CV for performance estimation",
+            "deflated_sharpe": "Correct Sharpe ratio for multiple testing bias"
+        },
+        "kernel_recommendations": {
+            "linear": "Best for weak/noisy signals, most stable across regime changes",
+            "rbf": "Captures nonlinearities but high overfitting risk - needs careful regularization",
+            "polynomial": "Good for feature interactions but brittle if regimes change",
+            "sigmoid": "Generally not recommended due to non-PSD issues and instability"
+        },
+        "critical_requirements": [
+            "Feature scaling is mandatory for all kernel SVMs",
+            "Use purged/embargo CV when labels span multiple bars",
+            "Apply nested CV to prevent hyperparameter overfitting",
+            "Report DSR-adjusted Sharpe, not raw Sharpe",
+            "Check for overfitting (train vs test performance gap)"
+        ],
+        "references": [
+            "de Prado (2018): Advances in Financial Machine Learning",
+            "Bailey & de Prado (2014): The Deflated Sharpe Ratio",
+            "Hansen (2005): A Test for Superior Predictive Ability"
+        ]
+    }
+
+
 # ============== NEW PARITY MODULES API (Gate 0-7) ==============
 
 # Singleton instances for new modules

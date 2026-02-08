@@ -128,7 +128,14 @@ export function APIConnector() {
         if (response.ok) {
           const data = await response.json()
           if (Array.isArray(data) && data.length > 0) {
-            setConnections(data)
+            // Normalize the data to ensure all required fields exist
+            const normalizedConnections = data.map((conn: any) => ({
+              ...conn,
+              requestsToday: conn.requestsToday ?? 0,
+              latency: conn.latency ?? null,
+              apiSecret: conn.apiSecret || '',
+            }))
+            setConnections(normalizedConnections)
           }
         }
       } catch (error) {
