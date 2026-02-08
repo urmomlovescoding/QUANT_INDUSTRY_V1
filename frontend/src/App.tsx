@@ -74,7 +74,6 @@ import { Portfolio } from './views/Portfolio'
 import { PairsTrading } from './views/PairsTrading'
 import { TaxLots } from './views/TaxLots'
 import { Reports } from './views/Reports'
-import { TaxLots } from './views/TaxLots'
 
 // System views
 import { APIConnector } from './views/APIConnector'

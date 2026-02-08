@@ -28,7 +28,7 @@ export function Signals() {
       }
 
       if (Array.isArray(data)) {
-        setSignals(data)
+        setSignals(data as any)
       } else if (data && typeof data === 'object' && 'signals' in data) {
         setSignals((data as SignalsResponse).signals)
       } else {

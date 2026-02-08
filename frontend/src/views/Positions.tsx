@@ -151,7 +151,7 @@ export function Positions() {
             setClosedTrades(tradesList.map((t: RawTrade) => ({
               id: t.id || String(Math.random()),
               symbol: t.symbol,
-              side: t.side || 'long',
+              side: (t.side || 'long') as 'long' | 'short',
               qty: t.qty || t.quantity || 0,
               entryPrice: t.entry_price || t.entryPrice || 0,
               exitPrice: t.exit_price || t.exitPrice || 0,
