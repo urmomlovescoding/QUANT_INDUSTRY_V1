@@ -73,7 +73,7 @@ const navSections: NavSection[] = [
   {
     title: 'ADVANCED TRADING',
     items: [
-      { path: '/microstructure', icon: BarChart3, label: 'Microstructure' },
+      { path: '/market-microstructure', icon: BarChart3, label: 'Microstructure' },
       { path: '/cross-exchange', icon: Shuffle, label: 'Cross Exchange' },
       { path: '/options-flow', icon: Eye, label: 'Options Flow' },
       { path: '/brain-dashboard', icon: Sparkles, label: 'Brain Dashboard' },
@@ -120,7 +120,6 @@ const navSections: NavSection[] = [
       { path: '/regime-detect', icon: Gauge, label: 'Regime Detect' },
       { path: '/trading-brain', icon: Cpu, label: 'Trading Brain' },
       { path: '/algo-bot', icon: Bot, label: 'Algo Bot' },
-      { path: '/market-microstructure', icon: Zap, label: 'Microstructure' },
     ],
   },
   {

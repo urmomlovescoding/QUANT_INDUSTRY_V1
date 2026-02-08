@@ -20,6 +20,11 @@ import { Screener } from './views/Screener'
 import { Charts } from './views/Charts'
 import { CommandCenter } from './views/CommandCenter'
 
+// Advanced Trading views
+import { CrossExchange } from './views/CrossExchange'
+import { OptionsFlow } from './views/OptionsFlow'
+import { BrainDashboard } from './views/BrainDashboard'
+
 // Options views
 import { OptionsLab } from './views/OptionsLab'
 import { GEXAnalysis } from './views/GEXAnalysis'
@@ -35,6 +40,8 @@ import { SlideDoctrine } from './views/SlideDoctrine'
 
 // Analytics views
 import { Backtesting } from './views/Backtesting'
+import { BacktestViz } from './views/BacktestViz'
+import { PnlAttribution } from './views/PnlAttribution'
 import { MonteCarlo } from './views/MonteCarlo'
 import { Correlation } from './views/Correlation'
 import { RiskDecomposition } from './views/RiskDecomposition'
@@ -64,6 +71,7 @@ import { News } from './views/News'
 // Portfolio views
 import { Portfolio } from './views/Portfolio'
 import { PairsTrading } from './views/PairsTrading'
+import { TaxLots } from './views/TaxLots'
 import { Reports } from './views/Reports'
 
 // System views
@@ -121,6 +129,11 @@ function AppContent() {
                 <Route path="/screener" element={<Screener />} />
                 <Route path="/charts" element={<Charts />} />
 
+                {/* Advanced Trading */}
+                <Route path="/cross-exchange" element={<CrossExchange />} />
+                <Route path="/options-flow" element={<OptionsFlow />} />
+                <Route path="/brain-dashboard" element={<BrainDashboard />} />
+
                 {/* Options */}
                 <Route path="/options-lab" element={<OptionsLab />} />
                 <Route path="/gex-analysis" element={<GEXAnalysis />} />
@@ -136,6 +149,8 @@ function AppContent() {
 
                 {/* Analytics */}
                 <Route path="/backtesting" element={<Backtesting />} />
+                <Route path="/backtest-viz" element={<BacktestViz />} />
+                <Route path="/pnl-attribution" element={<PnlAttribution />} />
                 <Route path="/monte-carlo" element={<MonteCarlo />} />
                 <Route path="/correlation" element={<Correlation />} />
                 <Route path="/risk-decomposition" element={<RiskDecomposition />} />
@@ -165,6 +180,7 @@ function AppContent() {
                 {/* Portfolio */}
                 <Route path="/portfolio" element={<Portfolio />} />
                 <Route path="/pairs-trading" element={<PairsTrading />} />
+                <Route path="/tax-lots" element={<TaxLots />} />
                 <Route path="/reports" element={<Reports />} />
 
                 {/* System */}
