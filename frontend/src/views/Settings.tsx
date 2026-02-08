@@ -403,43 +403,50 @@ function DataSettings() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [refreshInterval, setRefreshInterval] = useState(5)
 
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   // Load saved API keys on mount
   useEffect(() => {
     loadApiKeys()
   }, [])
 
   const loadApiKeys = async () => {
+    setLoadError(null)
     try {
       const { data, ok } = await apiV2.settings.getApiKeys()
       if (ok && data) {
-        // The API returns which keys are configured (boolean flags)
-        // Map to provider statuses
-        setProviders(prev => prev.map(p => ({
-          ...p,
-          status: (data as any)[p.id] ? 'connected' : 'disconnected'
-        })))
+        // Map API response to provider statuses
+        const keyData = data as any
+        setProviders(prev => prev.map(p => {
+          // Check multiple possible key formats from backend
+          const isConfigured = keyData[p.id] ||
+            keyData[`${p.id}_configured`] ||
+            (keyData.providers && keyData.providers[p.id]) ||
+            false
+          return {
+            ...p,
+            status: isConfigured ? 'connected' as const : 'disconnected' as const
+          }
+        }))
       }
     } catch (error) {
       console.error('Failed to load API keys:', error)
+      setLoadError('Failed to load API key status. Backend may be unavailable.')
     }
   }
 
   const saveApiKey = async (providerId: string) => {
     const values = apiValues[providerId]
-    if (!values) return
+    if (!values || Object.values(values).every(v => !v)) return
 
     setProviders(prev => prev.map(p =>
       p.id === providerId ? { ...p, status: 'testing' } : p
     ))
 
     try {
-      const response = await fetch('/api/settings/api-keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: providerId, keys: values })
-      })
+      const { ok } = await apiV2.settings.saveApiKey(providerId, values)
 
-      if (response.ok) {
+      if (ok) {
         setProviders(prev => prev.map(p =>
           p.id === providerId ? { ...p, status: 'connected', lastTested: new Date().toISOString() } : p
         ))
@@ -461,10 +468,15 @@ function DataSettings() {
     ))
 
     try {
-      const response = await fetch(`/api/settings/test-connection/${providerId}`)
-      if (response.ok) {
+      const { data, ok } = await apiV2.settings.testConnection(providerId)
+
+      if (ok && (data as any)?.success !== false) {
         setProviders(prev => prev.map(p =>
-          p.id === providerId ? { ...p, status: 'connected', lastTested: new Date().toISOString() } : p
+          p.id === providerId ? {
+            ...p,
+            status: 'connected',
+            lastTested: new Date().toISOString()
+          } : p
         ))
       } else {
         setProviders(prev => prev.map(p =>
@@ -535,6 +547,11 @@ function DataSettings() {
       </SettingSection>
 
       <SettingSection title="API Providers">
+        {loadError && (
+          <div className="mb-4 p-3 rounded-lg bg-bearish/10 border border-bearish/30">
+            <p className="text-xs text-bearish">{loadError}</p>
+          </div>
+        )}
         <div className="space-y-4">
           {providers.map((provider) => (
             <div
