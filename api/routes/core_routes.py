@@ -208,6 +208,11 @@ async def get_tickers(symbols: str = "SPY,QQQ,DIA,IWM"):
             change = (price - prev) if prev else 0
             change_pct = ((price - prev) / prev * 100) if prev else 0
 
+            # Sanity check: if change is absurdly large (>50%), data is stale/bad — show 0
+            if abs(change_pct) > 50:
+                change = 0
+                change_pct = 0
+
             results.append({
                 "symbol": symbol,
                 "price": price,
@@ -254,6 +259,11 @@ async def get_quote(symbol: str):
 
     change = (price - prev_close) if prev_close else 0
     change_pct = ((price - prev_close) / prev_close * 100) if prev_close else 0
+
+    # Sanity check: if change is absurdly large (>50%), data is stale/bad — show 0
+    if abs(change_pct) > 50:
+        change = 0
+        change_pct = 0
 
     return {
         "symbol": quote.symbol,
