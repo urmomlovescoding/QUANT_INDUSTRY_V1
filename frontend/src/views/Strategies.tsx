@@ -105,11 +105,10 @@ export function Strategies() {
     setError(null)
     try {
       const response = await fetch('/api/quant/strategies')
-      const data = await response.json()
-
       if (!response.ok) {
-        throw new Error(data.detail || 'Failed to fetch strategies')
+        throw new Error(`Failed to fetch strategies (${response.status})`)
       }
+      const data = await response.json()
 
       if (data.status === 'unavailable') {
         setError(data.message || 'Strategies not available. Configure quant service to enable.')

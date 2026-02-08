@@ -50,8 +50,8 @@ export function Analytics() {
         fetch('/api/quant/strategies')
       ])
 
-      const metricsData = await metricsRes.json()
-      const strategiesData = await strategiesRes.json()
+      const metricsData = metricsRes.ok ? await metricsRes.json() : null
+      const strategiesData = strategiesRes.ok ? await strategiesRes.json() : []
 
       if (metricsData.status === 'unavailable') {
         setMetrics(null)

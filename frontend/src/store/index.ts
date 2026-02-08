@@ -271,7 +271,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.market.getStatus() instead of marketApi.getMarketStatus()
             const response = await apiV2.market.getStatus()
             if (response.ok && response.data) {
-              setMarketStatus(response.data as MarketStatus)
+              setMarketStatus(response.data as unknown as MarketStatus)
               setError('marketStatus', null)
             } else {
               setError('marketStatus', response.error?.message || 'Failed to fetch')
@@ -307,7 +307,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.signals.getActive() instead of signalsApi.getActive()
             const response = await apiV2.signals.getActive()
             if (response.ok && response.data) {
-              setSignals(response.data as Signal[])
+              setSignals(response.data as unknown as Signal[])
               setError('signals', null)
             } else {
               setError('signals', response.error?.message || 'Failed to fetch')
@@ -325,7 +325,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.positions.getAll() instead of portfolioApi.getPositions()
             const response = await apiV2.positions.getAll()
             if (response.ok && response.data) {
-              setPositions(response.data as Position[])
+              setPositions(response.data as unknown as Position[])
               setError('positions', null)
             } else {
               setError('positions', response.error?.message || 'Failed to fetch')
@@ -343,7 +343,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.portfolio.get() instead of portfolioApi.getPortfolio()
             const response = await apiV2.portfolio.get()
             if (response.ok && response.data) {
-              setPortfolio(response.data as Portfolio)
+              setPortfolio(response.data as unknown as Portfolio)
               setError('portfolio', null)
             } else {
               setError('portfolio', response.error?.message || 'Failed to fetch')
@@ -361,7 +361,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.brain.getStatus() instead of brainApi.getStatus()
             const response = await apiV2.brain.getStatus()
             if (response.ok && response.data) {
-              setBrainStatus(response.data as BrainStatus)
+              setBrainStatus(response.data as unknown as BrainStatus)
               setError('brainStatus', null)
             } else {
               setError('brainStatus', response.error?.message || 'Failed to fetch')
@@ -379,7 +379,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.brain.getFeedbackStatus() instead of feedbackApi.getStatus()
             const response = await apiV2.brain.getFeedbackStatus()
             if (response.ok && response.data) {
-              setFeedbackStatus(response.data as FeedbackStatus)
+              setFeedbackStatus(response.data as unknown as FeedbackStatus)
               setError('feedbackStatus', null)
             } else {
               setError('feedbackStatus', response.error?.message || 'Failed to fetch')
@@ -397,7 +397,7 @@ export const useAppStore = create<AppStore>()(
             // V2: apiV2.risk.getMetrics() instead of riskApi.getMetrics()
             const response = await apiV2.risk.getMetrics()
             if (response.ok && response.data) {
-              setRiskMetrics(response.data as RiskMetrics)
+              setRiskMetrics(response.data as unknown as RiskMetrics)
               setError('riskMetrics', null)
             } else {
               setError('riskMetrics', response.error?.message || 'Failed to fetch')

@@ -4,8 +4,7 @@
  * QUANT_INDUSTRY_V1
  */
 
-import React, { useState } from 'react';
-import * as Tabs from '@radix-ui/react-tabs';
+import React, { useState, useEffect } from 'react';
 import { RefreshCw, Settings, Zap, TrendingUp, Unplug } from 'lucide-react';
 import { PriceMatrixTable } from './PriceMatrixTable';
 import { ArbOpportunityList } from './ArbOpportunityList';
@@ -137,60 +136,30 @@ export const ArbDashboard: React.FC<ArbDashboardProps> = ({
           <EmptyState />
         ) : (
           /* Tabs */
-          <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
-            <Tabs.List className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
-              <Tabs.Trigger
-                value="opportunities"
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  activeTab === 'opportunities' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Opportunities
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="prices"
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  activeTab === 'prices' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Price Matrix
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="triangular"
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  activeTab === 'triangular' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Triangular
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="cexdex"
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  activeTab === 'cexdex' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                CEX-DEX
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="latency"
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  activeTab === 'latency' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Latency
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="history"
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
-                  activeTab === 'history' ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Execution Log
-              </Tabs.Trigger>
-            </Tabs.List>
+          <div>
+            <div className="flex gap-1 bg-gray-800 p-1 rounded-lg mb-6">
+              {[
+                { value: 'opportunities', label: 'Opportunities' },
+                { value: 'prices', label: 'Price Matrix' },
+                { value: 'triangular', label: 'Triangular' },
+                { value: 'cexdex', label: 'CEX-DEX' },
+                { value: 'latency', label: 'Latency' },
+                { value: 'history', label: 'Execution Log' },
+              ].map(tab => (
+                <button
+                  key={tab.value}
+                  onClick={() => setActiveTab(tab.value)}
+                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition ${
+                    activeTab === tab.value ? 'bg-yellow-600 text-white' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-            <Tabs.Content value="opportunities">
-              {data.opportunities.length > 0 ? (
+            {activeTab === 'opportunities' && (
+              data.opportunities.length > 0 ? (
                 <ArbOpportunityList
                   opportunities={data.opportunities}
                   onExecute={() => {}}
@@ -198,27 +167,24 @@ export const ArbDashboard: React.FC<ArbDashboardProps> = ({
                 />
               ) : (
                 <EmptyState />
-              )}
-            </Tabs.Content>
-
-            <Tabs.Content value="prices">
-              {data.priceMatrices.length > 0 ? (
+              )
+            )}
+            {activeTab === 'prices' && (
+              data.priceMatrices.length > 0 ? (
                 <PriceMatrixTable data={data.priceMatrices} />
               ) : (
                 <EmptyState />
-              )}
-            </Tabs.Content>
-
-            <Tabs.Content value="triangular">
-              {data.triangularPaths.length > 0 ? (
+              )
+            )}
+            {activeTab === 'triangular' && (
+              data.triangularPaths.length > 0 ? (
                 <TriangularArbVisualizer paths={data.triangularPaths} />
               ) : (
                 <EmptyState />
-              )}
-            </Tabs.Content>
-
-            <Tabs.Content value="cexdex">
-              {data.cexDexSpread && data.spreadHistory ? (
+              )
+            )}
+            {activeTab === 'cexdex' && (
+              data.cexDexSpread && data.spreadHistory ? (
                 <CexDexSpreadChart
                   currentSpread={data.cexDexSpread}
                   history={data.spreadHistory}
@@ -226,25 +192,23 @@ export const ArbDashboard: React.FC<ArbDashboardProps> = ({
                 />
               ) : (
                 <EmptyState />
-              )}
-            </Tabs.Content>
-
-            <Tabs.Content value="latency">
-              {data.latencies.length > 0 ? (
+              )
+            )}
+            {activeTab === 'latency' && (
+              data.latencies.length > 0 ? (
                 <LatencyMonitor latencies={data.latencies} />
               ) : (
                 <EmptyState />
-              )}
-            </Tabs.Content>
-
-            <Tabs.Content value="history">
-              {data.executions.length > 0 ? (
+              )
+            )}
+            {activeTab === 'history' && (
+              data.executions.length > 0 ? (
                 <ExecutionLog executions={data.executions} />
               ) : (
                 <EmptyState />
-              )}
-            </Tabs.Content>
-          </Tabs.Root>
+              )
+            )}
+          </div>
         )}
       </div>
     </div>

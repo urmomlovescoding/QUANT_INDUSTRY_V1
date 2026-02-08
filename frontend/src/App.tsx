@@ -21,6 +21,11 @@ import { Screener } from './views/Screener'
 import { Charts } from './views/Charts'
 import { CommandCenter } from './views/CommandCenter'
 
+// Advanced Trading views
+import { CrossExchange } from './views/CrossExchange'
+import { OptionsFlow } from './views/OptionsFlow'
+import { BrainDashboardView } from './views/BrainDashboardView'
+
 // Options views
 import { OptionsLab } from './views/OptionsLab'
 import { GEXAnalysis } from './views/GEXAnalysis'
@@ -126,6 +131,11 @@ function AppContent() {
                 <Route path="/command-center" element={<CommandCenter />} />
                 <Route path="/screener" element={<Screener />} />
                 <Route path="/charts" element={<Charts />} />
+
+                {/* Advanced Trading */}
+                <Route path="/cross-exchange" element={<CrossExchange />} />
+                <Route path="/options-flow" element={<OptionsFlow />} />
+                <Route path="/brain-dashboard" element={<BrainDashboardView />} />
 
                 {/* Options */}
                 <Route path="/options-lab" element={<OptionsLab />} />
