@@ -223,11 +223,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ErrorBoundary
-      onError={(error, errorInfo) => {
-        console.error('Top-level error boundary caught:', error, errorInfo)
-      }}
-    >
+    <ErrorBoundary>
       <BrowserRouter>
         <ToastProvider>
           <NotificationProvider>

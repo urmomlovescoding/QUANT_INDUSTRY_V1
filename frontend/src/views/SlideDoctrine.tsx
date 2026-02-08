@@ -79,8 +79,8 @@ export function SlideDoctrine() {
         const result = await response.json()
         setData(result)
       }
-    } catch (error) {
-      console.error('Failed to fetch SLIDE doctrine:', error)
+    } catch {
+      // Silent fail - data will show as null
     } finally {
       setIsLoading(false)
     }
@@ -93,8 +93,8 @@ export function SlideDoctrine() {
         const result = await response.json()
         setAuditLog(result.audit_log || [])
       }
-    } catch (error) {
-      console.error('Failed to fetch audit log:', error)
+    } catch {
+      // Silent fail - audit log will show as empty
     }
   }
 

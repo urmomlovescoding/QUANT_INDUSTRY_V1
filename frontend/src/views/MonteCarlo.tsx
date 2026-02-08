@@ -86,7 +86,7 @@ export function MonteCarlo() {
     fetch('/api/monte-carlo/presets')
       .then(r => r.json())
       .then(data => setPresets(data.presets || []))
-      .catch(console.error)
+      .catch(() => { /* Silent fail - presets will be empty */ })
   }, [])
 
   const runSimulation = async () => {
@@ -100,8 +100,8 @@ export function MonteCarlo() {
         const data = await response.json()
         setResult(data)
       }
-    } catch (error) {
-      console.error('Failed to run simulation:', error)
+    } catch {
+      // Silent fail - result will remain null
     } finally {
       setIsLoading(false)
     }

@@ -86,8 +86,8 @@ export function SignalsTable({
           )
         )
       }
-    } catch (e) {
-      console.error('Failed to execute signal:', e)
+    } catch {
+      // Silent fail - UI will remain unchanged
     }
     setExecutingIds((prev) => {
       const next = new Set(prev)
@@ -108,8 +108,8 @@ export function SignalsTable({
       if (response.ok) {
         setSignals((prev) => prev.filter((s) => s.id !== signalId))
       }
-    } catch (e) {
-      console.error('Failed to dismiss signal:', e)
+    } catch {
+      // Silent fail - signal will remain in list
     }
   }
 

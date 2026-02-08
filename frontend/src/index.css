@@ -214,21 +214,46 @@
   /* ====== INPUTS ====== */
   .input {
     @apply w-full px-4 py-3 text-sm rounded-xl;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     color: var(--foreground-primary);
     transition: all 0.2s ease;
   }
 
   .input::placeholder {
-    color: var(--foreground-muted);
+    color: rgba(161, 161, 170, 0.7);
+  }
+
+  .input:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.1);
   }
 
   .input:focus {
     outline: none;
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
-    background: rgba(255, 255, 255, 0.05);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Select specific styling */
+  select.input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 40px;
+  }
+
+  select.input option {
+    background: var(--background-secondary);
+    color: var(--foreground-primary);
+    padding: 8px;
   }
 
   /* ====== BADGES ====== */
@@ -412,6 +437,38 @@
     color: #000;
     background: linear-gradient(135deg, var(--accent-secondary) 0%, var(--accent-primary) 100%);
     box-shadow: 0 2px 12px rgba(245, 158, 11, 0.25);
+  }
+
+  /* Radix UI Tab Styling */
+  [data-radix-collection-item] {
+    @apply transition-all duration-200;
+  }
+
+  [role="tablist"] {
+    @apply flex gap-0;
+  }
+
+  [role="tab"] {
+    @apply relative cursor-pointer select-none;
+  }
+
+  [role="tab"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.5);
+  }
+
+  [role="tab"][data-state="active"]::after {
+    content: '';
+    @apply absolute bottom-0 left-0 right-0 h-0.5;
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+  }
+
+  [role="tabpanel"]:focus {
+    @apply outline-none;
+  }
+
+  [role="tabpanel"][data-state="inactive"] {
+    @apply hidden;
   }
 
   /* ====== TOOLTIP ====== */

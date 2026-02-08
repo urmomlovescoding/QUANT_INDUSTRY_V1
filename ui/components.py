@@ -129,7 +129,12 @@ class Terminal:
     @staticmethod
     def clear() -> None:
         """Clear terminal screen."""
-        os.system('cls' if os.name == 'nt' else 'clear')
+        # SECURITY: Use subprocess.run instead of os.system to avoid shell injection
+        import subprocess
+        if os.name == 'nt':
+            subprocess.run(['cmd', '/c', 'cls'], shell=False, check=False)
+        else:
+            subprocess.run(['clear'], shell=False, check=False)
 
     @staticmethod
     def move_cursor(row: int, col: int) -> str:

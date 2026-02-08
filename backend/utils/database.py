@@ -12,6 +12,7 @@ Matches quant-platform pattern for data persistence.
 
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -24,6 +25,87 @@ from queue import Queue, Empty
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, TypeVar, Union
 
 logger = logging.getLogger(__name__)
+
+# SECURITY: Pattern for valid SQL identifiers (table names, column names)
+# Only allows alphanumeric characters and underscores, must start with letter/underscore
+_VALID_SQL_IDENTIFIER = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+
+
+def _validate_sql_identifier(name: str, context: str = "identifier") -> str:
+    """
+    Validate a SQL identifier (table name, column name) to prevent SQL injection.
+
+    Args:
+        name: The identifier to validate
+        context: Description for error messages (e.g., "column name", "table name")
+
+    Returns:
+        The validated identifier
+
+    Raises:
+        ValueError: If the identifier is invalid
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError(f"Invalid {context}: must be a non-empty string")
+
+    # Remove any whitespace
+    name = name.strip()
+
+    if not _VALID_SQL_IDENTIFIER.match(name):
+        raise ValueError(
+            f"Invalid {context} '{name}': must contain only alphanumeric characters "
+            "and underscores, and must start with a letter or underscore"
+        )
+
+    # Additional check: prevent SQL keywords from being used as identifiers
+    sql_keywords = {'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE',
+                    'ALTER', 'TRUNCATE', 'EXEC', 'EXECUTE', 'UNION', 'WHERE'}
+    if name.upper() in sql_keywords:
+        raise ValueError(f"Invalid {context} '{name}': SQL keywords are not allowed")
+
+    return name
+
+
+def _validate_order_by(order_by: str) -> str:
+    """
+    Validate ORDER BY clause to prevent SQL injection.
+
+    Accepts formats like:
+        - "column_name"
+        - "column_name ASC"
+        - "column_name DESC"
+        - "col1 ASC, col2 DESC"
+
+    Returns:
+        Validated ORDER BY string
+    """
+    if not order_by or not isinstance(order_by, str):
+        raise ValueError("ORDER BY must be a non-empty string")
+
+    parts = []
+    for part in order_by.split(','):
+        part = part.strip()
+        tokens = part.split()
+
+        if len(tokens) == 0:
+            continue
+        elif len(tokens) == 1:
+            # Just column name
+            parts.append(_validate_sql_identifier(tokens[0], "column name"))
+        elif len(tokens) == 2:
+            # Column name + direction
+            col = _validate_sql_identifier(tokens[0], "column name")
+            direction = tokens[1].upper()
+            if direction not in ('ASC', 'DESC'):
+                raise ValueError(f"Invalid sort direction: {tokens[1]}")
+            parts.append(f"{col} {direction}")
+        else:
+            raise ValueError(f"Invalid ORDER BY format: {part}")
+
+    if not parts:
+        raise ValueError("ORDER BY clause is empty")
+
+    return ", ".join(parts)
 
 T = TypeVar('T')
 
@@ -458,23 +540,42 @@ class Database:
         limit: int = None,
         offset: int = None
     ) -> List[Dict[str, Any]]:
-        """Select rows from a table"""
-        cols = ", ".join(columns) if columns else "*"
+        """Select rows from a table with SQL injection protection."""
+        # SECURITY: Validate table name
+        table = _validate_sql_identifier(table, "table name")
+
+        # SECURITY: Validate column names
+        if columns:
+            validated_cols = [_validate_sql_identifier(c, "column name") for c in columns]
+            cols = ", ".join(validated_cols)
+        else:
+            cols = "*"
+
         query = f"SELECT {cols} FROM {table}"
         params = []
 
         if where:
-            conditions = " AND ".join(f"{k} = ?" for k in where.keys())
+            # SECURITY: Validate WHERE column names
+            validated_where = {_validate_sql_identifier(k, "column name"): v for k, v in where.items()}
+            conditions = " AND ".join(f"{k} = ?" for k in validated_where.keys())
             query += f" WHERE {conditions}"
-            params.extend(where.values())
+            params.extend(validated_where.values())
 
         if order_by:
-            query += f" ORDER BY {order_by}"
+            # SECURITY: Validate ORDER BY clause
+            validated_order = _validate_order_by(order_by)
+            query += f" ORDER BY {validated_order}"
 
-        if limit:
+        if limit is not None:
+            # SECURITY: Ensure limit is an integer
+            if not isinstance(limit, int) or limit < 0:
+                raise ValueError("LIMIT must be a non-negative integer")
             query += f" LIMIT {limit}"
 
-        if offset:
+        if offset is not None:
+            # SECURITY: Ensure offset is an integer
+            if not isinstance(offset, int) or offset < 0:
+                raise ValueError("OFFSET must be a non-negative integer")
             query += f" OFFSET {offset}"
 
         return self.fetch_all(query, tuple(params) if params else None)
@@ -485,12 +586,20 @@ class Database:
         data: Dict[str, Any],
         where: Dict[str, Any]
     ) -> int:
-        """Update rows in a table"""
-        set_clause = ", ".join(f"{k} = ?" for k in data.keys())
-        where_clause = " AND ".join(f"{k} = ?" for k in where.keys())
+        """Update rows in a table with SQL injection protection."""
+        # SECURITY: Validate table name
+        table = _validate_sql_identifier(table, "table name")
+
+        # SECURITY: Validate column names in SET clause
+        validated_data = {_validate_sql_identifier(k, "column name"): v for k, v in data.items()}
+        set_clause = ", ".join(f"{k} = ?" for k in validated_data.keys())
+
+        # SECURITY: Validate column names in WHERE clause
+        validated_where = {_validate_sql_identifier(k, "column name"): v for k, v in where.items()}
+        where_clause = " AND ".join(f"{k} = ?" for k in validated_where.keys())
 
         query = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
-        params = list(data.values()) + list(where.values())
+        params = list(validated_data.values()) + list(validated_where.values())
 
         result = self.execute(query, tuple(params))
         return result.affected_rows
@@ -500,11 +609,16 @@ class Database:
         table: str,
         where: Dict[str, Any]
     ) -> int:
-        """Delete rows from a table"""
-        where_clause = " AND ".join(f"{k} = ?" for k in where.keys())
+        """Delete rows from a table with SQL injection protection."""
+        # SECURITY: Validate table name
+        table = _validate_sql_identifier(table, "table name")
+
+        # SECURITY: Validate column names in WHERE clause
+        validated_where = {_validate_sql_identifier(k, "column name"): v for k, v in where.items()}
+        where_clause = " AND ".join(f"{k} = ?" for k in validated_where.keys())
         query = f"DELETE FROM {table} WHERE {where_clause}"
 
-        result = self.execute(query, tuple(where.values()))
+        result = self.execute(query, tuple(validated_where.values()))
         return result.affected_rows
 
     def count(

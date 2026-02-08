@@ -62,8 +62,8 @@ export function RiskMonitorWidget() {
         if (alertsRes.ok) {
           setAlerts(await alertsRes.json())
         }
-      } catch (error) {
-        console.error('Failed to fetch risk data:', error)
+      } catch {
+        // Silent fail - risk data will show as empty
       } finally {
         setIsLoading(false)
       }

@@ -92,9 +92,10 @@ export const useBrain = (): UseBrainReturn => {
       const response = await apiV2.brainLegacy.getStatus();
       if (response.ok && response.data) {
         setBrainStatus(response.data as unknown as BrainStatus);
+        setError(null);
       }
-    } catch (err) {
-      console.error('Failed to fetch brain status:', err);
+    } catch {
+      setError('Failed to fetch brain status');
     }
   }, []);
 
@@ -105,8 +106,8 @@ export const useBrain = (): UseBrainReturn => {
       if (response.ok && response.data) {
         setBots(response.data as unknown as BotStatus[]);
       }
-    } catch (err) {
-      console.error('Failed to fetch bots:', err);
+    } catch {
+      // Silent fail for secondary data
     }
   }, []);
 
@@ -117,8 +118,8 @@ export const useBrain = (): UseBrainReturn => {
       if (response.ok && response.data) {
         setFeatures(response.data as unknown as FeatureImportance[]);
       }
-    } catch (err) {
-      console.error('Failed to fetch features:', err);
+    } catch {
+      // Silent fail for secondary data
     }
   }, []);
 
@@ -129,8 +130,8 @@ export const useBrain = (): UseBrainReturn => {
       if (response.ok && response.data) {
         setSignalHistory(response.data as unknown as Signal[]);
       }
-    } catch (err) {
-      console.error('Failed to fetch signal history:', err);
+    } catch {
+      // Silent fail for secondary data
     }
   }, []);
 

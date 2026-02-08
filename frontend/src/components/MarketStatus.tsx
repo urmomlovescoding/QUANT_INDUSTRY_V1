@@ -142,8 +142,8 @@ export function MarketStatusBadge() {
             setStatus(health.market)
           }
         }
-      } catch (e) {
-        console.error('Failed to fetch market status')
+      } catch {
+        // Silent fail - status will remain as default
       }
     }
 

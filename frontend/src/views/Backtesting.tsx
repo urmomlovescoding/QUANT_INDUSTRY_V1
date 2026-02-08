@@ -1,5 +1,6 @@
 import { Timer, Play } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import { cn } from '@/utils/cn'
 
 const strategies = [
@@ -21,7 +22,7 @@ export function Backtesting() {
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState('equity')
+  const [activeTab, setActiveTab] = useState<string>('equity')
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const runBacktest = async () => {
@@ -243,30 +244,55 @@ export function Backtesting() {
       {results && (
         <div className="grid grid-cols-12 gap-4">
           {/* Chart */}
-          <div className="col-span-9 card p-4">
+          <Tabs.Root defaultValue="equity" className="col-span-9 card p-4">
             {/* Tabs */}
-            <div className="flex gap-2 mb-4">
-              {['equity', 'drawdown', 'trades'].map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-medium rounded transition-colors capitalize',
-                    activeTab === tab
-                      ? 'bg-accent-primary text-background-primary'
-                      : 'bg-background-tertiary text-foreground-secondary'
-                  )}
-                >
-                  {tab === 'equity' ? 'Equity Curve' : tab === 'drawdown' ? 'Drawdown' : 'Trades'}
-                </button>
-              ))}
-            </div>
+            <Tabs.List className="flex gap-2 mb-4" aria-label="Backtest results">
+              <Tabs.Trigger
+                value="equity"
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded transition-colors',
+                  'data-[state=inactive]:bg-background-tertiary data-[state=inactive]:text-foreground-secondary',
+                  'data-[state=active]:bg-accent-primary data-[state=active]:text-background-primary',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50'
+                )}
+              >
+                Equity Curve
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="drawdown"
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded transition-colors',
+                  'data-[state=inactive]:bg-background-tertiary data-[state=inactive]:text-foreground-secondary',
+                  'data-[state=active]:bg-accent-primary data-[state=active]:text-background-primary',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50'
+                )}
+              >
+                Drawdown
+              </Tabs.Trigger>
+              <Tabs.Trigger
+                value="trades"
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded transition-colors',
+                  'data-[state=inactive]:bg-background-tertiary data-[state=inactive]:text-foreground-secondary',
+                  'data-[state=active]:bg-accent-primary data-[state=active]:text-background-primary',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50'
+                )}
+              >
+                Trades
+              </Tabs.Trigger>
+            </Tabs.List>
 
-            {activeTab === 'equity' && (
+            <Tabs.Content value="equity" className="focus:outline-none">
               <canvas ref={canvasRef} className="w-full h-[350px]" />
-            )}
+            </Tabs.Content>
 
-            {activeTab === 'trades' && (
+            <Tabs.Content value="drawdown" className="focus:outline-none">
+              <div className="h-[350px] flex items-center justify-center text-foreground-muted">
+                Drawdown chart coming soon
+              </div>
+            </Tabs.Content>
+
+            <Tabs.Content value="trades" className="focus:outline-none">
               <div className="max-h-[350px] overflow-y-auto">
                 <table className="data-table">
                   <thead className="sticky top-0 bg-background-secondary">
@@ -299,8 +325,8 @@ export function Backtesting() {
                   </tbody>
                 </table>
               </div>
-            )}
-          </div>
+            </Tabs.Content>
+          </Tabs.Root>
 
           {/* Performance Metrics */}
           <div className="col-span-3 space-y-4">

@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import {
   Building2, Play, Pause, RotateCcw, Download, Upload, Settings,
   TrendingUp, TrendingDown, Activity, Brain, Target, Shield,
@@ -211,7 +212,6 @@ const OBJECTIVES = [
 // ==================== MAIN COMPONENT ====================
 
 export function QuantPlatform() {
-  const [activeTab, setActiveTab] = useState<TabId>('optimizer')
   const [strategies, setStrategies] = useState<Strategy[]>(ALL_STRATEGIES)
 
   return (
@@ -238,40 +238,56 @@ export function QuantPlatform() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="card">
-        <div className="flex border-b border-border overflow-x-auto">
+      {/* Tabs - Using Radix UI for accessibility */}
+      <Tabs.Root defaultValue="optimizer" className="card">
+        <Tabs.List className="flex border-b border-border overflow-x-auto" aria-label="Quant Platform sections">
           {TABS.map(tab => {
             const Icon = tab.icon
             return (
-              <button
+              <Tabs.Trigger
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                value={tab.id}
                 className={cn(
                   'flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap',
-                  activeTab === tab.id
-                    ? 'border-accent-primary text-accent-primary'
-                    : 'border-transparent text-foreground-secondary hover:text-foreground-primary'
+                  'border-transparent text-foreground-secondary hover:text-foreground-primary',
+                  'data-[state=active]:border-accent-primary data-[state=active]:text-accent-primary',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50'
                 )}
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
-              </button>
+              </Tabs.Trigger>
             )
           })}
-        </div>
+        </Tabs.List>
 
         <div className="p-6">
-          {activeTab === 'optimizer' && <PortfolioOptimizer strategies={strategies} />}
-          {activeTab === 'strategies' && <StrategyRegistry strategies={strategies} setStrategies={setStrategies} />}
-          {activeTab === 'backtest' && <BacktestEngine strategies={strategies} />}
-          {activeTab === 'walkforward' && <WalkForwardAnalysis />}
-          {activeTab === 'risk' && <RiskAnalytics />}
-          {activeTab === 'montecarlo' && <MonteCarloSimulation />}
-          {activeTab === 'mlbrain' && <MLBrainDashboard />}
-          {activeTab === 'learning' && <LearningCenter />}
+          <Tabs.Content value="optimizer" className="focus:outline-none">
+            <PortfolioOptimizer strategies={strategies} />
+          </Tabs.Content>
+          <Tabs.Content value="strategies" className="focus:outline-none">
+            <StrategyRegistry strategies={strategies} setStrategies={setStrategies} />
+          </Tabs.Content>
+          <Tabs.Content value="backtest" className="focus:outline-none">
+            <BacktestEngine strategies={strategies} />
+          </Tabs.Content>
+          <Tabs.Content value="walkforward" className="focus:outline-none">
+            <WalkForwardAnalysis />
+          </Tabs.Content>
+          <Tabs.Content value="risk" className="focus:outline-none">
+            <RiskAnalytics />
+          </Tabs.Content>
+          <Tabs.Content value="montecarlo" className="focus:outline-none">
+            <MonteCarloSimulation />
+          </Tabs.Content>
+          <Tabs.Content value="mlbrain" className="focus:outline-none">
+            <MLBrainDashboard />
+          </Tabs.Content>
+          <Tabs.Content value="learning" className="focus:outline-none">
+            <LearningCenter />
+          </Tabs.Content>
         </div>
-      </div>
+      </Tabs.Root>
     </div>
   )
 }
@@ -758,11 +774,9 @@ function BacktestEngine({ strategies }: { strategies: Strategy[] }) {
           exposure: 0
         })
       } else {
-        console.error('Backtest failed:', data.detail)
         setResults(null)
       }
-    } catch (error) {
-      console.error('Backtest error:', error)
+    } catch {
       setResults(null)
     } finally {
       setRunning(false)

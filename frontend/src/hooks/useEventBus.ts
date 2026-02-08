@@ -132,8 +132,8 @@ class EventBus {
           if (sub.once) {
             toRemove.push(sub.id)
           }
-        } catch (error) {
-          console.error(`Event handler error for ${eventType}:`, error)
+        } catch {
+          // Silently ignore event handler errors
         }
       }
     })

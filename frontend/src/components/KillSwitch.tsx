@@ -33,8 +33,8 @@ export function KillSwitch({ compact = true, className }: KillSwitchProps) {
       if (response.ok && response.data) {
         setIsEngaged(response.data.engaged ?? false);
       }
-    } catch (e) {
-      console.error('Failed to check kill switch status:', e);
+    } catch {
+      // Silent fail - status will remain as default
     }
   }, []);
 

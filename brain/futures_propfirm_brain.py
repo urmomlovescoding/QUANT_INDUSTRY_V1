@@ -1259,7 +1259,12 @@ class FuturesPropFirmBrain:
         return buffer
     
     def _deserialize_model(self, model: nn.Module, data: bytes):
-        """Deserialize model state dict from bytes."""
+        """Deserialize model state dict from bytes.
+
+        SECURITY WARNING: pickle.loads can execute arbitrary code if data is tampered.
+        Only use with trusted data sources (local database, secure storage).
+        TODO: Migrate to torch.load(weights_only=True) or safetensors for production.
+        """
         state_dict = pickle.loads(data)
         model.load_state_dict(state_dict)
     
