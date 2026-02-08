@@ -662,7 +662,7 @@ class TradierDataSource(DataSourceBase):
         try:
             url = f"{self.base_url}/markets/quotes"
             params = {"symbols": symbol, "greeks": "false"}
-            response = requests.get(url, headers=self._get_headers(), params=params, timeout=10)
+            response = requests.get(url, headers=self._get_headers(), params=params, timeout=3)
 
             if response.status_code != 200:
                 self._failure()
@@ -923,7 +923,7 @@ class DataService:
         self.cache_lock = threading.Lock()
         self.force_live = force_live  # When True, don't use fallback for primary data
         self.cache_ttl = {
-            "quote": 15,      # 15 seconds for quotes (faster refresh)
+            "quote": 30,      # 30 seconds for quotes (balance freshness vs speed)
             "historical": 120, # 2 minutes for historical
             "options": 30,    # 30 seconds for options
         }
@@ -943,9 +943,9 @@ class DataService:
         # Circuit breakers for each source (protect against hammering failing sources)
         self.circuit_breakers: Dict[str, Any] = {
             source.name: CircuitBreaker(
-                failure_threshold=3,      # Open after 3 failures
-                recovery_timeout=30.0,    # Try again after 30 seconds
-                half_open_max_calls=2     # 2 successful calls to close
+                failure_threshold=2,      # Open after 2 failures (fast fail)
+                recovery_timeout=60.0,    # Try again after 60 seconds
+                half_open_max_calls=1     # 1 successful call to close
             )
             for source in self.sources
         }
@@ -976,11 +976,17 @@ class DataService:
             self.sources.append(alpaca)
             logger.info("[DATA SOURCE] Alpaca: ENABLED")
 
-        # 2. Tradier (excellent for options + stocks)
+        # 2. Tradier - disabled at startup, enable via API if DNS resolves
+        # DNS for api.tradier.com is unreachable from some networks causing 30s+ timeouts
         tradier = TradierDataSource()
         if tradier.api_key:
-            self.sources.append(tradier)
-            logger.info("[DATA SOURCE] Tradier: ENABLED")
+            try:
+                import socket
+                socket.getaddrinfo("api.tradier.com", 443, socket.AF_INET, socket.SOCK_STREAM)
+                self.sources.append(tradier)
+                logger.info("[DATA SOURCE] Tradier: ENABLED")
+            except (socket.gaierror, OSError):
+                logger.warning("[DATA SOURCE] Tradier: DISABLED (DNS unreachable)")
 
         # 3. Yahoo Finance (widely available, no API key needed)
         if HAS_YFINANCE:
@@ -1078,17 +1084,34 @@ class DataService:
             }
         return result
 
+    # Map futures symbols to their liquid ETF proxies for faster data
+    FUTURES_TO_ETF = {
+        "NQ": "QQQ", "ES": "SPY", "YM": "DIA", "RTY": "IWM",
+        "CL": "USO", "GC": "GLD", "SI": "SLV", "ZB": "TLT",
+    }
+
     def get_quote(self, symbol: str, allow_fallback: bool = None) -> Quote:
         """Get quote with failover - LIVE DATA PREFERRED"""
         symbol = symbol.upper()
         cache_key = self._get_cache_key("quote", symbol)
         use_fallback = not self.force_live if allow_fallback is None else allow_fallback
 
-        # Check cache
+        # Check cache FIRST (before any network calls)
         cached = self._get_from_cache(cache_key)
         if cached:
             logger.debug(f"Cache hit for {symbol}")
             return cached
+
+        # For futures symbols, use ETF proxy (much faster, always available)
+        etf_proxy = self.FUTURES_TO_ETF.get(symbol)
+        if etf_proxy:
+            proxy_quote = self.get_quote(etf_proxy, allow_fallback=allow_fallback)
+            if proxy_quote:
+                import copy
+                result = copy.copy(proxy_quote)
+                result.symbol = symbol
+                self._set_cache(cache_key, result, self.cache_ttl["quote"])
+                return result
 
         # Try sources in order
         live_quote = None
