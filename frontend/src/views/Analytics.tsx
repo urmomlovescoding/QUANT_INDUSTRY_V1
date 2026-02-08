@@ -185,7 +185,7 @@ export function Analytics() {
                   </span>
                 </div>
               </div>
-              <AreaChart />
+              <AreaChart emptyMessage="Returns data will populate with trading history" />
             </div>
 
             {/* Risk metrics */}

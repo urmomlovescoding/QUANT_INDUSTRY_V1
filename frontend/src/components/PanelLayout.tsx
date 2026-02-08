@@ -171,16 +171,22 @@ function PositionsPanel() {
             </tr>
           </thead>
           <tbody>
-            {positions.map((p: any, i: number) => (
-              <tr key={i} className="border-b border-border/30 hover:bg-background-hover/50">
-                <td className="py-1.5 px-2 font-bold text-accent-primary">{p.symbol}</td>
-                <td className="py-1.5 px-2 text-right font-mono">{p.qty || p.quantity || 0}</td>
-                <td className="py-1.5 px-2 text-right font-mono">${(p.current_price || p.market_value || 0).toFixed(2)}</td>
-                <td className={cn('py-1.5 px-2 text-right font-mono font-bold', (p.unrealized_pl || p.pnl || 0) >= 0 ? 'text-bullish' : 'text-bearish')}>
-                  {(p.unrealized_pl || p.pnl || 0) >= 0 ? '+' : ''}{(p.unrealized_pl || p.pnl || 0).toFixed(2)}
-                </td>
-              </tr>
-            ))}
+            {positions.map((p, i) => {
+              const pos = p as unknown as Record<string, unknown>
+              const qty = Number(pos.qty ?? pos.quantity ?? 0)
+              const price = Number(pos.current_price ?? pos.market_value ?? 0)
+              const pnl = Number(pos.unrealized_pl ?? pos.pnl ?? 0)
+              return (
+                <tr key={i} className="border-b border-border/30 hover:bg-background-hover/50">
+                  <td className="py-1.5 px-2 font-bold text-accent-primary">{String(pos.symbol ?? '')}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{qty}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">${price.toFixed(2)}</td>
+                  <td className={cn('py-1.5 px-2 text-right font-mono font-bold', pnl >= 0 ? 'text-bullish' : 'text-bearish')}>
+                    {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}
@@ -207,14 +213,18 @@ function OrdersPanel() {
             </tr>
           </thead>
           <tbody>
-            {orders.map((o: any, i: number) => (
-              <tr key={i} className="border-b border-border/30 hover:bg-background-hover/50">
-                <td className="py-1.5 px-2 font-bold text-accent-primary">{o.symbol}</td>
-                <td className={cn('py-1.5 px-2', o.side === 'buy' ? 'text-bullish' : 'text-bearish')}>{o.side?.toUpperCase()}</td>
-                <td className="py-1.5 px-2 text-right font-mono">{o.qty || o.quantity || 0}</td>
-                <td className="py-1.5 px-2 text-foreground-muted">{o.status || 'pending'}</td>
-              </tr>
-            ))}
+            {orders.map((o, i) => {
+              const ord = o as unknown as Record<string, unknown>
+              const side = String(ord.side ?? '')
+              return (
+                <tr key={i} className="border-b border-border/30 hover:bg-background-hover/50">
+                  <td className="py-1.5 px-2 font-bold text-accent-primary">{String(ord.symbol ?? '')}</td>
+                  <td className={cn('py-1.5 px-2', side === 'buy' ? 'text-bullish' : 'text-bearish')}>{side.toUpperCase()}</td>
+                  <td className="py-1.5 px-2 text-right font-mono">{Number(ord.qty ?? ord.quantity ?? 0)}</td>
+                  <td className="py-1.5 px-2 text-foreground-muted">{String(ord.status ?? 'pending')}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}
@@ -224,15 +234,15 @@ function OrdersPanel() {
 
 function RiskPanel() {
   const { data } = useQuery({ queryKey: ['panel-risk'], queryFn: () => riskApi.getMetrics(), refetchInterval: 10000 })
-  const risk = data?.ok ? data.data : null
+  const risk = data?.ok ? (data.data as PanelRiskData | null) : null
 
   const metrics = risk ? [
-    { label: 'Risk Score', value: (risk as any).risk_score?.toFixed(1) || '--', color: '' },
-    { label: 'Exposure', value: `${((risk as any).exposure_pct || (risk as any).risk_utilization || 0).toFixed(1)}%`, color: '' },
-    { label: 'Max Drawdown', value: `${((risk as any).max_drawdown || 0).toFixed(2)}%`, color: 'text-bearish' },
-    { label: 'Sharpe Ratio', value: ((risk as any).sharpe_ratio || 0).toFixed(2), color: '' },
-    { label: 'Win Rate', value: `${((risk as any).win_rate || 0).toFixed(1)}%`, color: '' },
-    { label: 'Profit Factor', value: ((risk as any).profit_factor || 0).toFixed(2), color: '' },
+    { label: 'Risk Score', value: risk.risk_score?.toFixed(1) || '--', color: '' },
+    { label: 'Exposure', value: `${(risk.exposure_pct || risk.risk_utilization || 0).toFixed(1)}%`, color: '' },
+    { label: 'Max Drawdown', value: `${(risk.max_drawdown || 0).toFixed(2)}%`, color: 'text-bearish' },
+    { label: 'Sharpe Ratio', value: (risk.sharpe_ratio || 0).toFixed(2), color: '' },
+    { label: 'Win Rate', value: `${(risk.win_rate || 0).toFixed(1)}%`, color: '' },
+    { label: 'Profit Factor', value: (risk.profit_factor || 0).toFixed(2), color: '' },
   ] : []
 
   return (
@@ -255,11 +265,11 @@ function RiskPanel() {
 
 function PnLPanel() {
   const { data } = useQuery({ queryKey: ['panel-portfolio'], queryFn: () => portfolioApi.getPortfolio(), refetchInterval: 5000 })
-  const portfolio = data?.ok ? data.data : null
+  const portfolio = data?.ok ? (data.data as PanelPortfolioData | null) : null
 
-  const equity = (portfolio as any)?.equity || (portfolio as any)?.total_value || 0
-  const pnl = (portfolio as any)?.daily_pnl || (portfolio as any)?.unrealized_pnl || 0
-  const buyingPower = (portfolio as any)?.buying_power || 0
+  const equity = portfolio?.equity || portfolio?.total_value || 0
+  const pnl = portfolio?.daily_pnl || portfolio?.unrealized_pnl || 0
+  const buyingPower = portfolio?.buying_power || 0
 
   return (
     <div className="h-full overflow-auto p-3">
@@ -324,7 +334,7 @@ function ChartPanel() {
 
 function BrainPanel() {
   const { data } = useQuery({ queryKey: ['panel-brain'], queryFn: () => brainApi.getStatus(), refetchInterval: 10000 })
-  const brain = data?.ok ? data.data : null
+  const brain = data?.ok ? (data.data as PanelBrainData | null) : null
 
   return (
     <div className="h-full overflow-auto p-3">
@@ -335,21 +345,21 @@ function BrainPanel() {
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-background-tertiary rounded p-2">
               <p className="text-[9px] text-foreground-muted uppercase">Status</p>
-              <p className={cn('text-sm font-bold', (brain as any).is_active ? 'text-bullish' : 'text-foreground-muted')}>
-                {(brain as any).is_active ? 'ACTIVE' : 'IDLE'}
+              <p className={cn('text-sm font-bold', brain.is_active ? 'text-bullish' : 'text-foreground-muted')}>
+                {brain.is_active ? 'ACTIVE' : 'IDLE'}
               </p>
             </div>
             <div className="bg-background-tertiary rounded p-2">
               <p className="text-[9px] text-foreground-muted uppercase">Accuracy</p>
-              <p className="text-sm font-mono font-bold text-accent-primary">{((brain as any).accuracy * 100 || 0).toFixed(1)}%</p>
+              <p className="text-sm font-mono font-bold text-accent-primary">{((brain.accuracy ?? 0) * 100).toFixed(1)}%</p>
             </div>
             <div className="bg-background-tertiary rounded p-2">
               <p className="text-[9px] text-foreground-muted uppercase">Signals</p>
-              <p className="text-sm font-mono font-bold text-warning">{(brain as any).signals_generated || 0}</p>
+              <p className="text-sm font-mono font-bold text-warning">{brain.signals_generated || 0}</p>
             </div>
             <div className="bg-background-tertiary rounded p-2">
               <p className="text-[9px] text-foreground-muted uppercase">Strategies</p>
-              <p className="text-sm font-mono font-bold text-foreground-primary">{(brain as any).active_strategies || 0}</p>
+              <p className="text-sm font-mono font-bold text-foreground-primary">{brain.active_strategies || 0}</p>
             </div>
           </div>
         </div>
@@ -378,6 +388,34 @@ function EmptyPanel({ icon: Icon, message }: { icon: React.ComponentType<{ class
 // Import API clients - using dynamic references since they're in the same project
 import { useQuery } from '@tanstack/react-query'
 import { portfolioApi, tradingApi, riskApi, brainApi } from '@/api/client'
+
+/** Extended risk metrics from API for panel display */
+interface PanelRiskData {
+  risk_score?: number
+  exposure_pct?: number
+  risk_utilization?: number
+  max_drawdown?: number
+  sharpe_ratio?: number
+  win_rate?: number
+  profit_factor?: number
+}
+
+/** Extended portfolio data from API for panel display */
+interface PanelPortfolioData {
+  equity?: number
+  total_value?: number
+  daily_pnl?: number
+  unrealized_pnl?: number
+  buying_power?: number
+}
+
+/** Extended brain status from API for panel display */
+interface PanelBrainData {
+  is_active?: boolean
+  accuracy?: number
+  signals_generated?: number
+  active_strategies?: number
+}
 
 // Main Panel Layout component
 interface PanelLayoutProps {

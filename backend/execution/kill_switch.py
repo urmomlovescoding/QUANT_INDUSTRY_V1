@@ -15,6 +15,7 @@ Features:
 import json
 import logging
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable, Tuple
@@ -22,8 +23,20 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger("KILL_SWITCH")
 
-# Confirmation code required to deactivate - prevents accidental resume
-CONFIRMATION_CODE = "CONFIRM_RESUME_TRADING"
+# SECURITY: Generate a time-limited one-time confirmation code for deactivation
+# instead of a hardcoded string that anyone with source access can use
+import secrets
+import hashlib
+
+
+def _generate_confirmation_code() -> str:
+    """Generate a cryptographically random confirmation code."""
+    return secrets.token_hex(16)
+
+
+# Active confirmation codes with expiry timestamps
+_pending_confirmations: Dict[str, float] = {}
+CONFIRMATION_EXPIRY_SECONDS = 300  # 5 minutes
 
 
 @dataclass
@@ -224,24 +237,52 @@ class KillSwitch:
             except Exception as e:
                 logger.error(f"Activation callback error: {e}")
 
+    def request_deactivation_code(self) -> str:
+        """
+        Request a time-limited confirmation code for deactivation.
+
+        Returns a code that expires after CONFIRMATION_EXPIRY_SECONDS.
+        The code must be passed to deactivate() within the time window.
+        """
+        code = _generate_confirmation_code()
+        _pending_confirmations[code] = time.time() + CONFIRMATION_EXPIRY_SECONDS
+
+        # Clean up expired codes
+        now = time.time()
+        expired = [c for c, exp in _pending_confirmations.items() if exp < now]
+        for c in expired:
+            del _pending_confirmations[c]
+
+        logger.warning(f"Kill switch deactivation code requested (expires in {CONFIRMATION_EXPIRY_SECONDS}s)")
+        return code
+
     def deactivate(self, confirmation_code: str, reason: str = "Manual deactivation", triggered_by: str = "operator") -> Tuple[bool, str]:
         """
         Deactivate the kill switch.
 
-        REQUIRES confirmation code to prevent accidental resume.
+        REQUIRES a valid, non-expired confirmation code from request_deactivation_code().
 
         Args:
-            confirmation_code: Must match CONFIRMATION_CODE constant
+            confirmation_code: Time-limited code from request_deactivation_code()
             reason: Why it's being deactivated
             triggered_by: Who is deactivating (should be 'operator')
 
         Returns:
             (success, message) tuple
         """
-        # Verify confirmation code FIRST
-        if confirmation_code != CONFIRMATION_CODE:
+        # SECURITY: Verify confirmation code is valid and not expired
+        import time as _time
+        if confirmation_code not in _pending_confirmations:
             logger.warning(f"Kill switch deactivation DENIED - invalid confirmation code")
-            return False, f"Invalid confirmation code. Use: {CONFIRMATION_CODE}"
+            return False, "Invalid confirmation code. Request a new code first."
+
+        if _pending_confirmations[confirmation_code] < _time.time():
+            del _pending_confirmations[confirmation_code]
+            logger.warning(f"Kill switch deactivation DENIED - confirmation code expired")
+            return False, "Confirmation code expired. Request a new code."
+
+        # Code is valid - consume it (one-time use)
+        del _pending_confirmations[confirmation_code]
 
         with self._lock:
             if not self.is_active:

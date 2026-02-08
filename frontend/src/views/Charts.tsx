@@ -291,21 +291,48 @@ export function Charts() {
             </div>
           </div>
 
-          {/* Signals */}
+          {/* Signals - derived from actual indicator values */}
           <div className="card p-4">
             <h3 className="text-xs font-bold text-foreground-muted mb-3">SIGNALS</h3>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs">SMA Cross</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-bullish/20 text-bullish">BUY</span>
+                {indicators.sma_20 > 0 && indicators.sma_50 > 0 ? (
+                  <span className={cn(
+                    'text-xs px-2 py-0.5 rounded',
+                    indicators.sma_20 > indicators.sma_50
+                      ? 'bg-bullish/20 text-bullish'
+                      : indicators.sma_20 < indicators.sma_50
+                        ? 'bg-bearish/20 text-bearish'
+                        : 'bg-foreground-muted/20 text-foreground-muted'
+                  )}>
+                    {indicators.sma_20 > indicators.sma_50 ? 'BUY' : indicators.sma_20 < indicators.sma_50 ? 'SELL' : 'NEUTRAL'}
+                  </span>
+                ) : (
+                  <span className="text-xs px-2 py-0.5 rounded bg-foreground-muted/20 text-foreground-muted">N/A</span>
+                )}
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs">RSI</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-foreground-muted/20 text-foreground-muted">NEUTRAL</span>
+                <span className={cn(
+                  'text-xs px-2 py-0.5 rounded',
+                  indicators.rsi > 70 ? 'bg-bearish/20 text-bearish'
+                    : indicators.rsi < 30 ? 'bg-bullish/20 text-bullish'
+                    : 'bg-foreground-muted/20 text-foreground-muted'
+                )}>
+                  {indicators.rsi > 70 ? 'OVERBOUGHT' : indicators.rsi < 30 ? 'OVERSOLD' : 'NEUTRAL'}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs">MACD</span>
-                <span className="text-xs px-2 py-0.5 rounded bg-bullish/20 text-bullish">BULLISH</span>
+                <span className={cn(
+                  'text-xs px-2 py-0.5 rounded',
+                  indicators.macd > 0 ? 'bg-bullish/20 text-bullish'
+                    : indicators.macd < 0 ? 'bg-bearish/20 text-bearish'
+                    : 'bg-foreground-muted/20 text-foreground-muted'
+                )}>
+                  {indicators.macd > 0 ? 'BULLISH' : indicators.macd < 0 ? 'BEARISH' : 'NEUTRAL'}
+                </span>
               </div>
             </div>
           </div>

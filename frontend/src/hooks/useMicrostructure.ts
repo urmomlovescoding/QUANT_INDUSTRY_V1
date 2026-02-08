@@ -4,7 +4,7 @@
  * Uses the v2 API client for type-safe requests.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { apiV2 } from '@/api/v2';
 import type { ApiResponse } from '@/api/v2';
 import {
@@ -36,16 +36,18 @@ export function useOrderBook(symbol: string, options: Omit<UseMicrostructureOpti
   const [history, setHistory] = useState<OrderBookHeatmapData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   const fetchData = useCallback(async () => {
-    if (!symbol) return;
+    if (!symbol || !mountedRef.current) return;
     setIsLoading(true);
     try {
       const response = await apiV2.microstructure.getOrderBook(symbol);
+      if (!mountedRef.current) return;
       if (response.ok && response.data) {
         const result = response.data as unknown as OrderBook;
         setData(result);
-        
+
         // Append to history for heatmap
         if (result.bids && result.asks) {
           const heatmapEntry: OrderBookHeatmapData = {
@@ -62,18 +64,27 @@ export function useOrderBook(symbol: string, options: Omit<UseMicrostructureOpti
         throw new Error(getErrorMessage(response));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : 'Unknown error');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [symbol]);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchData();
     if (autoRefresh) {
       const interval = setInterval(fetchData, refreshInterval);
-      return () => clearInterval(interval);
+      return () => {
+        mountedRef.current = false;
+        clearInterval(interval);
+      };
     }
+    return () => { mountedRef.current = false; };
   }, [fetchData, autoRefresh, refreshInterval]);
 
   return { data, history, isLoading, error, refresh: fetchData };
@@ -84,12 +95,14 @@ export function useImbalance(symbol: string, options: Omit<UseMicrostructureOpti
   const [data, setData] = useState<ImbalanceMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   const fetchData = useCallback(async () => {
-    if (!symbol) return;
+    if (!symbol || !mountedRef.current) return;
     setIsLoading(true);
     try {
       const response = await apiV2.microstructure.getImbalance(symbol);
+      if (!mountedRef.current) return;
       if (response.ok && response.data) {
         setData(response.data as unknown as ImbalanceMetrics);
         setError(null);
@@ -97,18 +110,27 @@ export function useImbalance(symbol: string, options: Omit<UseMicrostructureOpti
         throw new Error(getErrorMessage(response));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : 'Unknown error');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [symbol]);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchData();
     if (autoRefresh) {
       const interval = setInterval(fetchData, refreshInterval);
-      return () => clearInterval(interval);
+      return () => {
+        mountedRef.current = false;
+        clearInterval(interval);
+      };
     }
+    return () => { mountedRef.current = false; };
   }, [fetchData, autoRefresh, refreshInterval]);
 
   return { data, isLoading, error, refresh: fetchData };
@@ -120,16 +142,18 @@ export function useTape(symbol: string, options: Omit<UseMicrostructureOptions, 
   const [analysis, setAnalysis] = useState<TapeAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
   const fetchData = useCallback(async () => {
-    if (!symbol) return;
+    if (!symbol || !mountedRef.current) return;
     setIsLoading(true);
     try {
       const [entriesRes, analysisRes] = await Promise.all([
         apiV2.microstructure.getTape(symbol, 100),
         apiV2.microstructure.getTapeAnalysis(symbol),
       ]);
-      
+
+      if (!mountedRef.current) return;
       if (entriesRes.ok && entriesRes.data) {
         const result = entriesRes.data as unknown as TapeEntry[] | { data: TapeEntry[] };
         setEntries(Array.isArray(result) ? result : result.data || []);
@@ -139,18 +163,27 @@ export function useTape(symbol: string, options: Omit<UseMicrostructureOptions, 
       }
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : 'Unknown error');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [symbol]);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchData();
     if (autoRefresh) {
       const interval = setInterval(fetchData, refreshInterval);
-      return () => clearInterval(interval);
+      return () => {
+        mountedRef.current = false;
+        clearInterval(interval);
+      };
     }
+    return () => { mountedRef.current = false; };
   }, [fetchData, autoRefresh, refreshInterval]);
 
   return { entries, analysis, isLoading, error, refresh: fetchData };

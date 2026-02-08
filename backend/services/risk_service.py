@@ -405,6 +405,8 @@ class SectorExposureTracker:
 
         min_hhi = 10000 / n_sectors
         max_hhi = 10000
+        if max_hhi - min_hhi < 1e-10:
+            return 0.0
         normalized = (max_hhi - hhi) / (max_hhi - min_hhi)
         return max(0.0, min(1.0, normalized))
 
@@ -716,9 +718,12 @@ def calculate_kelly_position_size(
 
     # Kelly formula: f* = (bp - q) / b
     # where b = avg_win/avg_loss, p = win_rate, q = 1-p
-    b = avg_win / avg_loss
+    b = avg_win / max(avg_loss, 1e-10)
     p = win_rate
     q = 1 - p
+
+    if b <= 0:
+        return 0.0
 
     kelly = (b * p - q) / b
 
@@ -1075,7 +1080,7 @@ class MultiLayerRiskEngine:
         existing = next((p for p in current_positions if p.get('symbol') == symbol), None)
         if existing:
             existing_value = existing.get('market_value', 0)
-            total_exposure = (existing_value + trade_value) / account_equity * 100
+            total_exposure = (existing_value + trade_value) / max(account_equity, 1e-10) * 100
             passed = total_exposure <= self.limits.max_position_size_pct * 1.5  # Allow 1.5x for adding
             results.append(RiskCheckResult(
                 layer=RiskCheckLayer.POSITION_LIMITS,
@@ -1286,7 +1291,7 @@ class RiskService:
         max_position_pct = (max_position_size / account.equity * 100) if account.equity > 0 else 0
 
         # Calculate sector concentration (simplified - assume tech heavy)
-        sector_concentration = sum(p.market_value for p in positions) / account.equity * 100 if positions else 0
+        sector_concentration = (sum(p.market_value for p in positions) / max(account.equity, 1e-10) * 100) if positions else 0
 
         # Calculate VaR (simplified parametric)
         portfolio_volatility = self._estimate_portfolio_volatility(positions)
@@ -1373,11 +1378,11 @@ class RiskService:
     ) -> float:
         """Calculate overall risk score (0-100)"""
         # Weight each risk factor
-        dd_score = min(100, (current_drawdown / self.limits.max_drawdown_pct) * 100 * 0.25)
-        var_score = min(100, (var_pct / self.limits.max_var_95) * 100 * 0.2)
-        pos_score = min(100, (position_concentration / self.limits.max_position_pct) * 100 * 0.2)
-        sec_score = min(100, (sector_concentration / self.limits.max_sector_pct) * 100 * 0.15)
-        loss_score = min(100, (daily_loss_pct / self.limits.max_daily_loss_pct) * 100 * 0.2)
+        dd_score = min(100, (current_drawdown / max(self.limits.max_drawdown_pct, 1e-10)) * 100 * 0.25)
+        var_score = min(100, (var_pct / max(self.limits.max_var_95, 1e-10)) * 100 * 0.2)
+        pos_score = min(100, (position_concentration / max(self.limits.max_position_pct, 1e-10)) * 100 * 0.2)
+        sec_score = min(100, (sector_concentration / max(self.limits.max_sector_pct, 1e-10)) * 100 * 0.15)
+        loss_score = min(100, (daily_loss_pct / max(self.limits.max_daily_loss_pct, 1e-10)) * 100 * 0.2)
 
         return dd_score + var_score + pos_score + sec_score + loss_score
 
@@ -1500,7 +1505,7 @@ class RiskService:
         metrics = self.calculate_metrics()
 
         # Check position size
-        new_position_pct = (value / metrics.total_equity) * 100
+        new_position_pct = (value / max(metrics.total_equity, 1e-10)) * 100
         if new_position_pct > self.limits.max_position_pct:
             return False, f"Position size ({new_position_pct:.1f}%) would exceed limit"
 

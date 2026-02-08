@@ -1,10 +1,10 @@
 /**
- * Data Fetching Hooks with Auto-Refresh
+ * Data Fetching Hooks with Auto-Refresh & Request Cancellation
  */
 
 import { useEffect, useCallback, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
-import { marketApi } from '@/api'
+import { apiV2 } from '@/api/v2'
 import type { Quote } from '@/api'
 
 interface UseAutoRefreshOptions {
@@ -14,7 +14,9 @@ interface UseAutoRefreshOptions {
 }
 
 /**
- * Hook for auto-refreshing data at specified intervals
+ * Hook for auto-refreshing data at specified intervals.
+ * Includes mounted-ref guard to prevent state updates
+ * on unmounted components (memory leak prevention).
  */
 export function useAutoRefresh(
   fetchFn: () => Promise<void>,
@@ -22,21 +24,27 @@ export function useAutoRefresh(
 ) {
   const { enabled = true, interval = 15000, onError } = options
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const mountedRef = useRef(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const refresh = useCallback(async () => {
+    if (!mountedRef.current) return
     setIsRefreshing(true)
     try {
       await fetchFn()
     } catch (e) {
-      if (onError && e instanceof Error) {
+      if (onError && e instanceof Error && mountedRef.current) {
         onError(e)
       }
     }
-    setIsRefreshing(false)
+    if (mountedRef.current) {
+      setIsRefreshing(false)
+    }
   }, [fetchFn, onError])
 
   useEffect(() => {
+    mountedRef.current = true
+
     if (!enabled) return
 
     // Initial fetch
@@ -46,8 +54,10 @@ export function useAutoRefresh(
     intervalRef.current = setInterval(refresh, interval)
 
     return () => {
+      mountedRef.current = false
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
+        intervalRef.current = null
       }
     }
   }, [enabled, interval, refresh])
@@ -269,8 +279,19 @@ export function useQuote(symbol: string) {
   const setQuoteInStore = useAppStore((s) => s.setQuote)
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  // Clear stale data immediately when symbol changes
+  useEffect(() => {
+    setQuote(null)
+    setError(null)
+  }, [symbol])
+
   const fetchQuote = useCallback(async () => {
-    if (!symbol) return
+    if (!symbol) {
+      setQuote(null)
+      setError(null)
+      setIsLoading(false)
+      return
+    }
 
     // Cancel any in-flight request
     abortControllerRef.current?.abort()
@@ -279,13 +300,14 @@ export function useQuote(symbol: string) {
 
     setIsLoading(true)
     try {
-      const response = await marketApi.getQuote(symbol)
+      const response = await apiV2.market.getQuote(symbol)
       // Don't update state if this request was cancelled
       if (controller.signal.aborted) return
 
       if (response.ok && response.data) {
-        setQuote(response.data)
-        setQuoteInStore(symbol, response.data)
+        const quoteData = response.data as unknown as Quote
+        setQuote(quoteData)
+        setQuoteInStore(symbol, quoteData)
         setError(null)
       } else if (response.error && !response.error.aborted) {
         setError(response.error.message || 'Failed to fetch quote')

@@ -4,6 +4,23 @@ import { cn } from '@/utils/cn'
 import { GaugeChart } from '@/components/charts/GaugeChart'
 import { apiV2 } from '@/api/v2'
 
+/** Extended risk data from API (superset of RiskMetrics) */
+interface RiskApiData {
+  status?: string
+  overall_risk?: number
+  riskScore?: number
+  risk_score?: number
+  position_concentration?: number
+  max_position_exposure?: number
+  sector_concentration?: number
+  max_drawdown?: number
+  current_drawdown?: number
+  daily_loss?: number
+  daily_pnl?: number
+  var_95?: number
+  alerts?: RiskAlert[]
+}
+
 interface RiskLimit {
   name: string
   current: number
@@ -39,20 +56,27 @@ export function RiskEngine() {
         throw new Error(apiError?.message || 'Failed to fetch risk metrics')
       }
 
-      if (!data || (data as any).status === 'unavailable') {
+      if (!data) {
         setMetrics(null)
       } else {
+        // Treat as extended risk data that may have additional fields
+        const riskData = data as unknown as RiskApiData
+        if (riskData.status === 'unavailable') {
+          setMetrics(null)
+          return
+        }
+
         // Transform API response
-        const riskScore = (data as any).overall_risk || (data as any).riskScore || data.risk_score || 0
+        const riskScore = riskData.overall_risk || riskData.riskScore || riskData.risk_score || 0
         const limits: RiskLimit[] = [
-          { name: 'Max Position Size', current: (data as any).position_concentration || data.max_position_exposure || 0, limit: 15, unit: '%' },
-          { name: 'Sector Concentration', current: (data as any).sector_concentration || data.sector_concentration || 0, limit: 40, unit: '%' },
-          { name: 'Max Drawdown', current: Math.abs((data as any).max_drawdown || data.current_drawdown || 0), limit: 15, unit: '%' },
-          { name: 'Daily Loss', current: Math.abs((data as any).daily_loss || data.daily_pnl || 0), limit: 3, unit: '%' },
-          { name: 'VaR 95%', current: Math.abs(data.var_95 || 0), limit: 5, unit: '%' },
+          { name: 'Max Position Size', current: riskData.position_concentration || riskData.max_position_exposure || 0, limit: 15, unit: '%' },
+          { name: 'Sector Concentration', current: riskData.sector_concentration || 0, limit: 40, unit: '%' },
+          { name: 'Max Drawdown', current: Math.abs(riskData.max_drawdown || riskData.current_drawdown || 0), limit: 15, unit: '%' },
+          { name: 'Daily Loss', current: Math.abs(riskData.daily_loss || riskData.daily_pnl || 0), limit: 3, unit: '%' },
+          { name: 'VaR 95%', current: Math.abs(riskData.var_95 || 0), limit: 5, unit: '%' },
         ]
 
-        const alerts: RiskAlert[] = (data as any).alerts || []
+        const alerts: RiskAlert[] = riskData.alerts || []
 
         setMetrics({ riskScore, limits, alerts })
       }

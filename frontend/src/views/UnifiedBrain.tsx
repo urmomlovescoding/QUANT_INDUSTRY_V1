@@ -180,13 +180,18 @@ export function UnifiedBrain() {
       .filter(m => m?.available).length
   }
 
-  // Radar data for module performance
+  // Radar data - show module readiness (available & trained = 100, available only = 50, offline = 0)
+  const getModuleScore = (mod?: ModuleStatus) => {
+    if (!mod?.available) return 0
+    return mod.trained ? 100 : 50
+  }
+
   const radarData = [
-    { module: 'ML', value: modules?.beast?.available ? 85 : 0 },
-    { module: 'RL', value: modules?.rl?.available ? 78 : 0 },
-    { module: 'DL', value: modules?.dl?.available ? 82 : 0 },
-    { module: 'Evo', value: modules?.evolution?.available ? 70 : 0 },
-    { module: 'Neural', value: isAvailable ? 88 : 0 },
+    { module: 'ML', value: getModuleScore(modules?.beast) },
+    { module: 'RL', value: getModuleScore(modules?.rl) },
+    { module: 'DL', value: getModuleScore(modules?.dl) },
+    { module: 'Evo', value: getModuleScore(modules?.evolution) },
+    { module: 'Neural', value: isAvailable ? (brainStatus?.is_trained ? 100 : 50) : 0 },
   ]
 
   return (

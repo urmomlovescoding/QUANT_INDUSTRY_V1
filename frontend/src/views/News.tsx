@@ -157,10 +157,10 @@ export function News() {
       bullish,
       bearish,
       neutral,
-      bullishPct: Math.round((bullish / total) * 100),
-      bearishPct: Math.round((bearish / total) * 100),
-      neutralPct: Math.round((neutral / total) * 100),
-      avgScore: news.reduce((sum, n) => sum + n.sentiment.score, 0) / total,
+      bullishPct: total > 0 ? Math.round((bullish / total) * 100) : 0,
+      bearishPct: total > 0 ? Math.round((bearish / total) * 100) : 0,
+      neutralPct: total > 0 ? Math.round((neutral / total) * 100) : 0,
+      avgScore: total > 0 ? news.reduce((sum, n) => sum + n.sentiment.score, 0) / total : 0,
     }
   }, [news])
 
@@ -368,9 +368,15 @@ export function News() {
           />
         ))}
 
-        {filteredNews.length === 0 && (
+        {filteredNews.length === 0 && !isLoading && (
           <div className="card p-8 text-center text-foreground-muted">
-            <p>No articles match your filters</p>
+            <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <p className="font-medium">{news.length === 0 ? 'No News Available' : 'No articles match your filters'}</p>
+            <p className="text-xs mt-1">
+              {news.length === 0
+                ? 'News feed will populate once a news API is configured'
+                : 'Try adjusting your search or filter criteria'}
+            </p>
           </div>
         )}
       </div>

@@ -16,6 +16,59 @@ import { cn } from '@/utils/cn'
 import { apiV2 } from '@/api/v2'
 import { api } from '@/api/client'
 
+/** API may wrap positions in an object */
+interface PositionsResponse {
+  positions: RawPosition[]
+}
+
+/** Raw API position data before transformation */
+interface RawPosition {
+  id?: string
+  asset_id?: string
+  symbol: string
+  side?: string
+  qty?: string | number
+  quantity?: string | number
+  avg_entry_price?: string | number
+  entryPrice?: string | number
+  cost_basis?: string | number
+  current_price?: string | number
+  currentPrice?: string | number
+  market_value?: string | number
+  unrealized_pl?: string | number
+  unrealizedPnl?: string | number
+  unrealized_plpc?: string | number
+  unrealizedPnlPercent?: string | number
+  stop_loss?: number | null
+  stopLoss?: number | null
+  take_profit?: number | null
+  takeProfit?: number | null
+}
+
+/** Raw closed trade from API */
+interface RawTrade {
+  id?: string
+  symbol: string
+  side?: string
+  qty?: number
+  quantity?: number
+  entry_price?: number
+  entryPrice?: number
+  exit_price?: number
+  exitPrice?: number
+  realized_pnl?: number
+  realizedPnl?: number
+  pnl?: number
+  realized_pnl_percent?: number
+  realizedPnlPercent?: number
+  entry_time?: string
+  entryTime?: string
+  exit_time?: string
+  exitTime?: string
+  duration?: string
+  strategy?: string
+}
+
 interface Position {
   id: string
   symbol: string
@@ -45,15 +98,15 @@ interface ClosedTrade {
 }
 
 // Transform API position data
-const transformPosition = (p: any): Position => ({
+const transformPosition = (p: RawPosition): Position => ({
   id: p.id || p.asset_id || String(Math.random()),
   symbol: p.symbol,
-  side: p.side || (parseFloat(p.qty || p.quantity) >= 0 ? 'long' : 'short'),
-  qty: Math.abs(parseFloat(p.qty || p.quantity || 0)),
-  entryPrice: parseFloat(p.avg_entry_price || p.entryPrice || p.cost_basis || 0),
-  currentPrice: parseFloat(p.current_price || p.currentPrice || p.market_value / Math.abs(p.qty || 1) || 0),
-  unrealizedPnl: parseFloat(p.unrealized_pl || p.unrealizedPnl || 0),
-  unrealizedPnlPercent: parseFloat(p.unrealized_plpc || p.unrealizedPnlPercent || 0) * 100,
+  side: p.side as 'long' | 'short' || (parseFloat(String(p.qty || p.quantity)) >= 0 ? 'long' : 'short'),
+  qty: Math.abs(parseFloat(String(p.qty || p.quantity || 0))),
+  entryPrice: parseFloat(String(p.avg_entry_price || p.entryPrice || p.cost_basis || 0)),
+  currentPrice: parseFloat(String(p.current_price || p.currentPrice || Number(p.market_value) / Math.abs(Number(p.qty) || 1) || 0)),
+  unrealizedPnl: parseFloat(String(p.unrealized_pl || p.unrealizedPnl || 0)),
+  unrealizedPnlPercent: parseFloat(String(p.unrealized_plpc || p.unrealizedPnlPercent || 0)) * 100,
   stopLoss: p.stop_loss || p.stopLoss || null,
   takeProfit: p.take_profit || p.takeProfit || null,
 })
@@ -82,16 +135,20 @@ export function Positions() {
         // Fetch open positions using v2 client
         const { data: posData, ok: posOk } = await apiV2.positions.getAll()
         if (posOk && posData) {
-          const posList = Array.isArray(posData) ? posData : ((posData as any).positions || [])
-          setPositions(posList.map(transformPosition))
+          const posList = Array.isArray(posData)
+            ? posData
+            : (posData && typeof posData === 'object' && 'positions' in posData)
+              ? (posData as unknown as PositionsResponse).positions
+              : []
+          setPositions(posList.map((p) => transformPosition(p as unknown as RawPosition)))
         }
 
         // Fetch closed trades using base API client
-        const { data: tradesData, ok: tradesOk } = await api.get<any>('/api/algobot/trades')
+        const { data: tradesData, ok: tradesOk } = await api.get<RawTrade[] | { trades: RawTrade[] }>('/api/algobot/trades')
         if (tradesOk && tradesData) {
           const tradesList = Array.isArray(tradesData) ? tradesData : (tradesData.trades || [])
           if (tradesList.length > 0) {
-            setClosedTrades(tradesList.map((t: any) => ({
+            setClosedTrades(tradesList.map((t: RawTrade) => ({
               id: t.id || String(Math.random()),
               symbol: t.symbol,
               side: t.side || 'long',
@@ -230,6 +287,13 @@ export function Positions() {
                 ))}
               </tbody>
             </table>
+            {positions.length === 0 && !loading && (
+              <div className="p-8 text-center text-foreground-muted">
+                <Briefcase className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="font-medium">No Open Positions</p>
+                <p className="text-xs mt-1">Positions will appear here when trades are executed</p>
+              </div>
+            )}
           </div>
           <div className="p-4 border-t border-border flex items-center justify-between">
             <div className="flex items-center gap-6">

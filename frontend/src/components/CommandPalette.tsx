@@ -357,18 +357,19 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   let currentIndex = 0
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[12vh]">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Palette */}
       <div className="relative w-full max-w-xl bg-background-secondary border border-border rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Search Input */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          <Search className="w-5 h-5 text-foreground-muted flex-shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border" role="combobox" aria-expanded="true" aria-haspopup="listbox" aria-owns="command-palette-list">
+          <Search className="w-5 h-5 text-foreground-muted flex-shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
             type="text"
@@ -376,6 +377,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
             onChange={(e) => { setSearch(e.target.value); setHistoryIndex(-1) }}
             onKeyDown={handleKeyDown}
             placeholder='Type a command... (try "go AAPL" or "risk")'
+            aria-label="Search commands"
+            aria-autocomplete="list"
+            aria-controls="command-palette-list"
+            aria-activedescendant={filteredCommands[selectedIndex] ? `cmd-${filteredCommands[selectedIndex].id}` : undefined}
             className="flex-1 bg-transparent text-foreground-primary placeholder-foreground-muted outline-none text-sm"
           />
           <kbd className="px-2 py-0.5 text-xs text-foreground-muted bg-background-tertiary rounded flex-shrink-0">
@@ -394,7 +399,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         )}
 
         {/* Command List */}
-        <div ref={listRef} className="max-h-[420px] overflow-y-auto p-2">
+        <div ref={listRef} id="command-palette-list" role="listbox" aria-label="Commands" className="max-h-[420px] overflow-y-auto p-2">
           {filteredCommands.length === 0 ? (
             <div className="py-8 text-center text-foreground-muted">
               <Search className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -423,7 +428,10 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                     return (
                       <button
                         key={`${cmd.id}-${category}`}
+                        id={`cmd-${cmd.id}`}
                         data-index={index}
+                        role="option"
+                        aria-selected={isSelected}
                         onClick={() => {
                           addToHistory(cmd.id)
                           cmd.action()

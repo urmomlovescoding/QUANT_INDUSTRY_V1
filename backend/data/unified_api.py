@@ -214,11 +214,26 @@ class BaseDataAdapter(ABC):
         return None
     
     def _rate_limit(self, min_interval: float = 0.5):
-        """Apply rate limiting"""
+        """Apply rate limiting.
+
+        WARNING: Uses blocking time.sleep(). If called from an async FastAPI endpoint,
+        wrap the call: await asyncio.to_thread(adapter._rate_limit)
+        or use the async variant _async_rate_limit() instead.
+        """
         if self.last_request_time:
             elapsed = time.time() - self.last_request_time
             if elapsed < min_interval:
                 time.sleep(min_interval - elapsed)
+        self.last_request_time = time.time()
+        self.request_count += 1
+
+    async def _async_rate_limit(self, min_interval: float = 0.5):
+        """Async-safe rate limiting for use in async endpoints."""
+        import asyncio
+        if self.last_request_time:
+            elapsed = time.time() - self.last_request_time
+            if elapsed < min_interval:
+                await asyncio.sleep(min_interval - elapsed)
         self.last_request_time = time.time()
         self.request_count += 1
 

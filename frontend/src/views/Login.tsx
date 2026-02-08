@@ -19,7 +19,8 @@ export function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
-  const from = (location.state as any)?.from?.pathname || '/dashboard'
+  const locationState = location.state as { from?: { pathname?: string } } | null
+  const from = locationState?.from?.pathname || '/dashboard'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,23 +75,26 @@ export function Login() {
           </p>
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-bearish/10 border border-bearish/20 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-bearish flex-shrink-0" />
+            <div role="alert" className="mb-4 p-3 rounded-lg bg-bearish/10 border border-bearish/20 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-bearish flex-shrink-0" aria-hidden="true" />
               <span className="text-sm text-bearish">{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" aria-label="Login form">
             <div>
-              <label className="block text-sm font-medium text-foreground-secondary mb-1.5">
+              <label htmlFor="login-email" className="block text-sm font-medium text-foreground-secondary mb-1.5">
                 Email
               </label>
               <input
+                id="login-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
                 required
+                autoComplete="email"
+                aria-required="true"
                 className={cn(
                   'w-full px-4 py-3 rounded-xl',
                   'bg-background-primary border border-border',
@@ -102,16 +106,19 @@ export function Login() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground-secondary mb-1.5">
+              <label htmlFor="login-password" className="block text-sm font-medium text-foreground-secondary mb-1.5">
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
+                  autoComplete="current-password"
+                  aria-required="true"
                   className={cn(
                     'w-full px-4 py-3 pr-12 rounded-xl',
                     'bg-background-primary border border-border',
@@ -123,9 +130,10 @@ export function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-foreground-muted hover:text-foreground-primary transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showPassword ? <EyeOff className="w-5 h-5" aria-hidden="true" /> : <Eye className="w-5 h-5" aria-hidden="true" />}
                 </button>
               </div>
             </div>

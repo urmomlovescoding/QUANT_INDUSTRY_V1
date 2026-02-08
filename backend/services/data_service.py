@@ -333,43 +333,43 @@ def get_staleness_tracker() -> StalenessTracker:
     return _staleness_tracker
 
 
-# ============== FALLBACK PRICE ESTIMATES (Jan 2026) ==============
-# Updated 2026-01-25 with current market prices
+# ============== FALLBACK PRICE ESTIMATES (Feb 2026) ==============
+# Updated 2026-02-06 with current market prices
 
 FALLBACK_PRICES = {
     # Major Indices ETFs
-    "SPY": 688.44, "QQQ": 621.55, "DIA": 490.03, "IWM": 263.96,
+    "SPY": 688.00, "QQQ": 606.00, "DIA": 499.00, "IWM": 264.00,
     # Mag 7
-    "AAPL": 247.38, "MSFT": 232.62, "GOOGL": 325.95, "AMZN": 239.83,
-    "NVDA": 187.62, "META": 312.96, "TSLA": 447.56,
+    "AAPL": 279.00, "MSFT": 396.00, "GOOGL": 321.00, "AMZN": 205.00,
+    "NVDA": 183.00, "META": 655.00, "TSLA": 410.00,
     # Semiconductors
-    "AMD": 258.73, "INTC": 22.45, "AVGO": 185.50, "QCOM": 172.30,
-    "MU": 98.45, "AMAT": 192.80, "LRCX": 78.50, "KLAC": 720.30,
+    "AMD": 207.00, "INTC": 51.00, "AVGO": 331.00, "QCOM": 138.00,
+    "MU": 388.00, "AMAT": 193.00, "LRCX": 79.00, "KLAC": 720.00,
     # Tech
-    "CRM": 328.90, "ORCL": 168.45, "ADBE": 485.20, "NOW": 892.50,
-    "SHOP": 108.75, "SQ": 78.90, "PYPL": 68.90, "PLTR": 78.50,
+    "CRM": 190.00, "ORCL": 141.00, "ADBE": 267.00, "NOW": 102.00,
+    "SHOP": 109.00, "SQ": 79.00, "PYPL": 69.00, "PLTR": 135.00,
     # Financials
-    "JPM": 245.80, "BAC": 42.35, "WFC": 72.45, "GS": 582.30,
-    "MS": 112.80, "BLK": 1025.50, "C": 68.90, "AXP": 298.45,
+    "JPM": 322.00, "BAC": 56.00, "WFC": 94.00, "GS": 921.00,
+    "MS": 180.00, "BLK": 1026.00, "C": 69.00, "AXP": 298.00,
     # Healthcare
-    "JNJ": 158.90, "UNH": 582.45, "PFE": 26.85, "MRK": 108.30,
-    "ABBV": 185.60, "LLY": 825.50, "BMY": 52.30, "AMGN": 298.45,
+    "JNJ": 239.00, "UNH": 275.00, "PFE": 27.00, "MRK": 108.00,
+    "ABBV": 186.00, "LLY": 1049.00, "BMY": 52.00, "AMGN": 298.00,
     # Consumer
-    "WMT": 92.50, "COST": 925.80, "HD": 412.30, "MCD": 298.45,
-    "NKE": 78.90, "SBUX": 98.45, "DIS": 112.50, "NFLX": 925.80,
+    "WMT": 130.00, "COST": 996.00, "HD": 385.00, "MCD": 298.00,
+    "NKE": 79.00, "SBUX": 98.00, "DIS": 113.00, "NFLX": 81.00,
     # Energy
-    "XOM": 118.90, "CVX": 162.45, "COP": 112.30, "SLB": 48.90,
-    "EOG": 132.50, "PXD": 245.80, "OXY": 52.30, "DVN": 42.80,
+    "XOM": 149.00, "CVX": 181.00, "COP": 112.00, "SLB": 49.00,
+    "EOG": 133.00, "PXD": 246.00, "OXY": 52.00, "DVN": 43.00,
     # Futures (Micro)
     "MES": 5950.0, "MNQ": 21500.0, "MYM": 43500.0, "M2K": 2250.0,
     "MGC": 2350.0, "SIL": 28.50, "MCL": 72.50, "MBT": 98500.0,
     # VIX and Bonds
-    "VIX": 14.50, "VXX": 42.30, "UVXY": 28.90,
-    "TLT": 92.50, "IEF": 98.30, "SHY": 82.45, "HYG": 78.90,
+    "VIX": 18.00, "VXX": 42.00, "UVXY": 29.00,
+    "TLT": 93.00, "IEF": 98.00, "SHY": 82.00, "HYG": 79.00,
     # Commodities ETFs
-    "GLD": 218.50, "SLV": 24.80, "USO": 78.90, "UNG": 12.45,
+    "GLD": 219.00, "SLV": 25.00, "USO": 79.00, "UNG": 12.00,
     # International
-    "EEM": 42.80, "FXI": 28.90, "EWJ": 68.50, "EFA": 82.30,
+    "EEM": 43.00, "FXI": 29.00, "EWJ": 69.00, "EFA": 82.00,
 }
 
 
@@ -1214,7 +1214,12 @@ class DataService:
     def get_movers(self, universe: List[str] = None) -> Dict[str, List[Dict]]:
         """Get top gainers and losers"""
         if universe is None:
-            universe = list(FALLBACK_PRICES.keys())[:50]
+            # Use a focused list of liquid stocks for faster response
+            universe = [
+                "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD",
+                "INTC", "AVGO", "CRM", "PLTR", "JPM", "GS", "JNJ", "LLY",
+                "WMT", "NFLX", "XOM", "CVX",
+            ]
 
         quotes = self.get_quotes(universe)
 
