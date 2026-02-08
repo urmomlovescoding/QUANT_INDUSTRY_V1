@@ -4,6 +4,11 @@ export { CommandCenter } from './CommandCenter'
 export { Screener } from './Screener'
 export { Charts } from './Charts'
 
+// Advanced Trading views
+export { CrossExchange } from './CrossExchange'
+export { OptionsFlow } from './OptionsFlow'
+export { BrainDashboard } from './BrainDashboard'
+
 // Options views
 export { OptionsLab } from './OptionsLab'
 export { GEXAnalysis } from './GEXAnalysis'
@@ -19,6 +24,8 @@ export { SlideDoctrine } from './SlideDoctrine'
 
 // Analytics views
 export { Backtesting } from './Backtesting'
+export { BacktestViz } from './BacktestViz'
+export { PnlAttribution } from './PnlAttribution'
 export { MonteCarlo } from './MonteCarlo'
 export { Correlation } from './Correlation'
 
