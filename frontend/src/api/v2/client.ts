@@ -553,8 +553,23 @@ export const settingsApi = {
    * Get API key status
    * @returns Which API keys are configured
    */
-  getApiKeys: (): Promise<ApiResponse<ApiKeys>> => 
+  getApiKeys: (): Promise<ApiResponse<ApiKeys>> =>
     api.get<ApiKeys>('/api/settings/api-keys'),
+
+  /**
+   * Save API key for a provider
+   * @param provider - Provider ID (e.g., 'alpaca', 'tradier')
+   * @param keys - Key-value pairs of API credentials
+   */
+  saveApiKey: (provider: string, keys: Record<string, string>): Promise<ApiResponse<any>> =>
+    api.post<any>('/api/settings/api-keys', { provider, keys }),
+
+  /**
+   * Test API connection for a provider
+   * @param provider - Provider ID to test
+   */
+  testConnection: (provider: string): Promise<ApiResponse<any>> =>
+    api.get<any>(`/api/settings/test-connection/${provider}`),
 };
 
 // =====================================================================

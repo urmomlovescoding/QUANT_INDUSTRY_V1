@@ -65,6 +65,25 @@ export function FuturesBrain() {
   const [currentSignal, setCurrentSignal] = useState<'LONG' | 'SHORT' | 'FLAT'>('FLAT')
   const [confidence, setConfidence] = useState(0.72)
   const [error, setError] = useState<string | null>(null)
+  const [brainMetrics, setBrainMetrics] = useState<any>(null)
+
+  // Fetch brain status for metrics
+  useEffect(() => {
+    const fetchBrain = async () => {
+      try {
+        const res = await fetch('/api/brain-v6/status')
+        if (res.ok) {
+          const data = await res.json()
+          setBrainMetrics(data)
+        }
+      } catch (err) {
+        console.error('Failed to fetch brain status:', err)
+      }
+    }
+    fetchBrain()
+    const interval = setInterval(fetchBrain, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Fetch initial data from API
   const fetchData = async () => {
@@ -369,23 +388,37 @@ export function FuturesBrain() {
               <MetricRow
                 icon={<Zap className="w-4 h-4 text-yellow-500" />}
                 label="Neural Strength"
-                value="87%"
+                value={brainMetrics?.metrics?.confidence
+                  ? `${(brainMetrics.metrics.confidence * 100).toFixed(0)}%`
+                  : brainMetrics?.model_accuracy
+                    ? `${(brainMetrics.model_accuracy * 100).toFixed(0)}%`
+                    : '--'}
               />
               <MetricRow
                 icon={<Target className="w-4 h-4 text-accent-primary" />}
                 label="Pattern Match"
-                value="94%"
+                value={brainMetrics?.metrics?.win_rate
+                  ? `${(brainMetrics.metrics.win_rate * 100).toFixed(0)}%`
+                  : brainMetrics?.pattern_accuracy
+                    ? `${(brainMetrics.pattern_accuracy * 100).toFixed(0)}%`
+                    : '--'}
               />
               <MetricRow
                 icon={<Shield className="w-4 h-4 text-bullish" />}
                 label="Risk Score"
-                value="Low"
-                valueColor="text-bullish"
+                value={brainMetrics?.risk_level || brainMetrics?.metrics?.risk_level || '--'}
+                valueColor={
+                  (brainMetrics?.risk_level || brainMetrics?.metrics?.risk_level || '').toLowerCase() === 'low'
+                    ? 'text-bullish'
+                    : (brainMetrics?.risk_level || brainMetrics?.metrics?.risk_level || '').toLowerCase() === 'high'
+                      ? 'text-bearish'
+                      : 'text-warning'
+                }
               />
               <MetricRow
                 icon={<Activity className="w-4 h-4 text-purple-500" />}
                 label="Market Regime"
-                value="Trending"
+                value={brainMetrics?.current_regime || brainMetrics?.regime || '--'}
               />
             </div>
           </div>
@@ -396,19 +429,27 @@ export function FuturesBrain() {
             <div className="space-y-3 text-xs">
               <div className="flex justify-between">
                 <span className="text-foreground-muted">Max Position Size</span>
-                <span className="font-mono text-foreground-primary">2 contracts</span>
+                <span className="font-mono text-foreground-primary">
+                  {brainMetrics?.config?.max_positions ?? brainMetrics?.risk_config?.max_position_size ?? 2} contracts
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-foreground-muted">Daily Loss Limit</span>
-                <span className="font-mono text-bearish">$500</span>
+                <span className="font-mono text-bearish">
+                  ${brainMetrics?.config?.daily_loss_limit ?? brainMetrics?.risk_config?.daily_loss_limit ?? 500}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-foreground-muted">Max Drawdown</span>
-                <span className="font-mono text-foreground-primary">5%</span>
+                <span className="font-mono text-foreground-primary">
+                  {brainMetrics?.config?.max_drawdown_pct ?? brainMetrics?.risk_config?.max_drawdown ?? 5}%
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-foreground-muted">Trailing Stop</span>
-                <span className="font-mono text-foreground-primary">8 ticks</span>
+                <span className="font-mono text-foreground-primary">
+                  {brainMetrics?.config?.trailing_stop_ticks ?? 8} ticks
+                </span>
               </div>
             </div>
           </div>
@@ -419,19 +460,35 @@ export function FuturesBrain() {
             <div className="grid grid-cols-2 gap-3">
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">Trades</p>
-                <p className="text-lg font-bold text-foreground-primary">12</p>
+                <p className="text-lg font-bold text-foreground-primary">
+                  {brainMetrics?.total_trades ?? brainMetrics?.metrics?.total_trades ?? '--'}
+                </p>
               </div>
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">Win Rate</p>
-                <p className="text-lg font-bold text-bullish">67%</p>
+                <p className={cn('text-lg font-bold', (brainMetrics?.metrics?.win_rate ?? 0) >= 0.5 ? 'text-bullish' : 'text-bearish')}>
+                  {brainMetrics?.metrics?.win_rate != null
+                    ? `${(brainMetrics.metrics.win_rate * 100).toFixed(0)}%`
+                    : '--'}
+                </p>
               </div>
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">P&L</p>
-                <p className="text-lg font-bold text-bullish">+$847</p>
+                <p className={cn('text-lg font-bold', (brainMetrics?.metrics?.total_pnl ?? 0) >= 0 ? 'text-bullish' : 'text-bearish')}>
+                  {brainMetrics?.metrics?.total_pnl != null
+                    ? `${brainMetrics.metrics.total_pnl >= 0 ? '+' : ''}$${brainMetrics.metrics.total_pnl.toFixed(0)}`
+                    : '--'}
+                </p>
               </div>
               <div className="text-center p-2 bg-background-secondary rounded">
                 <p className="text-xs text-foreground-muted">Sharpe</p>
-                <p className="text-lg font-bold text-foreground-primary">1.82</p>
+                <p className="text-lg font-bold text-foreground-primary">
+                  {brainMetrics?.metrics?.sharpe_ratio != null
+                    ? brainMetrics.metrics.sharpe_ratio.toFixed(2)
+                    : brainMetrics?.sharpe_ratio != null
+                      ? brainMetrics.sharpe_ratio.toFixed(2)
+                      : '--'}
+                </p>
               </div>
             </div>
           </div>
