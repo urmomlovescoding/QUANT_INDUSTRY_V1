@@ -3,7 +3,8 @@ Create Admin/Dev Account
 Run this script to create a developer admin account
 """
 import sys
-sys.path.insert(0, '..')
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from database.connection import get_session_factory, init_database
 from database.models import User, Organization, UserRole, OrgTier, OrgStatus

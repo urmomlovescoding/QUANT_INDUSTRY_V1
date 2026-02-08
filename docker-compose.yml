@@ -18,7 +18,7 @@ services:
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DATABASE_URL=postgresql://quant:${DB_PASSWORD:-changeme}@postgres:5432/quantdb
+      - DATABASE_URL=postgresql://quant:${DB_PASSWORD:?DB_PASSWORD environment variable must be set}@postgres:5432/quantdb
       - REDIS_URL=redis://redis:6379/0
       - ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY}
       - POLYGON_API_KEY=${POLYGON_API_KEY}
@@ -52,7 +52,7 @@ services:
     command: ["python", "-m", "celery", "-A", "core.tasks", "worker", "--loglevel=info"]
     environment:
       - APP_ENV=${APP_ENV:-production}
-      - DATABASE_URL=postgresql://quant:${DB_PASSWORD:-changeme}@postgres:5432/quantdb
+      - DATABASE_URL=postgresql://quant:${DB_PASSWORD:?DB_PASSWORD environment variable must be set}@postgres:5432/quantdb
       - REDIS_URL=redis://redis:6379/0
       - ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY}
       - POLYGON_API_KEY=${POLYGON_API_KEY}
@@ -93,7 +93,7 @@ services:
     container_name: quant-postgres
     environment:
       - POSTGRES_USER=quant
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD environment variable must be set}
       - POSTGRES_DB=quantdb
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -137,7 +137,7 @@ services:
     container_name: quant-timescale
     environment:
       - POSTGRES_USER=quant
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD environment variable must be set}
       - POSTGRES_DB=marketdata
     volumes:
       - timescale_data:/var/lib/postgresql/data
@@ -181,7 +181,7 @@ services:
     container_name: quant-grafana
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD environment variable must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana

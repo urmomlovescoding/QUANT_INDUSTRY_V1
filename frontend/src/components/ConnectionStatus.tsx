@@ -9,7 +9,6 @@ import { useEffect, useState } from 'react'
 import { Wifi, WifiOff, Server, ServerOff, AlertCircle, CheckCircle } from 'lucide-react'
 // V2 API Client
 import { apiV2 } from '@/api/v2'
-import { healthApi } from '@/api'
 
 interface ConnectionState {
   api: 'connected' | 'disconnected' | 'checking'
@@ -186,7 +185,7 @@ export function ConnectionIndicator({ wsConnected }: { wsConnected: boolean }) {
   useEffect(() => {
     const check = async () => {
       try {
-        const response = await healthApi.check()
+        const response = await apiV2.health.check()
         setApiConnected(response.ok)
       } catch {
         setApiConnected(false)

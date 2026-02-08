@@ -71,14 +71,14 @@ async function fetchBrainStatus(): Promise<BrainStatus> {
 async function fetchMarketData(): Promise<{ vix: number; spy_change: number }> {
   const response = await fetch('/api/market/tickers?symbols=VIX,SPY')
   if (!response.ok) {
-    return { vix: 17.5, spy_change: 0.5 }
+    return { vix: 0, spy_change: 0 }
   }
   const data = await response.json()
   const vix = data.find((t: any) => t.symbol === 'VIX' || t.symbol === '^VIX')
   const spy = data.find((t: any) => t.symbol === 'SPY')
   return {
-    vix: vix?.price || 17.5,
-    spy_change: spy?.change_pct || 0.5
+    vix: vix?.price || 0,
+    spy_change: spy?.change_pct || 0
   }
 }
 
@@ -144,7 +144,7 @@ export function TradingBrain() {
     if (!regimeData) return []
 
     const consensus = getConsensusSignal()
-    const vix = marketData?.vix || 17
+    const vix = marketData?.vix || 0
 
     return cycles.slice(1).map((cycle, i) => {
       let signal = consensus.signal
@@ -187,17 +187,17 @@ export function TradingBrain() {
   const getIndicators = () => {
     if (!regimeData) {
       return {
-        yield_curve: '0.00',
-        credit_spread: '1.50',
-        vix: '17.0',
-        ism_pmi: '52.0'
+        yield_curve: '--',
+        credit_spread: '--',
+        vix: marketData?.vix ? marketData.vix.toFixed(1) : '--',
+        ism_pmi: '--'
       }
     }
 
     return {
       yield_curve: ((regimeData.confidence / 100) * 0.5 - 0.25).toFixed(2),
       credit_spread: (1.5 + (100 - regimeData.confidence) / 50).toFixed(2),
-      vix: (marketData?.vix || 17).toFixed(1),
+      vix: (marketData?.vix || 0) > 0 ? (marketData?.vix || 0).toFixed(1) : '--',
       ism_pmi: (50 + (regimeData.confidence / 100) * 10 - 5).toFixed(1)
     }
   }
@@ -207,7 +207,7 @@ export function TradingBrain() {
     if (!regimeData) return 'Analyzing market conditions...'
 
     const consensus = getConsensusSignal()
-    const vix = marketData?.vix || 17
+    const vix = marketData?.vix || 0
 
     if (consensus.signal === 'BULLISH') {
       if (vix < 15) {

@@ -255,6 +255,25 @@ function createWindow() {
     }
   }
 
+  // SECURITY: Set Content Security Policy headers
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; " +
+          "script-src 'self'; " +
+          "style-src 'self' 'unsafe-inline'; " +
+          "img-src 'self' data: https:; " +
+          "connect-src 'self' http://localhost:* ws://localhost:* https://paper-api.alpaca.markets https://data.alpaca.markets https://sandbox.tradier.com https://api.polygon.io https://finnhub.io https://newsapi.org; " +
+          "font-src 'self' data:; " +
+          "object-src 'none'; " +
+          "base-uri 'self';"
+        ]
+      }
+    });
+  });
+
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
     if (splashWindow) {
@@ -599,7 +618,8 @@ async function startBackend() {
         PYTHONUNBUFFERED: '1',
         PYTHONDONTWRITEBYTECODE: '1'
       },
-      shell: true
+      shell: false,
+      windowsHide: true
     });
 
     backendProcess.stdout?.on('data', (data) => {
@@ -892,14 +912,48 @@ ipcMain.handle('stop-backend', () => stopBackend());
 ipcMain.handle('start-backend', () => startBackend());
 ipcMain.handle('get-backend-status', () => ({ running: backendProcess !== null }));
 
+// SECURITY: Whitelist of allowed scripts to prevent path traversal and injection
+const ALLOWED_SCRIPTS = new Set([
+  'run_tests.py',
+  'manage.py',
+  'train_model.py',
+  'backtest.py',
+  'export_data.py',
+]);
+
 ipcMain.handle('run-python-script', async (event, scriptName, args = []) => {
   return new Promise((resolve, reject) => {
+    // SECURITY: Validate script name against whitelist
+    const baseName = path.basename(scriptName);
+    if (!ALLOWED_SCRIPTS.has(baseName)) {
+      logToFile(`SECURITY: Blocked execution of non-whitelisted script: ${scriptName}`);
+      return reject({ success: false, error: `Script not allowed: ${baseName}. Allowed: ${[...ALLOWED_SCRIPTS].join(', ')}` });
+    }
+
+    // SECURITY: Prevent path traversal
+    const backendDir = path.resolve(__dirname, '../backend');
+    const scriptPath = path.resolve(backendDir, baseName);
+    if (!scriptPath.startsWith(backendDir)) {
+      logToFile(`SECURITY: Path traversal attempt blocked: ${scriptName}`);
+      return reject({ success: false, error: 'Invalid script path' });
+    }
+
+    // SECURITY: Sanitize args - reject any with shell metacharacters
+    const sanitizedArgs = args.map(arg => String(arg));
+    const shellMetachars = /[;&|`$(){}[\]!#~<>]/;
+    for (const arg of sanitizedArgs) {
+      if (shellMetachars.test(arg)) {
+        logToFile(`SECURITY: Shell metacharacter in argument blocked: ${arg}`);
+        return reject({ success: false, error: 'Invalid characters in arguments' });
+      }
+    }
+
     const pythonPath = store.get('pythonPath');
-    const scriptPath = path.join(__dirname, '../backend', scriptName);
 
-    logToFile(`Running script: ${scriptPath} ${args.join(' ')}`);
+    logToFile(`Running script: ${scriptPath} ${sanitizedArgs.join(' ')}`);
 
-    const proc = spawn(pythonPath, [scriptPath, ...args], { shell: true });
+    // SECURITY: shell: false prevents shell injection
+    const proc = spawn(pythonPath, [scriptPath, ...sanitizedArgs], { shell: false });
     let output = '';
     let error = '';
 

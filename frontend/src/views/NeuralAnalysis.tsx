@@ -99,7 +99,7 @@ export function NeuralAnalysis() {
     const sentiment = analysis.sentiment_score || 50
 
     return {
-      trend_score: Math.min(100, Math.max(0, technical + (Math.random() * 10 - 5))),
+      trend_score: Math.min(100, Math.max(0, technical)),
       momentum_score: Math.min(100, Math.max(0, overall * 0.9 + sentiment * 0.1)),
       mean_reversion: Math.min(100, Math.max(0, 100 - technical)),
       volume_signal: Math.min(100, Math.max(0, technical * 0.8 + 10)),
@@ -114,16 +114,24 @@ export function NeuralAnalysis() {
     return analysis.key_factors.slice(0, 4)
   }
 
-  // Get model performance metrics
+  // Get model performance metrics from brain analysis if available
   const getMetrics = () => {
-    // These come from actual model training - use defaults if not available
-    const baseAccuracy = analysis ? Math.min(0.85, 0.65 + (analysis.overall_score / 200)) : 0.70
+    if (brainAnalysis?.metrics) {
+      return {
+        accuracy: brainAnalysis.metrics.accuracy ?? null,
+        precision: brainAnalysis.metrics.precision ?? null,
+        recall: brainAnalysis.metrics.recall ?? null,
+        f1: brainAnalysis.metrics.f1 ?? null,
+        sharpe: brainAnalysis.metrics.sharpe ?? null,
+      }
+    }
+    // No real metrics available yet
     return {
-      accuracy: baseAccuracy,
-      precision: baseAccuracy * 0.95,
-      recall: baseAccuracy * 0.90,
-      f1: baseAccuracy * 0.92,
-      sharpe: analysis ? 1.2 + (analysis.overall_score / 100) : 1.5
+      accuracy: null as number | null,
+      precision: null as number | null,
+      recall: null as number | null,
+      f1: null as number | null,
+      sharpe: null as number | null,
     }
   }
 
@@ -305,25 +313,25 @@ export function NeuralAnalysis() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-background-tertiary p-2 rounded">
                   <div className="text-xs text-foreground-muted">Accuracy</div>
-                  <div className="font-mono font-bold">{(metrics.accuracy * 100).toFixed(1)}%</div>
+                  <div className="font-mono font-bold">{metrics.accuracy != null ? `${(metrics.accuracy * 100).toFixed(1)}%` : '--'}</div>
                 </div>
                 <div className="bg-background-tertiary p-2 rounded">
                   <div className="text-xs text-foreground-muted">Precision</div>
-                  <div className="font-mono font-bold">{(metrics.precision * 100).toFixed(1)}%</div>
+                  <div className="font-mono font-bold">{metrics.precision != null ? `${(metrics.precision * 100).toFixed(1)}%` : '--'}</div>
                 </div>
                 <div className="bg-background-tertiary p-2 rounded">
                   <div className="text-xs text-foreground-muted">Recall</div>
-                  <div className="font-mono font-bold">{(metrics.recall * 100).toFixed(1)}%</div>
+                  <div className="font-mono font-bold">{metrics.recall != null ? `${(metrics.recall * 100).toFixed(1)}%` : '--'}</div>
                 </div>
                 <div className="bg-background-tertiary p-2 rounded">
                   <div className="text-xs text-foreground-muted">F1 Score</div>
-                  <div className="font-mono font-bold">{(metrics.f1 * 100).toFixed(1)}%</div>
+                  <div className="font-mono font-bold">{metrics.f1 != null ? `${(metrics.f1 * 100).toFixed(1)}%` : '--'}</div>
                 </div>
               </div>
               <div className="mt-3 pt-3 border-t border-border">
                 <div className="flex justify-between">
                   <span className="text-xs text-foreground-muted">Sharpe (Backtest)</span>
-                  <span className="text-sm font-mono font-bold text-accent-primary">{metrics.sharpe.toFixed(2)}</span>
+                  <span className="text-sm font-mono font-bold text-accent-primary">{metrics.sharpe != null ? metrics.sharpe.toFixed(2) : '--'}</span>
                 </div>
               </div>
             </div>

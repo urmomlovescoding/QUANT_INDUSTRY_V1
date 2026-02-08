@@ -34,11 +34,12 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'rec
 export interface WebSocketMessage {
   type: MessageType;
   channel?: ChannelType;
-  data?: any;
+  data?: unknown;
   timestamp?: string;
   error?: string;
   client_id?: string;
   action?: string;
+  symbols?: string[];
 }
 
 export interface UseWebSocketOptions {
@@ -64,7 +65,7 @@ export interface UseWebSocketReturn {
   reconnectAttempt: number;
   subscribe: (channel: ChannelType, symbols?: string[]) => void;
   unsubscribe: (channel: ChannelType) => void;
-  send: (message: any) => void;
+  send: (message: Record<string, unknown>) => void;
   connect: () => void;
   disconnect: () => void;
 }
@@ -98,6 +99,21 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const [clientId, setClientId] = useState<string | null>(null);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
+  // Stable refs for callback props to prevent connect() dependency churn
+  const onOpenRef = useRef(onOpen);
+  const onCloseRef = useRef(onClose);
+  const onErrorRef = useRef(onError);
+  const onMessageRef = useRef(onMessage);
+  const onReconnectingRef = useRef(onReconnecting);
+  const onReconnectFailedRef = useRef(onReconnectFailed);
+
+  useEffect(() => { onOpenRef.current = onOpen; }, [onOpen]);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  useEffect(() => { onMessageRef.current = onMessage; }, [onMessage]);
+  useEffect(() => { onReconnectingRef.current = onReconnecting; }, [onReconnecting]);
+  useEffect(() => { onReconnectFailedRef.current = onReconnectFailed; }, [onReconnectFailed]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -172,27 +188,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       wsRef.current = new WebSocket(url);
 
       wsRef.current.onopen = () => {
-        console.log('[WebSocket] Connected');
         setConnectionState('connected');
         reconnectAttemptsRef.current = 0;
         setReconnectAttempt(0);
         startHeartbeat();
-        
+
         // Re-subscribe to previous subscriptions after reconnect
         resubscribeAll();
-        
+
         // Process any pending subscriptions
         processPendingSubscriptions();
-        
-        onOpen?.();
+
+        onOpenRef.current?.();
       };
 
       wsRef.current.onclose = (event) => {
-        console.log('[WebSocket] Disconnected', event.code, event.reason);
         setConnectionState('disconnected');
         setClientId(null);
         clearTimeouts();
-        onClose?.();
+        onCloseRef.current?.();
 
         // Don't reconnect if manually disconnected or max attempts reached
         if (isManualDisconnectRef.current) {
@@ -203,26 +217,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         if (reconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current += 1;
           setReconnectAttempt(reconnectAttemptsRef.current);
-          
+
           // Exponential backoff: 2s, 4s, 8s, 16s, max 30s
           const delay = Math.min(
             reconnectInterval * Math.pow(2, reconnectAttemptsRef.current - 1),
             30000
           );
-          
-          console.log(`[WebSocket] Reconnecting in ${delay}ms... (attempt ${reconnectAttemptsRef.current})`);
-          onReconnecting?.(reconnectAttemptsRef.current);
-          
+
+          onReconnectingRef.current?.(reconnectAttemptsRef.current);
+
           reconnectTimeoutRef.current = setTimeout(connect, delay);
         } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
           console.error('[WebSocket] Max reconnection attempts reached');
-          onReconnectFailed?.();
+          onReconnectFailedRef.current?.();
         }
       };
 
       wsRef.current.onerror = (event) => {
         console.error('[WebSocket] Error:', event);
-        onError?.(event);
+        onErrorRef.current?.(event);
       };
 
       wsRef.current.onmessage = (event) => {
@@ -237,7 +250,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
           // Track successful subscriptions
           if (message.type === 'ack' && message.action === 'subscribe' && message.channel) {
-            const symbols = (message as any).symbols || [];
+            const symbols = message.symbols || [];
             activeSubscriptionsRef.current.set(message.channel as ChannelType, symbols);
           }
 
@@ -246,7 +259,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             activeSubscriptionsRef.current.delete(message.channel as ChannelType);
           }
 
-          onMessage?.(message);
+          onMessageRef.current?.(message);
         } catch (error) {
           console.error('[WebSocket] Failed to parse message:', error);
         }
@@ -255,7 +268,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       console.error('[WebSocket] Connection error:', error);
       setConnectionState('disconnected');
     }
-  }, [url, reconnect, reconnectInterval, maxReconnectAttempts, onOpen, onClose, onError, onMessage, onReconnecting, onReconnectFailed, startHeartbeat, clearTimeouts, processPendingSubscriptions, resubscribeAll]);
+  }, [url, reconnect, reconnectInterval, maxReconnectAttempts, startHeartbeat, clearTimeouts, processPendingSubscriptions, resubscribeAll]);
 
   const disconnect = useCallback(() => {
     isManualDisconnectRef.current = true;
@@ -272,7 +285,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     activeSubscriptionsRef.current.clear();
   }, [clearTimeouts]);
 
-  const send = useCallback((message: any) => {
+  const send = useCallback((message: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
       return true;
@@ -316,14 +329,38 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
   }, [send]);
 
-  // Auto-connect on mount
+  // Auto-connect on mount, properly clean up on unmount
   useEffect(() => {
     if (autoConnect) {
       connect();
     }
 
+    // Cleanup: ensure all resources are released on unmount
     return () => {
-      disconnect();
+      isManualDisconnectRef.current = true;
+
+      // Clear all pending timers
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (heartbeatTimeoutRef.current) {
+        clearInterval(heartbeatTimeoutRef.current);
+        heartbeatTimeoutRef.current = null;
+      }
+
+      // Close WebSocket and null out event handlers to prevent post-unmount state updates
+      if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.close(1000, 'Component unmount');
+        wsRef.current = null;
+      }
+
+      activeSubscriptionsRef.current.clear();
+      pendingSubscriptionsRef.current = [];
     };
   }, [autoConnect]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -357,7 +394,7 @@ export function useChannel<T = any>(
     onMessage: (message) => {
       if (message.channel === channel) {
         if (message.type === 'data') {
-          setData(message.data);
+          setData(message.data as T);
           setError(null);
         } else if (message.type === 'error') {
           setError(message.error || 'Unknown error');

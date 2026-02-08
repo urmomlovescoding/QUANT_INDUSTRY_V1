@@ -62,9 +62,10 @@ async def train_brain_v6(config: Dict[str, Any] = None):
     try:
         from brain.propfirm_brain_v6 import get_propfirm_brain_v6
         brain = get_propfirm_brain_v6()
+        ALLOWED_CONFIG_KEYS = {"learning_rate", "batch_size", "exploration_rate", "confidence_threshold", "risk_multiplier"}
         if config:
             for k, v in config.items():
-                if hasattr(brain.config, k):
+                if k in ALLOWED_CONFIG_KEYS and hasattr(brain.config, k):
                     setattr(brain.config, k, v)
         result = brain.train_step()
         return {"trained": True, "result": result}

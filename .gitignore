@@ -49,6 +49,8 @@ Thumbs.db
 *.pem
 *.key
 credentials.json
+backend/data/api_keys.json
+.env.production
 
 # Cache
 .cache/

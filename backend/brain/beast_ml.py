@@ -846,11 +846,16 @@ class BEASTMLEngine:
                 # This would need the input size - storing separately would be better
                 # For now, we'll skip loading the NN if architecture is unknown
 
-            # Load scaler
+            # Load scaler using joblib (safer than pickle for sklearn objects)
             scaler_path = load_path / 'scaler.pkl'
             if scaler_path.exists():
-                with open(scaler_path, 'rb') as f:
-                    self.feature_engineer.scaler = pickle.load(f)
+                try:
+                    import joblib
+                    self.feature_engineer.scaler = joblib.load(scaler_path)
+                except ImportError:
+                    logger.warning("joblib not available, falling back to pickle for scaler loading")
+                    with open(scaler_path, 'rb') as f:
+                        self.feature_engineer.scaler = pickle.load(f)
 
             self.is_trained = True
             logger.info(f"Models loaded from {load_path}")

@@ -290,22 +290,40 @@ def _load_api_keys() -> APIKeys:
 
 
 def _get_default_keys() -> APIKeys:
-    """Get default API keys with pre-configured values"""
+    """Get default API keys from environment variables only.
+
+    SECURITY: Never hardcode API keys in source code.
+    Set these environment variables before running:
+        ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPACA_BASE_URL,
+        TRADIER_API_KEY, TRADIER_ACCOUNT_ID, TRADIER_BASE_URL,
+        FINRA_API_KEY, NEWS_API_KEY,
+        POLYGON_API_KEY, FINNHUB_API_KEY,
+        ALPHA_VANTAGE_API_KEY, FMP_API_KEY
+    """
     keys = APIKeys()
 
-    # Pre-configure with provided keys
-    keys.alpaca.api_key = "AKFXWR05RECAQKA2EC5U"
-    keys.alpaca.secret_key = "r0k16iNgUdA6kMOuw7ULGJ8J9lhcjraLtwgYs4f4"
-    keys.alpaca.base_url = "https://paper-api.alpaca.markets"
+    # Load ALL credentials from environment variables only
+    keys.alpaca.api_key = os.getenv("ALPACA_API_KEY", "")
+    keys.alpaca.secret_key = os.getenv("ALPACA_SECRET_KEY", "")
+    keys.alpaca.base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
-    keys.tradier.api_key = "e4Z0NUVJhCrTRrNnia7KiiOGeERp"
-    keys.tradier.account_id = "VA87218417"
-    keys.tradier.is_sandbox = True
-    keys.tradier.base_url = "https://sandbox.tradier.com"
+    keys.tradier.api_key = os.getenv("TRADIER_API_KEY", "")
+    keys.tradier.account_id = os.getenv("TRADIER_ACCOUNT_ID", "")
+    keys.tradier.is_sandbox = os.getenv("TRADIER_SANDBOX", "true").lower() == "true"
+    keys.tradier.base_url = os.getenv("TRADIER_BASE_URL", "https://sandbox.tradier.com")
 
-    keys.finra.api_key = "a34d69c7c7754cc38082"
+    keys.polygon.api_key = os.getenv("POLYGON_API_KEY", "")
+    keys.finnhub.api_key = os.getenv("FINNHUB_API_KEY", "")
+    keys.finra.api_key = os.getenv("FINRA_API_KEY", "")
+    keys.news_api.api_key = os.getenv("NEWS_API_KEY", "")
+    keys.alpha_vantage.api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+    keys.fmp.api_key = os.getenv("FMP_API_KEY", "")
 
-    keys.news_api.api_key = "e2ed8879fb2a45d9997734f3f30997e1"
+    configured = [name for name, status in keys.get_status().items() if status]
+    if configured:
+        logger.info(f"API keys loaded from environment: {', '.join(configured)}")
+    else:
+        logger.warning("No API keys configured. Set environment variables to enable data sources.")
 
     return keys
 

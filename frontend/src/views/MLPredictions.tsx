@@ -3,6 +3,65 @@ import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/utils/cn'
 import { api } from '@/api/client'
 
+/** Raw ML prediction response from API */
+interface MLPredictionResponse {
+  status?: string
+  message?: string
+  data?: MLPredictionData
+  current_price?: number
+  currentPrice?: number
+  predicted_price?: number
+  predictedPrice?: number
+  confidence?: number
+  metrics?: MLMetrics
+  r2_score?: number
+  rmse?: number
+  mae?: number
+  directional_accuracy?: number
+  profit_factor?: number
+  features?: MLFeature[]
+  feature_importance?: MLFeature[]
+}
+
+interface MLPredictionData {
+  current_price?: number
+  currentPrice?: number
+  predicted_price?: number
+  predictedPrice?: number
+  confidence?: number
+  metrics?: MLMetrics
+  r2_score?: number
+  rmse?: number
+  mae?: number
+  directional_accuracy?: number
+  profit_factor?: number
+  features?: MLFeature[]
+  feature_importance?: MLFeature[]
+}
+
+interface MLMetrics {
+  r2: number
+  rmse: number
+  mae: number
+  directional: number
+  profit_factor: number
+}
+
+interface MLFeature {
+  name: string
+  importance: number
+}
+
+interface PredictionState {
+  currentPrice: number
+  predictedPrice: number
+  change: number
+  direction: 'UP' | 'DOWN' | 'NEUTRAL'
+  confidence: number
+  metrics: MLMetrics
+  features: MLFeature[]
+}
+
 const models = [
   { id: 'linear', name: 'Linear Regression' },
   { id: 'ridge', name: 'Ridge Regression' },
@@ -19,7 +78,7 @@ export function MLPredictions() {
   const [model, setModel] = useState('ensemble')
   const [horizon, setHorizon] = useState('5d')
   const [predicting, setPredicting] = useState(false)
-  const [prediction, setPrediction] = useState<any>(null)
+  const [prediction, setPrediction] = useState<PredictionState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -29,19 +88,19 @@ export function MLPredictions() {
 
     try {
       // Using the base API client for ML predictions endpoint
-      const { data: result, error: apiError, ok } = await api.get<any>(`/api/ml/predict/${ticker}?model=${model}&horizon=${horizon}`)
+      const { data: result, error: apiError, ok } = await api.get<MLPredictionResponse>(`/api/ml/predict/${ticker}?model=${model}&horizon=${horizon}`)
 
       if (!ok || apiError) {
         throw new Error(apiError?.message || 'Failed to get prediction')
       }
 
-      if ((result as any)?.status === 'unavailable') {
-        setError((result as any)?.message || 'ML predictions not available. Configure ML service to enable.')
+      if (result?.status === 'unavailable') {
+        setError(result?.message || 'ML predictions not available. Configure ML service to enable.')
         setPrediction(null)
         return
       }
 
-      const data = (result as any)?.data || result
+      const data: MLPredictionData = result?.data || result || {}
       const currentPrice = data.current_price || data.currentPrice || 0
       const predictedPrice = data.predicted_price || data.predictedPrice || currentPrice
       const change = currentPrice > 0 ? ((predictedPrice - currentPrice) / currentPrice) * 100 : 0
@@ -243,6 +302,14 @@ export function MLPredictions() {
         </div>
       )}
 
+      {!prediction && !error && !predicting && (
+        <div className="card p-8 text-center text-foreground-muted">
+          <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-40" />
+          <p className="font-medium">Select Parameters and Click Predict</p>
+          <p className="text-xs mt-1">Choose a ticker, model, and time horizon above to generate ML price predictions</p>
+        </div>
+      )}
+
       {prediction && (
         <div className="grid grid-cols-12 gap-4">
           {/* Chart */}
@@ -321,7 +388,7 @@ export function MLPredictions() {
             <div className="card p-4">
               <h3 className="text-xs font-bold text-foreground-muted mb-3">FEATURE IMPORTANCE</h3>
               <div className="space-y-2">
-                {prediction.features.map((f: any) => (
+                {prediction.features.map((f: MLFeature) => (
                   <div key={f.name}>
                     <div className="flex justify-between mb-1">
                       <span className="text-xs">{f.name}</span>

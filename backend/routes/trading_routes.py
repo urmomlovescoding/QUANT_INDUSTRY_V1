@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ._shared import (
     logger, SERVICES_AVAILABLE, PROPFIRM_BRAIN_V6_AVAILABLE, BROKER_ADAPTER_AVAILABLE,
@@ -216,12 +216,12 @@ _orders: Dict[str, Dict] = {}
 
 
 class OrderRequest(BaseModel):
-    symbol: str
-    side: str
-    quantity: int
-    order_type: str = "market"
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
+    symbol: str = Field(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9/^.\-]+$")
+    side: str = Field(..., pattern=r"^(buy|sell|BUY|SELL)$")
+    quantity: int = Field(..., ge=1, le=100000)
+    order_type: str = Field("market", pattern=r"^(market|limit|stop|stop_limit|MARKET|LIMIT|STOP|STOP_LIMIT)$")
+    limit_price: Optional[float] = Field(None, gt=0, le=1000000)
+    stop_price: Optional[float] = Field(None, gt=0, le=1000000)
     time_in_force: str = "day"
 
 

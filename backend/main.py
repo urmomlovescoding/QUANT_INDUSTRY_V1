@@ -21,7 +21,7 @@ import pytz
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -205,6 +205,7 @@ except ImportError:
 # Import security middleware
 try:
     from middleware.security import (
+        AuthenticationMiddleware,
         InputSanitizer,
         RateLimitMiddleware,
         SecurityHeadersMiddleware,
@@ -283,6 +284,11 @@ if AUTH_ROUTES_AVAILABLE:
     app.include_router(auth_router, prefix="/api")
     logger.info("Authentication routes registered at /api/auth/*")
 
+# NOTE: brain_routes.py exists but is NOT registered here because
+# all brain endpoints are already defined directly in main.py
+# (brain-v6, neural, beast, rl, dl, evolution, brain/modules, brain/gpu).
+# Registering brain_router would cause duplicate route conflicts.
+
 # Background task for live data refresh
 async def refresh_market_data():
     """Background task to periodically refresh market data from live sources"""
@@ -293,22 +299,23 @@ async def refresh_market_data():
                 data_service = get_data_service()
                 # Use MARKET_SYMBOLS (with ^VIX) for proper fetching
                 quotes = data_service.get_quotes(MARKET_SYMBOLS)
-                for symbol, quote in quotes.items():
-                    # Normalize VIX symbol for storage
-                    display_symbol = "VIX" if symbol == "^VIX" else symbol
-                    MARKET_DATA[display_symbol] = {
-                        "price": quote.price,
-                        "change": quote.change,
-                        "change_pct": quote.change_pct,
-                        "volume": quote.volume,
-                        "high": quote.high,
-                        "low": quote.low,
-                        "open": quote.open,
-                        "prev_close": quote.prev_close,
-                        "bid": quote.bid if quote.bid else quote.price - 0.01,
-                        "ask": quote.ask if quote.ask else quote.price + 0.01,
-                        "source": quote.source
-                    }
+                async with _state_lock:
+                    for symbol, quote in quotes.items():
+                        # Normalize VIX symbol for storage
+                        display_symbol = "VIX" if symbol == "^VIX" else symbol
+                        MARKET_DATA[display_symbol] = {
+                            "price": quote.price,
+                            "change": quote.change,
+                            "change_pct": quote.change_pct,
+                            "volume": quote.volume,
+                            "high": quote.high,
+                            "low": quote.low,
+                            "open": quote.open,
+                            "prev_close": quote.prev_close,
+                            "bid": quote.bid if quote.bid else quote.price - 0.01,
+                            "ask": quote.ask if quote.ask else quote.price + 0.01,
+                            "source": quote.source
+                        }
                 logger.debug(f"[LIVE REFRESH] Updated {len(quotes)} symbols")
         except Exception as e:
             logger.warning(f"Background refresh failed: {e}")
@@ -318,6 +325,13 @@ async def startup_event():
     """Start background tasks on app startup"""
     logger.info("[STARTUP] QUANT INDUSTRY API v10.0 starting...")
     logger.info(f"[STARTUP] Services available: {SERVICES_AVAILABLE}")
+
+    # Production environment validation
+    if os.getenv("ENVIRONMENT") == "production":
+        jwt_secret = os.getenv("JWT_SECRET_KEY", "")
+        if not jwt_secret or jwt_secret == "change-this-to-a-random-256-bit-key":
+            logger.critical("CRITICAL: JWT_SECRET_KEY must be set to a secure random value in production!")
+            raise RuntimeError("Invalid JWT_SECRET_KEY for production environment")
 
     # Initialize database (create tables if they don't exist)
     try:
@@ -420,15 +434,17 @@ app.add_middleware(
         "http://127.0.0.1:5173",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
 )
 
 # Add security middleware
 if SECURITY_MIDDLEWARE_AVAILABLE:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware)
-    logger.info("Security middleware registered (rate limiting + security headers)")
+    app.add_middleware(AuthenticationMiddleware)
+    auth_mode = "ENFORCED" if os.getenv("AUTH_REQUIRED", "false").lower() == "true" else "CRITICAL_ONLY"
+    logger.info(f"Security middleware registered (auth={auth_mode}, rate limiting, security headers)")
 
 # Add performance middleware
 if PERFORMANCE_MIDDLEWARE_AVAILABLE:
@@ -546,11 +562,20 @@ class PortfolioHolding(BaseModel):
 # Simulated market data
 # Live market data cache (populated by DataService)
 MARKET_DATA = {}
-MARKET_SYMBOLS = ["SPY", "QQQ", "DIA", "IWM", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD", "^VIX"]
+MARKET_SYMBOLS = [
+    "SPY", "QQQ", "DIA", "IWM", "^VIX",
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD",
+    "INTC", "AVGO", "CRM", "PLTR", "JPM", "GS", "JNJ", "LLY",
+    "WMT", "NFLX", "XOM", "CVX",
+]
 _last_data_refresh = None
 
 # Active trading signals (populated by brain/strategies)
 ACTIVE_SIGNALS: Dict[str, Dict] = {}
+
+# Asyncio lock to protect mutable global state from race conditions
+import asyncio as _asyncio
+_state_lock = _asyncio.Lock()
 
 def _init_market_data():
     """Initialize market data from live sources - includes VIX"""
@@ -1057,14 +1082,17 @@ async def get_vix_status():
 
 
 @app.get("/api/vix/history")
-async def get_vix_history(limit: int = 100):
+async def get_vix_history(limit: int = 100, offset: int = 0):
     """Get VIX history from monitor."""
     try:
         from services.vix_monitor import get_vix_monitor
         monitor = get_vix_monitor()
+        full_history = monitor.get_history(limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history
         return {
-            "history": monitor.get_history(limit),
-            "count": len(monitor.get_history(limit))
+            "history": paginated,
+            "count": len(paginated),
+            "pagination": {"offset": offset, "limit": limit}
         }
     except Exception as e:
         return {"error": str(e), "history": [], "count": 0}
@@ -1154,14 +1182,15 @@ async def get_tickers(symbols: str = "SPY,QQQ,DIA,IWM,VIX"):
             for fetch_sym, display_sym in zip(fetch_symbols, missing):
                 quote = quotes.get(fetch_sym)
                 if quote and quote.price > 0:
-                    # Update cache
-                    MARKET_DATA[display_sym] = {
-                        "price": quote.price,
-                        "change": quote.change,
-                        "change_pct": quote.change_pct,
-                        "volume": quote.volume,
-                        "source": quote.source
-                    }
+                    # Update cache (lock protects dict mutation)
+                    async with _state_lock:
+                        MARKET_DATA[display_sym] = {
+                            "price": quote.price,
+                            "change": quote.change,
+                            "change_pct": quote.change_pct,
+                            "volume": quote.volume,
+                            "source": quote.source
+                        }
                     results.append(TickerPrice(
                         symbol=display_sym,
                         price=quote.price,
@@ -1177,6 +1206,13 @@ async def get_tickers(symbols: str = "SPY,QQQ,DIA,IWM,VIX"):
 @app.get("/api/market/quote/{symbol}")
 async def get_quote(symbol: str):
     """Get detailed quote for a symbol from Alpaca/yfinance"""
+    # Validate symbol input
+    if SECURITY_MIDDLEWARE_AVAILABLE:
+        is_valid, result = InputSanitizer.validate_symbol(symbol)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=result)
+        symbol = result  # Use sanitized/uppercased symbol
+
     display_symbol = symbol.upper()
     # Normalize VIX to ^VIX for Yahoo Finance
     fetch_symbol = "^VIX" if display_symbol == "VIX" else display_symbol
@@ -1188,19 +1224,20 @@ async def get_quote(symbol: str):
             quote = data_service.get_quote(fetch_symbol)
             if quote:
                 # Update cache with display symbol (VIX not ^VIX)
-                MARKET_DATA[display_symbol] = {
-                    "price": quote.price,
-                    "change": quote.change,
-                    "change_pct": quote.change_pct,
-                    "volume": quote.volume,
-                    "high": quote.high,
-                    "low": quote.low,
-                    "open": quote.open,
-                    "prev_close": quote.prev_close,
-                    "bid": quote.bid,
-                    "ask": quote.ask,
-                    "source": quote.source
-                }
+                async with _state_lock:
+                    MARKET_DATA[display_symbol] = {
+                        "price": quote.price,
+                        "change": quote.change,
+                        "change_pct": quote.change_pct,
+                        "volume": quote.volume,
+                        "high": quote.high,
+                        "low": quote.low,
+                        "open": quote.open,
+                        "prev_close": quote.prev_close,
+                        "bid": quote.bid,
+                        "ask": quote.ask,
+                        "source": quote.source
+                    }
                 # Get market session info
                 market_session = getattr(quote, 'market_session', 'unknown')
                 is_open = getattr(quote, 'is_market_open', True)
@@ -1238,18 +1275,19 @@ async def get_quote(symbol: str):
             status = get_market_status()
             market_session = status.get("session", "closed")
             is_open = status.get("is_open", False) or status.get("is_pre_market", False) or status.get("is_after_hours", False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Market status check failed (using defaults): {e}")
 
     if display_symbol not in MARKET_DATA:
         # Use consistent prices based on symbol hash, not random
         base_price = 50 + (hash(display_symbol) % 450)
         change = 0 if not is_open else (hash(display_symbol + "change") % 10 - 5)
-        MARKET_DATA[display_symbol] = {
-            "price": base_price,
-            "change": change,
-            "change_pct": (change / base_price) * 100 if base_price else 0
-        }
+        async with _state_lock:
+            MARKET_DATA[display_symbol] = {
+                "price": base_price,
+                "change": change,
+                "change_pct": (change / base_price) * 100 if base_price else 0
+            }
 
     data = MARKET_DATA[display_symbol]
     return {
@@ -1321,7 +1359,30 @@ async def get_sectors():
 
 @app.get("/api/market/movers")
 async def get_movers():
-    """Get top movers from live data"""
+    """Get top movers from live data — uses MARKET_DATA cache for speed"""
+    # First try the in-memory MARKET_DATA cache (populated at startup and refreshed periodically)
+    # This is instant since data is already loaded
+    movers_symbols = [s for s in MARKET_SYMBOLS if s != "^VIX"]
+    cached_quotes = []
+    for sym in movers_symbols:
+        display_sym = "VIX" if sym == "^VIX" else sym
+        data = MARKET_DATA.get(display_sym)
+        if data and data.get("price", 0) > 0 and "change_pct" in data:
+            cached_quotes.append({
+                "symbol": display_sym,
+                "price": data["price"],
+                "change_pct": data.get("change_pct", 0),
+                "volume": data.get("volume", 0),
+            })
+
+    if len(cached_quotes) >= 5:
+        sorted_quotes = sorted(cached_quotes, key=lambda q: q["change_pct"], reverse=True)
+        return {
+            "gainers": sorted_quotes[:5],
+            "losers": sorted_quotes[-5:][::-1],
+        }
+
+    # Fallback to DataService (slower, fetches from Yahoo)
     if SERVICES_AVAILABLE:
         try:
             data_service = get_data_service()
@@ -1331,7 +1392,6 @@ async def get_movers():
         except Exception as e:
             logger.warning(f"Live movers data failed: {e}")
 
-    # Return empty when no live data available - no fake movers
     return {
         "status": "unavailable",
         "gainers": [],
@@ -2152,8 +2212,8 @@ async def confirm_trade(trade: TradeConfirmation):
                     regime_score = 85 if trade.direction.upper() == "SHORT" else 40
                 else:
                     regime_score = 60
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Regime scoring failed (using default=50): {e}")
 
     # Calculate overall score
     weights = {"technical": 0.25, "momentum": 0.2, "volume": 0.15, "risk": 0.25, "regime": 0.15}
@@ -2494,8 +2554,8 @@ async def check_trade_risk(request: TradeCheckRequest):
             vix_quote = data_service.get_quote("VIX")
             if vix_quote:
                 vix = vix_quote.price
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"VIX fetch failed for risk check (using 0.0): {e}")
 
         # Run multi-layer checks
         risk_engine = get_multi_layer_risk_engine()
@@ -4294,9 +4354,21 @@ async def get_api_keys_endpoint():
         return keys.to_safe_dict()
     return {"error": "API keys service not available"}
 
+VALID_API_KEY_PROVIDERS = frozenset({
+    "alpaca", "tradier", "polygon", "finnhub",
+    "finra", "news_api", "alpha_vantage", "fmp",
+})
+
 @app.post("/api/settings/api-keys/{provider}")
 async def update_api_key_endpoint(provider: str, key_data: Dict[str, str]):
     """Update API key for a provider"""
+    # Validate provider name
+    if provider.lower() not in VALID_API_KEY_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid provider '{provider}'. Valid providers: {', '.join(sorted(VALID_API_KEY_PROVIDERS))}",
+        )
+
     if SERVICES_AVAILABLE:
         keys = update_api_key(provider, key_data)
         return keys.to_safe_dict()
@@ -5357,12 +5429,14 @@ async def record_trade_result(
     return response
 
 @app.get("/api/feedback/history")
-async def get_trade_history(limit: int = 50):
+async def get_trade_history(limit: int = 50, offset: int = 0):
     """Get recent trade history from feedback loop"""
     if not FEEDBACK_LOOP_AVAILABLE or feedback_loop is None:
         raise HTTPException(status_code=503, detail="Feedback loop not available")
 
-    return feedback_loop.db.get_recent_trades(limit)
+    all_trades = feedback_loop.db.get_recent_trades(limit + offset)
+    paginated = all_trades[offset:] if offset > 0 else all_trades
+    return {"trades": paginated, "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}}
 
 @app.get("/api/feedback/performance-history")
 async def get_performance_history(days: int = 30):
@@ -6257,7 +6331,7 @@ async def get_brain_v6_model_info():
 
 
 @app.get("/api/brain-v6/training-history")
-async def get_brain_v6_training_history(limit: int = 100):
+async def get_brain_v6_training_history(limit: int = 100, offset: int = 0):
     """Get training history from database"""
     if not SERVICES_AVAILABLE or not PROPFIRM_BRAIN_V6_AVAILABLE:
         raise HTTPException(status_code=503, detail="PropFirm Brain V6 not available")
@@ -6271,8 +6345,8 @@ async def get_brain_v6_training_history(limit: int = 100):
             SELECT step, loss, policy_loss, value_loss, regime, trades_count, created_at
             FROM training_logs
             ORDER BY id DESC
-            LIMIT ?
-        """, (limit,))
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
         rows = cursor.fetchall()
         conn.close()
 
@@ -6288,7 +6362,7 @@ async def get_brain_v6_training_history(limit: int = 100):
                 "timestamp": row[6]
             })
 
-        return {"history": history}
+        return {"history": history, "pagination": {"offset": offset, "limit": limit, "count": len(history)}}
     except Exception as e:
         logger.error(f"Brain V6 training history error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -6857,14 +6931,15 @@ async def detect_regime(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/regime/history/{symbol}")
-async def get_regime_history(symbol: str, limit: int = 20):
+async def get_regime_history(symbol: str, limit: int = 20, offset: int = 0):
     """Get regime transition history"""
     if not REGIME_DISCOVERY_AVAILABLE:
         raise HTTPException(status_code=503, detail="Regime Discovery not available")
 
     try:
         discovery = get_regime_discovery_instance()
-        history = discovery.get_transition_history(limit=limit)
+        full_history = discovery.get_transition_history(limit=limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history[:limit]
 
         return {
             "symbol": symbol,
@@ -6875,8 +6950,9 @@ async def get_regime_history(symbol: str, limit: int = 20):
                     "timestamp": t.timestamp.isoformat() if hasattr(t, 'timestamp') else None,
                     "confidence": t.confidence
                 }
-                for t in history
-            ]
+                for t in paginated
+            ],
+            "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}
         }
     except Exception as e:
         logger.error(f"Regime history error: {e}")
@@ -8254,7 +8330,8 @@ async def start_bot_auto_run(bot_name: str, interval: int = 300):
     if bot_name not in _auto_run_bots:
         raise HTTPException(status_code=404, detail=f"Bot {bot_name} not found")
 
-    _auto_run_bots[bot_name] = True
+    async with _state_lock:
+        _auto_run_bots[bot_name] = True
 
     # Actually start the bot's auto-training/auto-run
     try:
@@ -8284,7 +8361,8 @@ async def stop_bot_auto_run(bot_name: str):
     if bot_name not in _auto_run_bots:
         raise HTTPException(status_code=404, detail=f"Bot {bot_name} not found")
 
-    _auto_run_bots[bot_name] = False
+    async with _state_lock:
+        _auto_run_bots[bot_name] = False
 
     # Actually stop the bot's auto-training/auto-run
     try:
@@ -8310,12 +8388,13 @@ async def start_all_bots_auto_run(interval: int = 300):
     global _auto_run_bots
 
     started = []
-    for bot_name in _auto_run_bots:
-        try:
-            _auto_run_bots[bot_name] = True
-            started.append(bot_name)
-        except Exception as e:
-            logger.warning(f"Error starting {bot_name}: {e}")
+    async with _state_lock:
+        for bot_name in _auto_run_bots:
+            try:
+                _auto_run_bots[bot_name] = True
+                started.append(bot_name)
+            except Exception as e:
+                logger.warning(f"Error starting {bot_name}: {e}")
 
     return {
         "status": "started",
@@ -8330,12 +8409,13 @@ async def stop_all_bots_auto_run():
     global _auto_run_bots
 
     stopped = []
-    for bot_name in _auto_run_bots:
-        try:
-            _auto_run_bots[bot_name] = False
-            stopped.append(bot_name)
-        except Exception as e:
-            logger.warning(f"Error stopping {bot_name}: {e}")
+    async with _state_lock:
+        for bot_name in _auto_run_bots:
+            try:
+                _auto_run_bots[bot_name] = False
+                stopped.append(bot_name)
+            except Exception as e:
+                logger.warning(f"Error stopping {bot_name}: {e}")
 
     return {
         "status": "stopped",
@@ -8405,7 +8485,8 @@ async def execute_signal(signal_id: str):
                 quantity=signal.get("quantity", 100)
             )
             result = await asyncio.to_thread(broker.submit_order, order)
-            signal["status"] = "executed"
+            async with _state_lock:
+                signal["status"] = "executed"
             return {
                 "success": True,
                 "order_id": result.id if result else None,
@@ -8413,7 +8494,8 @@ async def execute_signal(signal_id: str):
             }
 
         # Fallback - mark as executed
-        signal["status"] = "executed"
+        async with _state_lock:
+            signal["status"] = "executed"
         return {
             "success": True,
             "order_id": f"SIM-{signal_id}",
@@ -8430,7 +8512,8 @@ async def dismiss_signal(signal_id: str):
     if signal_id not in ACTIVE_SIGNALS:
         raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found")
 
-    ACTIVE_SIGNALS[signal_id]["status"] = "dismissed"
+    async with _state_lock:
+        ACTIVE_SIGNALS[signal_id]["status"] = "dismissed"
     return {"success": True, "message": f"Signal {signal_id} dismissed"}
 
 
@@ -8543,12 +8626,12 @@ async def get_orders():
 
 
 class OrderRequest(BaseModel):
-    symbol: str
-    side: str
-    quantity: int
-    order_type: str = "market"
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
+    symbol: str = Field(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9/^.\-]+$")
+    side: str = Field(..., pattern=r"^(buy|sell|BUY|SELL)$")
+    quantity: int = Field(..., ge=1, le=100000)
+    order_type: str = Field("market", pattern=r"^(market|limit|stop|stop_limit|MARKET|LIMIT|STOP|STOP_LIMIT)$")
+    limit_price: Optional[float] = Field(None, gt=0, le=1000000)
+    stop_price: Optional[float] = Field(None, gt=0, le=1000000)
     time_in_force: str = "day"
 
 
@@ -8778,12 +8861,14 @@ async def get_factor_drift(lookback_days: int = 30):
 
 
 @app.get("/api/risk/factor-history")
-async def get_factor_history(limit: int = 60):
+async def get_factor_history(limit: int = 60, offset: int = 0):
     """Get historical factor decomposition snapshots."""
     try:
         from risk.factor_model import get_factor_model
         model = get_factor_model()
-        return {"history": model.get_history(limit)}
+        full_history = model.get_history(limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history[:limit]
+        return {"history": paginated, "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}}
     except Exception as e:
         logger.error(f"Factor history error: {e}")
         return {"history": []}
@@ -8886,12 +8971,14 @@ async def run_custom_stress(request: CustomStressRequest):
 
 
 @app.get("/api/risk/scenarios/history")
-async def get_scenario_history(limit: int = 20):
+async def get_scenario_history(limit: int = 20, offset: int = 0):
     """Get history of scenario runs for comparison."""
     try:
         from risk.scenario_engine import get_scenario_engine
         engine = get_scenario_engine()
-        return {"history": engine.get_history(limit)}
+        full_history = engine.get_history(limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history[:limit]
+        return {"history": paginated, "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}}
     except Exception as e:
         logger.error(f"Scenario history error: {e}")
         return {"history": []}
@@ -8935,12 +9022,14 @@ async def get_pnl_attribution():
 
 
 @app.get("/api/risk/attribution/history")
-async def get_attribution_history(limit: int = 30):
+async def get_attribution_history(limit: int = 30, offset: int = 0):
     """Get historical attribution data for trend analysis."""
     try:
         from risk.attribution import get_attribution_engine
         engine = get_attribution_engine()
-        return {"history": engine.get_history(limit)}
+        full_history = engine.get_history(limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history[:limit]
+        return {"history": paginated, "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}}
     except Exception as e:
         logger.error(f"Attribution history error: {e}")
         return {"history": []}
@@ -9011,12 +9100,14 @@ async def list_risk_budgets():
 
 
 @app.get("/api/risk/budgets/history")
-async def get_budget_history(budget_name: str = None, limit: int = 60):
+async def get_budget_history(budget_name: str = None, limit: int = 60, offset: int = 0):
     """Get budget utilization history for trending."""
     try:
         from risk.risk_budget import get_risk_budget_manager
         mgr = get_risk_budget_manager()
-        return {"history": mgr.get_utilization_history(budget_name, limit)}
+        full_history = mgr.get_utilization_history(budget_name, limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history[:limit]
+        return {"history": paginated, "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}}
     except Exception as e:
         logger.error(f"Budget history error: {e}")
         return {"history": []}
@@ -9065,12 +9156,14 @@ async def get_correlation_monitor_data():
 
 
 @app.get("/api/risk/correlation-monitor/history")
-async def get_correlation_history(limit: int = 60):
+async def get_correlation_history(limit: int = 60, offset: int = 0):
     """Get historical correlation snapshots."""
     try:
         from risk.correlation_monitor import get_correlation_monitor
         monitor = get_correlation_monitor()
-        return {"history": monitor.get_correlation_history(limit)}
+        full_history = monitor.get_correlation_history(limit + offset)
+        paginated = full_history[offset:offset + limit] if offset > 0 else full_history[:limit]
+        return {"history": paginated, "pagination": {"offset": offset, "limit": limit, "count": len(paginated)}}
     except Exception as e:
         logger.error(f"Correlation history error: {e}")
         return {"history": []}

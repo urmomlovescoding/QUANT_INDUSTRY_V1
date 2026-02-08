@@ -26,27 +26,32 @@ interface AuthState {
   tokens: AuthTokens | null
   isAuthenticated: boolean
   isLoading: boolean
+  tokenExpiresAt: number | null // epoch ms when access token expires
 
   // Actions
   setAuth: (user: User, tokens: AuthTokens) => void
   logout: () => void
   setLoading: (loading: boolean) => void
   updateUser: (user: Partial<User>) => void
+  isTokenExpired: () => boolean
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       tokens: null,
       isAuthenticated: false,
       isLoading: true,
+      tokenExpiresAt: null,
 
       setAuth: (user, tokens) => set({
         user,
         tokens,
         isAuthenticated: true,
         isLoading: false,
+        // Store absolute expiry time (subtract 30s buffer for clock skew)
+        tokenExpiresAt: Date.now() + (tokens.expires_in - 30) * 1000,
       }),
 
       logout: () => set({
@@ -54,6 +59,7 @@ export const useAuthStore = create<AuthState>()(
         tokens: null,
         isAuthenticated: false,
         isLoading: false,
+        tokenExpiresAt: null,
       }),
 
       setLoading: (loading) => set({ isLoading: loading }),
@@ -61,6 +67,12 @@ export const useAuthStore = create<AuthState>()(
       updateUser: (updates) => set((state) => ({
         user: state.user ? { ...state.user, ...updates } : null,
       })),
+
+      isTokenExpired: () => {
+        const { tokenExpiresAt } = get()
+        if (!tokenExpiresAt) return true
+        return Date.now() >= tokenExpiresAt
+      },
     }),
     {
       name: 'auth-storage',
@@ -68,6 +80,7 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         tokens: state.tokens,
         isAuthenticated: state.isAuthenticated,
+        tokenExpiresAt: state.tokenExpiresAt,
       }),
     }
   )

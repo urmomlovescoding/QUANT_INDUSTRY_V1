@@ -21,8 +21,19 @@ router = APIRouter(tags=["websocket"])
 # ============== CONNECTION MANAGER ==============
 
 class AdvancedConnectionManager:
-    """WebSocket connection manager with channel subscriptions."""
-    
+    """WebSocket connection manager with channel subscriptions.
+
+    Security features:
+    - Maximum connection limit to prevent memory exhaustion
+    - Idle connection timeout detection
+    - Connection cleanup on failed sends
+    """
+
+    # Maximum concurrent WebSocket connections
+    MAX_CONNECTIONS = 100
+    # Idle timeout in seconds (no messages received)
+    IDLE_TIMEOUT_SECONDS = 300  # 5 minutes
+
     def __init__(self):
         self.connections: Dict[str, Dict[str, Any]] = {}
         self.channel_subscribers: Dict[str, set] = {
@@ -36,14 +47,25 @@ class AdvancedConnectionManager:
         return f"conn_{self.connection_counter}_{datetime.now().strftime('%H%M%S')}"
 
     async def connect(self, websocket: WebSocket, channels: List[str] = None) -> str:
+        # Enforce max connections to prevent memory exhaustion
+        if len(self.connections) >= self.MAX_CONNECTIONS:
+            # Try to clean up idle connections first
+            self._cleanup_idle_connections()
+
+            if len(self.connections) >= self.MAX_CONNECTIONS:
+                logger.warning(f"WebSocket connection rejected: max connections ({self.MAX_CONNECTIONS}) reached")
+                await websocket.close(code=1013, reason="Max connections reached")
+                return ""
+
         await websocket.accept()
         connection_id = self.generate_connection_id()
         channels = channels or ["market"]
-        
+
         self.connections[connection_id] = {
             "websocket": websocket,
             "channels": set(channels),
             "connected_at": datetime.now(),
+            "last_activity": datetime.now(),
             "message_count": 0
         }
 
@@ -51,8 +73,21 @@ class AdvancedConnectionManager:
             if channel in self.channel_subscribers:
                 self.channel_subscribers[channel].add(connection_id)
 
-        logger.info(f"WebSocket connected: {connection_id}")
+        logger.info(f"WebSocket connected: {connection_id} (total: {len(self.connections)})")
         return connection_id
+
+    def _cleanup_idle_connections(self):
+        """Remove connections that have been idle beyond the timeout."""
+        now = datetime.now()
+        idle_connections = []
+        for conn_id, info in self.connections.items():
+            idle_seconds = (now - info.get("last_activity", info["connected_at"])).total_seconds()
+            if idle_seconds > self.IDLE_TIMEOUT_SECONDS:
+                idle_connections.append(conn_id)
+
+        for conn_id in idle_connections:
+            logger.info(f"WebSocket idle timeout: {conn_id}")
+            self.disconnect(conn_id)
 
     def disconnect(self, connection_id: str):
         if connection_id in self.connections:
@@ -67,7 +102,9 @@ class AdvancedConnectionManager:
             try:
                 await self.connections[connection_id]["websocket"].send_text(json.dumps(message))
                 self.connections[connection_id]["message_count"] += 1
+                self.connections[connection_id]["last_activity"] = datetime.now()
             except Exception:
+                logger.debug(f"WebSocket send failed, disconnecting: {connection_id}")
                 self.disconnect(connection_id)
 
     async def broadcast_to_channel(self, channel: str, message: Dict):

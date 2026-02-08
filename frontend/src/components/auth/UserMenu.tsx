@@ -26,11 +26,17 @@ export function UserMenu() {
   }, [])
 
   const handleLogout = async () => {
-    if (tokens?.access_token) {
-      await authApi.logout(tokens.access_token)
+    try {
+      if (tokens?.access_token) {
+        await authApi.logout(tokens.access_token)
+      }
+    } catch {
+      // Logout API call may fail (expired token, network issue)
+      // Continue with local cleanup regardless
+    } finally {
+      logout()
+      navigate('/login')
     }
-    logout()
-    navigate('/login')
   }
 
   if (!isAuthenticated || !user) {

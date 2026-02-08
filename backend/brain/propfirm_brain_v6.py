@@ -2252,7 +2252,11 @@ class PropFirmBrainV6:
         try:
             import pickle
 
-            weights_blob = pickle.dumps(self.model.state_dict())
+            # SECURITY: Use io.BytesIO + torch.save instead of pickle for safe serialization
+            import io
+            buffer = io.BytesIO()
+            torch.save(self.model.state_dict(), buffer)
+            weights_blob = buffer.getvalue()
 
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -2295,7 +2299,11 @@ class PropFirmBrainV6:
                 return False
 
             epoch, weights_blob = row
-            state_dict = pickle.loads(weights_blob)
+            # SECURITY: Use torch.load with weights_only=True instead of pickle.loads
+            # to prevent arbitrary code execution from malicious model checkpoints
+            import io
+            buffer = io.BytesIO(weights_blob)
+            state_dict = torch.load(buffer, weights_only=True)
             self.model.load_state_dict(state_dict)
             self.training_step = epoch
             self.is_trained = True
@@ -2748,13 +2756,16 @@ class PropFirmBrainV6:
 # ============== SINGLETON ACCESS ==============
 
 _brain_instance: Optional[PropFirmBrainV6] = None
+_brain_lock = threading.Lock()
 
 def get_propfirm_brain_v6(
     ruleset: PropFirmRuleset = TPT_50K,
     config: ModelConfig = None
 ) -> PropFirmBrainV6:
-    """Get or create PropFirmBrainV6 singleton"""
+    """Get or create PropFirmBrainV6 singleton (thread-safe double-checked locking)"""
     global _brain_instance
     if _brain_instance is None:
-        _brain_instance = PropFirmBrainV6(ruleset=ruleset, config=config)
+        with _brain_lock:
+            if _brain_instance is None:
+                _brain_instance = PropFirmBrainV6(ruleset=ruleset, config=config)
     return _brain_instance

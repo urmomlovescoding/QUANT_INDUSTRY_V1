@@ -73,10 +73,10 @@ const navSections: NavSection[] = [
   {
     title: 'ADVANCED TRADING',
     items: [
-      { path: '/microstructure', icon: BarChart3, label: 'Microstructure' },
-      { path: '/cross-exchange', icon: Shuffle, label: 'Cross Exchange' },
-      { path: '/options-flow', icon: Eye, label: 'Options Flow' },
-      { path: '/brain-dashboard', icon: Sparkles, label: 'Brain Dashboard' },
+      { path: '/market-microstructure', icon: BarChart3, label: 'Microstructure' },
+      { path: '/pairs-trading', icon: Shuffle, label: 'Pairs Trading' },
+      { path: '/flow-scanner', icon: Eye, label: 'Options Flow' },
+      { path: '/unified-brain', icon: Sparkles, label: 'Brain Dashboard' },
     ],
   },
   {
@@ -103,7 +103,6 @@ const navSections: NavSection[] = [
     items: [
       { path: '/backtesting', icon: Timer, label: 'Backtesting' },
       { path: '/backtest-viz', icon: LineChart, label: 'Backtest Viz' },
-      { path: '/pnl-attribution', icon: Activity, label: 'P&L Attribution' },
       { path: '/monte-carlo', icon: Dice5, label: 'Monte Carlo' },
       { path: '/correlation', icon: GitBranch, label: 'Correlation' },
       { path: '/risk-decomposition', icon: Layers, label: 'Risk Decomposition' },
@@ -120,7 +119,6 @@ const navSections: NavSection[] = [
       { path: '/regime-detect', icon: Gauge, label: 'Regime Detect' },
       { path: '/trading-brain', icon: Cpu, label: 'Trading Brain' },
       { path: '/algo-bot', icon: Bot, label: 'Algo Bot' },
-      { path: '/market-microstructure', icon: Zap, label: 'Microstructure' },
     ],
   },
   {

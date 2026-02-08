@@ -128,7 +128,7 @@ export function FlowScanner() {
   // WebSocket connection
   const { isConnected, lastMessage, subscribe } = useWebSocket({
     autoConnect: true,
-    onOpen: () => console.log('FlowScanner WebSocket connected'),
+    onOpen: () => {},
   })
 
   // Notifications
@@ -449,6 +449,17 @@ export function FlowScanner() {
                 ))}
               </tbody>
             </table>
+            {filteredFlows.length === 0 && (
+              <div className="p-8 text-center text-foreground-muted">
+                <Waves className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="font-medium">No Flow Data</p>
+                <p className="text-xs mt-1">
+                  {flows.length === 0
+                    ? 'Options flow data will stream in when the market is open'
+                    : 'No flows match your current filter'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -540,13 +551,13 @@ export function FlowScanner() {
               <div className="flex justify-between items-center">
                 <span className="text-xs text-foreground-muted">Unusual %</span>
                 <span className="text-sm font-mono text-yellow-500">
-                  {((stats.totalUnusual / flows.length) * 100).toFixed(1)}%
+                  {flows.length > 0 ? ((stats.totalUnusual / flows.length) * 100).toFixed(1) : '0.0'}%
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-foreground-muted">Sweep %</span>
                 <span className="text-sm font-mono text-purple-500">
-                  {((stats.totalSweeps / flows.length) * 100).toFixed(1)}%
+                  {flows.length > 0 ? ((stats.totalSweeps / flows.length) * 100).toFixed(1) : '0.0'}%
                 </span>
               </div>
 
@@ -554,14 +565,20 @@ export function FlowScanner() {
               <div className="pt-2">
                 <div className="text-xs text-foreground-muted mb-1">Sentiment Distribution</div>
                 <div className="h-2 bg-background-tertiary rounded-full overflow-hidden flex">
-                  <div
-                    className="bg-bullish"
-                    style={{ width: `${(stats.totalBullish / (stats.totalBullish + stats.totalBearish)) * 100}%` }}
-                  />
-                  <div
-                    className="bg-bearish"
-                    style={{ width: `${(stats.totalBearish / (stats.totalBullish + stats.totalBearish)) * 100}%` }}
-                  />
+                  {(stats.totalBullish + stats.totalBearish) > 0 ? (
+                    <>
+                      <div
+                        className="bg-bullish"
+                        style={{ width: `${(stats.totalBullish / (stats.totalBullish + stats.totalBearish)) * 100}%` }}
+                      />
+                      <div
+                        className="bg-bearish"
+                        style={{ width: `${(stats.totalBearish / (stats.totalBullish + stats.totalBearish)) * 100}%` }}
+                      />
+                    </>
+                  ) : (
+                    <div className="bg-foreground-muted/30 w-full" />
+                  )}
                 </div>
               </div>
             </div>

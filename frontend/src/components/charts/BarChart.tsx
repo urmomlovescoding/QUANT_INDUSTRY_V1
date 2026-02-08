@@ -1,35 +1,25 @@
 import { useEffect, useRef } from 'react'
 
-interface BarChartProps {
-  horizontal?: boolean
+interface BarDataItem {
+  label: string
+  value: number
+  color?: string
 }
 
-// Sample P&L distribution data
-const pnlData = [
-  { label: '-5K+', value: 2, color: '#ff1744' },
-  { label: '-4K', value: 3, color: '#ff1744' },
-  { label: '-3K', value: 4, color: '#ff1744' },
-  { label: '-2K', value: 6, color: '#ff1744' },
-  { label: '-1K', value: 8, color: '#ff1744' },
-  { label: '0', value: 4, color: '#666666' },
-  { label: '+1K', value: 12, color: '#00c853' },
-  { label: '+2K', value: 10, color: '#00c853' },
-  { label: '+3K', value: 7, color: '#00c853' },
-  { label: '+4K', value: 5, color: '#00c853' },
-  { label: '+5K+', value: 3, color: '#00c853' },
-]
+interface BarChartProps {
+  horizontal?: boolean
+  data?: BarDataItem[]
+  emptyMessage?: string
+}
 
-// Sample horizontal bar data (strategy performance)
-const strategyData = [
-  { label: 'Momentum', value: 2.4, color: '#00c853' },
-  { label: 'Mean Rev', value: 1.8, color: '#00c853' },
-  { label: 'Breakout', value: 1.5, color: '#00c853' },
-  { label: 'Trend', value: 1.2, color: '#f0b90b' },
-  { label: 'Scalping', value: 0.9, color: '#ff9800' },
-]
+// Default empty data - no fake data
+const defaultVerticalData: BarDataItem[] = []
+const defaultHorizontalData: BarDataItem[] = []
 
-export function BarChart({ horizontal = false }: BarChartProps) {
+export function BarChart({ horizontal = false, data, emptyMessage = 'No data available' }: BarChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  const chartData = data || (horizontal ? defaultHorizontalData : defaultVerticalData)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -45,12 +35,21 @@ export function BarChart({ horizontal = false }: BarChartProps) {
     ctx.fillStyle = '#1f1f1f'
     ctx.fillRect(0, 0, width, height)
 
-    if (horizontal) {
-      drawHorizontalBars(ctx, width, height)
-    } else {
-      drawVerticalBars(ctx, width, height)
+    // If no data, show empty state
+    if (chartData.length === 0) {
+      ctx.fillStyle = '#555555'
+      ctx.font = '13px Inter'
+      ctx.textAlign = 'center'
+      ctx.fillText(emptyMessage, width / 2, height / 2)
+      return
     }
-  }, [horizontal])
+
+    if (horizontal) {
+      drawHorizontalBars(ctx, width, height, chartData)
+    } else {
+      drawVerticalBars(ctx, width, height, chartData)
+    }
+  }, [horizontal, chartData, emptyMessage])
 
   return (
     <canvas
@@ -62,24 +61,28 @@ export function BarChart({ horizontal = false }: BarChartProps) {
   )
 }
 
-function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: number, data: BarDataItem[]) {
   const padding = { top: 20, right: 10, bottom: 40, left: 30 }
   const chartWidth = width - padding.left - padding.right
   const chartHeight = height - padding.top - padding.bottom
 
-  const data = pnlData
-  const maxValue = Math.max(...data.map((d) => d.value))
+  const maxValue = Math.max(...data.map((d) => Math.abs(d.value)))
+  if (maxValue === 0) return
+
   const barWidth = (chartWidth / data.length) * 0.7
   const barGap = (chartWidth / data.length) * 0.3
 
   // Draw bars
   data.forEach((item, i) => {
-    const barHeight = (item.value / maxValue) * chartHeight
+    const barHeight = (Math.abs(item.value) / maxValue) * chartHeight
     const x = padding.left + i * (barWidth + barGap) + barGap / 2
     const y = padding.top + chartHeight - barHeight
 
+    // Default color based on value if not specified
+    const barColor = item.color || (item.value >= 0 ? '#00c853' : '#ff1744')
+
     // Bar
-    ctx.fillStyle = item.color
+    ctx.fillStyle = barColor
     ctx.beginPath()
     ctx.roundRect(x, y, barWidth, barHeight, [3, 3, 0, 0])
     ctx.fill()
@@ -103,24 +106,28 @@ function drawVerticalBars(ctx: CanvasRenderingContext2D, width: number, height: 
   }
 }
 
-function drawHorizontalBars(ctx: CanvasRenderingContext2D, width: number, height: number) {
+function drawHorizontalBars(ctx: CanvasRenderingContext2D, width: number, height: number, data: BarDataItem[]) {
   const padding = { top: 10, right: 40, bottom: 10, left: 70 }
   const chartWidth = width - padding.left - padding.right
   const chartHeight = height - padding.top - padding.bottom
 
-  const data = strategyData
-  const maxValue = Math.max(...data.map((d) => d.value))
+  const maxValue = Math.max(...data.map((d) => Math.abs(d.value)))
+  if (maxValue === 0) return
+
   const barHeight = (chartHeight / data.length) * 0.7
   const barGap = (chartHeight / data.length) * 0.3
 
   // Draw bars
   data.forEach((item, i) => {
-    const barWidth = (item.value / maxValue) * chartWidth
+    const barWidth = (Math.abs(item.value) / maxValue) * chartWidth
     const x = padding.left
     const y = padding.top + i * (barHeight + barGap) + barGap / 2
 
+    // Default color based on value threshold
+    const barColor = item.color || (item.value >= 1.5 ? '#00c853' : item.value >= 1.0 ? '#f0b90b' : '#ff9800')
+
     // Bar
-    ctx.fillStyle = item.color
+    ctx.fillStyle = barColor
     ctx.beginPath()
     ctx.roundRect(x, y, barWidth, barHeight, [0, 4, 4, 0])
     ctx.fill()

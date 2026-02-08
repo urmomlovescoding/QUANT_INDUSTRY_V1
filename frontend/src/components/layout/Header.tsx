@@ -11,6 +11,21 @@ import { KillSwitch } from '../KillSwitch'
 import { UserMenu } from '../auth'
 import { marketApi, healthApi, MarketTicker as MarketTickerType } from '@/api/client'
 
+/** Extended health status from the API, including data quality info */
+interface HealthDataStatus {
+  is_live: boolean
+  primary_source: string
+  quality_score: number
+}
+
+interface HealthResponseData {
+  status?: string
+  market?: unknown
+  services?: Record<string, boolean>
+  uptime?: number
+  data?: HealthDataStatus
+}
+
 // Fallback data when API is not available
 const fallbackMarketData = [
   { symbol: 'SPY', price: 688.98, change: 0.52 },
@@ -40,8 +55,8 @@ export function Header() {
   })
 
   // Get data status from health endpoint
-  const healthData = healthResponse?.ok ? healthResponse.data : null
-  const dataStatus = (healthData as any)?.data || { is_live: false, primary_source: 'none', quality_score: 0 }
+  const healthData = healthResponse?.ok ? (healthResponse.data as HealthResponseData | null) : null
+  const dataStatus: HealthDataStatus = healthData?.data || { is_live: false, primary_source: 'none', quality_score: 0 }
   const isLiveData = dataStatus.is_live && dataStatus.quality_score >= 0.5
   const dataSource = dataStatus.primary_source || 'offline'
 
@@ -75,7 +90,6 @@ export function Header() {
     })
 
     const unsubBot = electronAPI.onBotControl((action) => {
-      console.log('Bot control action:', action)
       window.dispatchEvent(new CustomEvent('bot-control', { detail: action }))
     })
 

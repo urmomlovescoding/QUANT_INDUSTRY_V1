@@ -21,6 +21,29 @@ import { cn } from '@/utils/cn'
 import { portfolioApi, signalsApi, riskApi, brainApi } from '@/api/client'
 import { formatCurrency, formatPercent, formatCompact } from '@/utils/format'
 
+/** Extended portfolio data shape from API */
+interface StripPortfolioData {
+  total_value?: number
+  equity?: number
+  daily_pnl?: number
+  unrealized_pnl?: number
+  daily_pnl_pct?: number
+}
+
+/** Extended risk data shape from API */
+interface StripRiskData {
+  risk_utilization?: number
+  exposure_pct?: number
+}
+
+/** Extended brain data shape from API */
+interface StripBrainData {
+  accuracy?: number
+  recent_accuracy?: number
+  win_rate?: number
+  winning_signals?: number
+}
+
 interface MetricData {
   label: string
   value: string
@@ -124,20 +147,20 @@ export function IndicatorStrip() {
     staleTime: 5000,
   })
 
-  const portfolio = portfolioRes?.ok ? portfolioRes.data : null
+  const portfolio = portfolioRes?.ok ? (portfolioRes.data as StripPortfolioData | null) : null
   const positions = positionsRes?.ok ? positionsRes.data : null
   const signals = signalsRes?.ok ? signalsRes.data : null
-  const risk = riskRes?.ok ? riskRes.data : null
-  const brain = brainRes?.ok ? brainRes.data : null
+  const risk = riskRes?.ok ? (riskRes.data as StripRiskData | null) : null
+  const brain = brainRes?.ok ? (brainRes.data as StripBrainData | null) : null
 
-  const portfolioValue = (portfolio as any)?.total_value ?? (portfolio as any)?.equity ?? 0
-  const dailyPnl = (portfolio as any)?.daily_pnl ?? (portfolio as any)?.unrealized_pnl ?? 0
-  const dailyPnlPct = (portfolio as any)?.daily_pnl_pct ?? (portfolioValue > 0 ? (dailyPnl / portfolioValue) * 100 : 0)
+  const portfolioValue = portfolio?.total_value ?? portfolio?.equity ?? 0
+  const dailyPnl = portfolio?.daily_pnl ?? portfolio?.unrealized_pnl ?? 0
+  const dailyPnlPct = portfolio?.daily_pnl_pct ?? (portfolioValue > 0 ? (dailyPnl / portfolioValue) * 100 : 0)
   const openPositions = positions?.length ?? 0
   const activeSignals = signals?.length ?? 0
-  const riskUtilization = (risk as any)?.risk_utilization ?? (risk as any)?.exposure_pct ?? 0
-  const brainAccuracy = (brain as any)?.accuracy ?? (brain as any)?.recent_accuracy ?? 0
-  const winRate = (brain as any)?.win_rate ?? (brain as any)?.winning_signals ?? 0
+  const riskUtilization = risk?.risk_utilization ?? risk?.exposure_pct ?? 0
+  const brainAccuracy = brain?.accuracy ?? brain?.recent_accuracy ?? 0
+  const winRate = brain?.win_rate ?? brain?.winning_signals ?? 0
 
   const metrics: MetricData[] = [
     {

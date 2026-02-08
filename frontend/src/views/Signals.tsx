@@ -5,6 +5,11 @@ import { Signal } from '@/api/client'
 import { apiV2 } from '@/api/v2'
 import { cn } from '@/utils/cn'
 
+/** API may return signals as a wrapped object */
+interface SignalsResponse {
+  signals: Signal[]
+}
+
 export function Signals() {
   const [signals, setSignals] = useState<Signal[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -23,9 +28,9 @@ export function Signals() {
       }
 
       if (Array.isArray(data)) {
-        setSignals(data as Signal[])
-      } else if ((data as any)?.signals) {
-        setSignals((data as any).signals)
+        setSignals(data)
+      } else if (data && typeof data === 'object' && 'signals' in data) {
+        setSignals((data as SignalsResponse).signals)
       } else {
         setSignals([])
       }

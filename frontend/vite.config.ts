@@ -9,6 +9,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    sourcemap: false, // Disable source maps in production for security
+    chunkSizeWarningLimit: 1500,
+  },
   server: {
     port: 3000,
     proxy: {

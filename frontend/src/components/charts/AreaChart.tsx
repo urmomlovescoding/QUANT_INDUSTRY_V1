@@ -1,28 +1,12 @@
 import { useEffect, useRef } from 'react'
 
-// Sample data for area chart
-const generateData = () => {
-  const data = []
-  let value = 100000
-  const now = new Date()
-
-  for (let i = 30; i >= 0; i--) {
-    const date = new Date(now)
-    date.setDate(date.getDate() - i)
-    value += (Math.random() - 0.45) * 2000
-    data.push({
-      date: date.toISOString().split('T')[0],
-      value: Math.max(value, 90000),
-    })
-  }
-  return data
+interface AreaChartProps {
+  data?: { date: string; value: number }[]
+  color?: string
+  emptyMessage?: string
 }
 
-const data = generateData()
-const maxValue = Math.max(...data.map((d) => d.value))
-const minValue = Math.min(...data.map((d) => d.value))
-
-export function AreaChart() {
+export function AreaChart({ data, color = '#f0b90b', emptyMessage = 'No data available' }: AreaChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -43,6 +27,19 @@ export function AreaChart() {
     ctx.fillStyle = '#1f1f1f'
     ctx.fillRect(0, 0, width, height)
 
+    // If no data, show empty state
+    if (!data || data.length === 0) {
+      ctx.fillStyle = '#555555'
+      ctx.font = '13px Inter'
+      ctx.textAlign = 'center'
+      ctx.fillText(emptyMessage, width / 2, height / 2)
+      return
+    }
+
+    const maxValue = Math.max(...data.map((d) => d.value))
+    const minValue = Math.min(...data.map((d) => d.value))
+    const valueRange = maxValue - minValue || 1
+
     // Draw grid lines
     ctx.strokeStyle = '#2a2a2a'
     ctx.lineWidth = 1
@@ -56,7 +53,7 @@ export function AreaChart() {
       ctx.stroke()
 
       // Y-axis labels
-      const value = maxValue - ((maxValue - minValue) / numGridLines) * i
+      const value = maxValue - (valueRange / numGridLines) * i
       ctx.fillStyle = '#666666'
       ctx.font = '11px Inter'
       ctx.textAlign = 'right'
@@ -65,12 +62,23 @@ export function AreaChart() {
 
     // Draw area
     const xStep = chartWidth / (data.length - 1)
-    const yScale = chartHeight / (maxValue - minValue)
+    const yScale = chartHeight / valueRange
 
     // Create gradient
     const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom)
-    gradient.addColorStop(0, 'rgba(240, 185, 11, 0.3)')
-    gradient.addColorStop(1, 'rgba(240, 185, 11, 0)')
+    gradient.addColorStop(0, color.replace(')', ', 0.3)').replace('rgb', 'rgba').replace('#', ''))
+
+    // Parse hex color to rgba for gradient
+    const hexToRgba = (hex: string, alpha: number) => {
+      const r = parseInt(hex.slice(1, 3), 16)
+      const g = parseInt(hex.slice(3, 5), 16)
+      const b = parseInt(hex.slice(5, 7), 16)
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`
+    }
+
+    const gradientFill = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom)
+    gradientFill.addColorStop(0, hexToRgba(color, 0.3))
+    gradientFill.addColorStop(1, hexToRgba(color, 0))
 
     // Area fill
     ctx.beginPath()
@@ -84,12 +92,12 @@ export function AreaChart() {
 
     ctx.lineTo(padding.left + (data.length - 1) * xStep, height - padding.bottom)
     ctx.closePath()
-    ctx.fillStyle = gradient
+    ctx.fillStyle = gradientFill
     ctx.fill()
 
     // Draw line
     ctx.beginPath()
-    ctx.strokeStyle = '#f0b90b'
+    ctx.strokeStyle = color
     ctx.lineWidth = 2
 
     data.forEach((point, i) => {
@@ -122,7 +130,7 @@ export function AreaChart() {
         )
       }
     })
-  }, [])
+  }, [data, color, emptyMessage])
 
   return (
     <canvas

@@ -202,6 +202,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/api/dl/train": 2,
         "/api/monte-carlo/run": 5,
         "/api/evolution/evolve": 3,
+        "/api/kill-switch/activate": 3,
+        "/api/kill-switch/deactivate": 3,
+        "/api/orders": 30,
+        "/api/broker/order": 30,
+        "/api/settings/api-keys": 5,
+        "/api/ai/confirm-trade": 20,
+        # Auth endpoints — strict rate limits to prevent brute force
+        "/api/auth/login": 10,
+        "/api/auth/register": 5,
+        "/api/auth/refresh": 30,
     }
 
     async def dispatch(self, request: Request, call_next):
@@ -293,6 +303,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "0"  # Disabled per modern best practice
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:"
 
         # Cache control for API responses
         if request.url.path.startswith("/api/"):
@@ -473,3 +484,115 @@ def get_cors_origins(environment: Optional[str] = None) -> list:
             "http://127.0.0.1:3000",
             "http://127.0.0.1:5173",
         ]
+
+
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to enforce authentication on state-changing API endpoints.
+
+    Protects POST/PUT/DELETE endpoints while allowing GET (read-only) access.
+    Uses JWT Bearer tokens from the auth.jwt_auth module when AUTH_REQUIRED=true.
+    Localhost requests bypass auth in development mode for backward compatibility.
+
+    Enable by setting environment variable: AUTH_REQUIRED=true
+
+    Critical endpoints (kill switch, orders, API key changes) are ALWAYS protected
+    regardless of AUTH_REQUIRED setting.
+    """
+
+    # Endpoints that are ALWAYS exempt from auth (public)
+    PUBLIC_PATHS = frozenset({
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/health",
+        "/api/system/health",
+        "/api/system/status",
+        "/api/auth/login",
+        "/api/auth/register",
+        "/api/auth/refresh",
+        "/favicon.ico",
+    })
+
+    # Critical endpoints that ALWAYS require auth, even in dev mode
+    CRITICAL_PATHS = frozenset({
+        "/api/kill-switch/activate",
+        "/api/kill-switch/deactivate",
+        "/api/orders",
+        "/api/broker/order",
+        "/api/settings/api-keys",
+        "/api/ai/confirm-trade",
+    })
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        method = request.method.upper()
+
+        # Always allow public paths
+        if path in self.PUBLIC_PATHS or path.startswith("/ws"):
+            return await call_next(request)
+
+        # Allow all GET/HEAD/OPTIONS requests (read-only)
+        if method in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+
+        # Check if auth is required
+        auth_required = os.getenv("AUTH_REQUIRED", "false").lower() == "true"
+        is_critical = any(path.startswith(cp) for cp in self.CRITICAL_PATHS)
+
+        # In dev mode, only protect critical endpoints
+        if not auth_required and not is_critical:
+            return await call_next(request)
+
+        # For critical or auth-required endpoints, validate Bearer token
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "Authentication required",
+                    "detail": f"Bearer token required for {method} {path}",
+                    "code": "AUTH_REQUIRED",
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token = auth_header[7:]  # Strip "Bearer "
+
+        try:
+            from auth.jwt_auth import verify_token
+            token_data = verify_token(token, "access")
+
+            # Store user info in request state for downstream use
+            request.state.user_id = token_data.sub
+            request.state.org_id = token_data.org
+            request.state.user_role = token_data.role
+
+        except Exception:
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "Invalid or expired token",
+                    "detail": "Please re-authenticate",
+                    "code": "TOKEN_INVALID",
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return await call_next(request)
+
+
+def get_security_middleware_stack() -> list:
+    """
+    Return the recommended middleware stack in order.
+
+    Usage in main.py:
+        from middleware.security import get_security_middleware_stack
+        for middleware_cls in get_security_middleware_stack():
+            app.add_middleware(middleware_cls)
+    """
+    return [
+        SecurityHeadersMiddleware,
+        RateLimitMiddleware,
+        AuthenticationMiddleware,
+    ]

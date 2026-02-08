@@ -269,11 +269,11 @@ export const OptionsFlowDashboard: React.FC<OptionsFlowDashboardProps> = ({ symb
             {/* Main Content Area */}
             <div className="lg:col-span-3">
               <Tabs.Content value="unusual" className="h-[600px]">
-                <UnusualActivityTable 
+                <UnusualActivityTable
                   data={data.unusualActivity.filter(
                     a => selectedSymbol === 'ALL' || a.symbol === selectedSymbol || selectedSymbol === 'SPY'
                   )}
-                  onRowClick={(activity) => console.log('Clicked:', activity)}
+                  onRowClick={() => {}}
                 />
               </Tabs.Content>
 
@@ -302,7 +302,6 @@ export const OptionsFlowDashboard: React.FC<OptionsFlowDashboardProps> = ({ symb
               <FlowSignalsPanel
                 signals={data.flowSignals}
                 onSignalClick={(signal) => {
-                  console.log('Signal clicked:', signal);
                   if (signal.symbol) setSelectedSymbol(signal.symbol);
                 }}
               />

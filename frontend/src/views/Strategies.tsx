@@ -119,7 +119,18 @@ export function Strategies() {
 
       const strategiesData = data.data?.strategies || data.strategies || (Array.isArray(data) ? data : [])
       if (strategiesData.length > 0) {
-        setStrategies(strategiesData.map(transformStrategyData))
+        const transformed = strategiesData.map(transformStrategyData)
+        // Restore persisted toggle state from localStorage
+        try {
+          const saved = localStorage.getItem('strategies.toggleState')
+          if (saved) {
+            const toggleState: Record<string, boolean> = JSON.parse(saved)
+            transformed.forEach((s: Strategy) => {
+              if (s.id in toggleState) s.active = toggleState[s.id]
+            })
+          }
+        } catch { /* ignore */ }
+        setStrategies(transformed)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch strategies')
@@ -142,10 +153,18 @@ export function Strategies() {
   }, [strategies, filter, categoryFilter])
 
   const toggleStrategy = async (id: string) => {
-    setStrategies(prev => prev.map(s =>
-      s.id === id ? { ...s, active: !s.active } : s
-    ))
-    // TODO: Call API to persist change
+    setStrategies(prev => {
+      const updated = prev.map(s =>
+        s.id === id ? { ...s, active: !s.active } : s
+      )
+      // Persist toggle state to localStorage since backend doesn't support per-strategy toggle
+      try {
+        const toggleState: Record<string, boolean> = {}
+        updated.forEach(s => { toggleState[s.id] = s.active })
+        localStorage.setItem('strategies.toggleState', JSON.stringify(toggleState))
+      } catch { /* ignore */ }
+      return updated
+    })
   }
 
   const aggregateStats = useMemo(() => {
@@ -175,8 +194,7 @@ export function Strategies() {
         method: 'POST',
       })
       if (response.ok) {
-        const result = await response.json()
-        console.log('Backtest result:', result)
+        await response.json()
       }
     } catch (error) {
       console.error('Backtest failed:', error)
@@ -285,18 +303,36 @@ export function Strategies() {
       </div>
 
       {/* Strategy Grid */}
-      <div className="grid grid-cols-2 gap-4">
-        {filteredStrategies.map(strategy => (
-          <StrategyCard
-            key={strategy.id}
-            strategy={strategy}
-            onToggle={() => toggleStrategy(strategy.id)}
-            onSelect={() => setSelectedStrategy(strategy)}
-            onBacktest={() => runBacktest(strategy.id)}
-            isSelected={selectedStrategy?.id === strategy.id}
-          />
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center h-48">
+          <RefreshCw className="w-8 h-8 animate-spin text-accent-primary" />
+        </div>
+      ) : filteredStrategies.length === 0 ? (
+        <div className="card p-8 text-center text-foreground-muted">
+          <Target className="w-10 h-10 mx-auto mb-3 opacity-40" />
+          <p className="font-medium">
+            {strategies.length === 0 ? 'No Strategies Available' : 'No strategies match your filters'}
+          </p>
+          <p className="text-xs mt-1">
+            {strategies.length === 0
+              ? 'Strategies will appear once the quant engine is configured'
+              : 'Try adjusting your filter criteria'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          {filteredStrategies.map(strategy => (
+            <StrategyCard
+              key={strategy.id}
+              strategy={strategy}
+              onToggle={() => toggleStrategy(strategy.id)}
+              onSelect={() => setSelectedStrategy(strategy)}
+              onBacktest={() => runBacktest(strategy.id)}
+              isSelected={selectedStrategy?.id === strategy.id}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Strategy Detail Modal */}
       {selectedStrategy && (

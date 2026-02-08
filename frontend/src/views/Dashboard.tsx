@@ -71,10 +71,8 @@ export function Dashboard() {
         <MetricCard
           title="Win Rate"
           value={formatPercent(winRate)}
-          change={3.2}
-          changePercent={4.9}
           icon={Target}
-          trend="up"
+          trend={winRate >= 50 ? 'up' : winRate > 0 ? 'down' : 'up'}
           isLoading={isLoading}
         />
         <MetricCard
@@ -114,7 +112,7 @@ export function Dashboard() {
               </select>
             </div>
           </div>
-          <AreaChart />
+          <AreaChart emptyMessage="Equity data will populate with trading history" />
         </div>
 
         {/* Daily P&L distribution */}
@@ -122,7 +120,7 @@ export function Dashboard() {
           <div className="chart-header">
             <h3 className="chart-title">Daily P&L Distribution</h3>
           </div>
-          <BarChart />
+          <BarChart emptyMessage="P&L data will populate with trades" />
         </div>
 
         {/* Bottom row - 3 columns */}
@@ -143,13 +141,13 @@ export function Dashboard() {
           <div className="flex justify-center gap-8 mt-2">
             <div className="text-center">
               <div className="text-lg font-bold text-bullish">
-                {feedbackStatus?.total_trades ? Math.round(feedbackStatus.total_trades * (feedbackStatus.win_rate || 0)) : 29}
+                {feedbackStatus?.total_trades ? Math.round(feedbackStatus.total_trades * (feedbackStatus.win_rate || 0)) : 0}
               </div>
               <div className="text-xs text-foreground-muted">Winning</div>
             </div>
             <div className="text-center">
               <div className="text-lg font-bold text-bearish">
-                {feedbackStatus?.total_trades ? Math.round(feedbackStatus.total_trades * (1 - (feedbackStatus.win_rate || 0))) : 13}
+                {feedbackStatus?.total_trades ? Math.round(feedbackStatus.total_trades * (1 - (feedbackStatus.win_rate || 0))) : 0}
               </div>
               <div className="text-xs text-foreground-muted">Losing</div>
             </div>
@@ -162,7 +160,7 @@ export function Dashboard() {
           </div>
           <div className="flex items-center justify-center h-48">
             <GaugeChart
-              value={riskMetrics?.risk_score ?? 42}
+              value={riskMetrics?.risk_score ?? 0}
               maxValue={100}
               label="Portfolio Risk"
             />
@@ -170,19 +168,19 @@ export function Dashboard() {
           <div className="grid grid-cols-3 gap-4 mt-4">
             <div className="text-center">
               <div className="text-sm font-bold text-foreground-primary">
-                {riskMetrics ? formatCurrency(riskMetrics.var_95 * portfolioValue) : '$12.5K'}
+                {riskMetrics ? formatCurrency(riskMetrics.var_95 * portfolioValue) : '--'}
               </div>
               <div className="text-xs text-foreground-muted">VaR 95%</div>
             </div>
             <div className="text-center">
               <div className="text-sm font-bold text-warning">
-                {riskMetrics ? formatPercent(riskMetrics.max_position_exposure * 100) : '65%'}
+                {riskMetrics ? formatPercent(riskMetrics.max_position_exposure * 100) : '--'}
               </div>
               <div className="text-xs text-foreground-muted">Exposure</div>
             </div>
             <div className="text-center">
               <div className="text-sm font-bold text-bullish">
-                {feedbackStatus?.sharpe_ratio?.toFixed(1) ?? '1.8'}
+                {feedbackStatus?.sharpe_ratio?.toFixed(1) ?? '--'}
               </div>
               <div className="text-xs text-foreground-muted">Sharpe</div>
             </div>
@@ -193,7 +191,7 @@ export function Dashboard() {
           <div className="chart-header">
             <h3 className="chart-title">Profit Factor by Strategy</h3>
           </div>
-          <BarChart horizontal />
+          <BarChart horizontal emptyMessage="Strategy data will populate with trading" />
         </div>
 
         {/* Brain Status Panel */}

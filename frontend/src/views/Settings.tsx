@@ -1,7 +1,23 @@
 import { Settings as SettingsIcon, Bell, Shield, Database, Zap, Key, CheckCircle, XCircle, AlertCircle, RefreshCw, Eye, EyeOff, Palette } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/utils/cn'
 import { apiV2 } from '@/api/v2'
+
+/** Load a persisted setting from localStorage with a fallback default */
+function loadSetting<T>(key: string, defaultValue: T): T {
+  try {
+    const stored = localStorage.getItem(`settings.${key}`)
+    if (stored !== null) return JSON.parse(stored) as T
+  } catch { /* ignore parse errors */ }
+  return defaultValue
+}
+
+/** Persist a setting to localStorage */
+function saveSetting<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(`settings.${key}`, JSON.stringify(value))
+  } catch { /* ignore quota errors */ }
+}
 
 // API Configuration Types
 interface APIProvider {
@@ -105,10 +121,19 @@ export function Settings() {
 }
 
 function AppearanceSettings() {
-  const [theme, setTheme] = useState('bloomberg')
-  const [compactMode, setCompactMode] = useState(false)
-  const [showAnimations, setShowAnimations] = useState(true)
-  const [chartStyle, setChartStyle] = useState('candlestick')
+  const [theme, setTheme] = useState(() => loadSetting('appearance.theme', 'bloomberg'))
+  const [compactMode, setCompactMode] = useState(() => loadSetting('appearance.compactMode', false))
+  const [showAnimations, setShowAnimations] = useState(() => loadSetting('appearance.animations', true))
+  const [chartStyle, setChartStyle] = useState(() => loadSetting('appearance.chartStyle', 'candlestick'))
+  const [showTooltips, setShowTooltips] = useState(() => loadSetting('appearance.tooltips', true))
+  const [showGridLines, setShowGridLines] = useState(() => loadSetting('appearance.gridLines', true))
+
+  const updateTheme = useCallback((v: string) => { setTheme(v); saveSetting('appearance.theme', v) }, [])
+  const updateCompactMode = useCallback((v: boolean) => { setCompactMode(v); saveSetting('appearance.compactMode', v) }, [])
+  const updateAnimations = useCallback((v: boolean) => { setShowAnimations(v); saveSetting('appearance.animations', v) }, [])
+  const updateChartStyle = useCallback((v: string) => { setChartStyle(v); saveSetting('appearance.chartStyle', v) }, [])
+  const updateTooltips = useCallback((v: boolean) => { setShowTooltips(v); saveSetting('appearance.tooltips', v) }, [])
+  const updateGridLines = useCallback((v: boolean) => { setShowGridLines(v); saveSetting('appearance.gridLines', v) }, [])
 
   return (
     <div className="space-y-6">
@@ -117,7 +142,7 @@ function AppearanceSettings() {
           {Object.entries(UI_PRESETS).map(([key, preset]) => (
             <button
               key={key}
-              onClick={() => setTheme(key)}
+              onClick={() => updateTheme(key)}
               className={cn(
                 'p-4 rounded-lg border transition-all text-left group relative overflow-hidden',
                 theme === key
@@ -162,7 +187,7 @@ function AppearanceSettings() {
             </label>
             <select
               value={chartStyle}
-              onChange={(e) => setChartStyle(e.target.value)}
+              onChange={(e) => updateChartStyle(e.target.value)}
               className="input w-48"
             >
               <option value="candlestick">Candlestick</option>
@@ -180,25 +205,25 @@ function AppearanceSettings() {
           label="Compact Mode"
           description="Use smaller fonts and tighter spacing"
           checked={compactMode}
-          onChange={setCompactMode}
+          onChange={updateCompactMode}
         />
         <ToggleSetting
           label="Enable Animations"
           description="Show smooth transitions and animations"
           checked={showAnimations}
-          onChange={setShowAnimations}
+          onChange={updateAnimations}
         />
         <ToggleSetting
           label="Show Tooltips"
           description="Display helpful tooltips on hover"
-          checked={true}
-          onChange={() => {}}
+          checked={showTooltips}
+          onChange={updateTooltips}
         />
         <ToggleSetting
           label="Show Grid Lines"
           description="Display grid lines on charts"
-          checked={true}
-          onChange={() => {}}
+          checked={showGridLines}
+          onChange={updateGridLines}
         />
       </SettingSection>
     </div>
@@ -206,20 +231,25 @@ function AppearanceSettings() {
 }
 
 function TradingSettings() {
+  const [confirmTrades, setConfirmTrades] = useState(() => loadSetting('trading.confirmTrades', true))
+  const [confirmCloseAll, setConfirmCloseAll] = useState(() => loadSetting('trading.confirmCloseAll', true))
+  const [defaultQty, setDefaultQty] = useState(() => loadSetting('trading.defaultQty', 100))
+  const [defaultOrderType, setDefaultOrderType] = useState(() => loadSetting('trading.defaultOrderType', 'Market'))
+
   return (
     <div className="space-y-6">
       <SettingSection title="Confirmations">
         <ToggleSetting
           label="Confirm before executing trades"
           description="Show confirmation dialog before placing orders"
-          checked={true}
-          onChange={() => {}}
+          checked={confirmTrades}
+          onChange={(v) => { setConfirmTrades(v); saveSetting('trading.confirmTrades', v) }}
         />
         <ToggleSetting
           label="Confirm before closing all positions"
           description="Require confirmation for bulk position closure"
-          checked={true}
-          onChange={() => {}}
+          checked={confirmCloseAll}
+          onChange={(v) => { setConfirmCloseAll(v); saveSetting('trading.confirmCloseAll', v) }}
         />
       </SettingSection>
 
@@ -231,7 +261,8 @@ function TradingSettings() {
             </label>
             <input
               type="number"
-              defaultValue={100}
+              value={defaultQty}
+              onChange={(e) => { const v = parseInt(e.target.value) || 0; setDefaultQty(v); saveSetting('trading.defaultQty', v) }}
               className="input w-32"
             />
           </div>
@@ -239,7 +270,11 @@ function TradingSettings() {
             <label className="block text-sm font-medium text-foreground-primary mb-2">
               Default Order Type
             </label>
-            <select className="input w-48">
+            <select
+              value={defaultOrderType}
+              onChange={(e) => { setDefaultOrderType(e.target.value); saveSetting('trading.defaultOrderType', e.target.value) }}
+              className="input w-48"
+            >
               <option>Market</option>
               <option>Limit</option>
               <option>Stop</option>
@@ -253,14 +288,19 @@ function TradingSettings() {
 }
 
 function NotificationSettings() {
+  const [soundAlerts, setSoundAlerts] = useState(() => loadSetting('notifications.soundAlerts', true))
+  const [tradeNotifs, setTradeNotifs] = useState(() => loadSetting('notifications.tradeNotifs', true))
+  const [signalNotifs, setSignalNotifs] = useState(() => loadSetting('notifications.signalNotifs', true))
+  const [errorNotifs, setErrorNotifs] = useState(() => loadSetting('notifications.errorNotifs', true))
+
   return (
     <div className="space-y-6">
       <SettingSection title="Alerts">
         <ToggleSetting
           label="Enable sound alerts"
           description="Play sound for important notifications"
-          checked={true}
-          onChange={() => {}}
+          checked={soundAlerts}
+          onChange={(v) => { setSoundAlerts(v); saveSetting('notifications.soundAlerts', v) }}
         />
       </SettingSection>
 
@@ -268,20 +308,20 @@ function NotificationSettings() {
         <ToggleSetting
           label="Trade execution notifications"
           description="Show notification when orders are filled"
-          checked={true}
-          onChange={() => {}}
+          checked={tradeNotifs}
+          onChange={(v) => { setTradeNotifs(v); saveSetting('notifications.tradeNotifs', v) }}
         />
         <ToggleSetting
           label="New signal notifications"
           description="Alert when new trading signals are generated"
-          checked={true}
-          onChange={() => {}}
+          checked={signalNotifs}
+          onChange={(v) => { setSignalNotifs(v); saveSetting('notifications.signalNotifs', v) }}
         />
         <ToggleSetting
           label="Error notifications"
           description="Show notifications for errors and warnings"
-          checked={true}
-          onChange={() => {}}
+          checked={errorNotifs}
+          onChange={(v) => { setErrorNotifs(v); saveSetting('notifications.errorNotifs', v) }}
         />
       </SettingSection>
     </div>
@@ -289,6 +329,12 @@ function NotificationSettings() {
 }
 
 function RiskSettings() {
+  const [maxPositionSize, setMaxPositionSize] = useState(() => loadSetting('risk.maxPositionSize', 10))
+  const [maxDailyLoss, setMaxDailyLoss] = useState(() => loadSetting('risk.maxDailyLoss', 5000))
+  const [maxDrawdown, setMaxDrawdown] = useState(() => loadSetting('risk.maxDrawdown', 15))
+  const [autoStopLoss, setAutoStopLoss] = useState(() => loadSetting('risk.autoStopLoss', true))
+  const [autoStopDrawdown, setAutoStopDrawdown] = useState(() => loadSetting('risk.autoStopDrawdown', true))
+
   return (
     <div className="space-y-6">
       <SettingSection title="Position Limits">
@@ -299,7 +345,8 @@ function RiskSettings() {
             </label>
             <input
               type="number"
-              defaultValue={10}
+              value={maxPositionSize}
+              onChange={(e) => { const v = parseFloat(e.target.value) || 0; setMaxPositionSize(v); saveSetting('risk.maxPositionSize', v) }}
               className="input w-32"
             />
             <p className="text-xs text-foreground-muted mt-1">
@@ -312,7 +359,8 @@ function RiskSettings() {
             </label>
             <input
               type="number"
-              defaultValue={5000}
+              value={maxDailyLoss}
+              onChange={(e) => { const v = parseFloat(e.target.value) || 0; setMaxDailyLoss(v); saveSetting('risk.maxDailyLoss', v) }}
               className="input w-32"
             />
           </div>
@@ -322,7 +370,8 @@ function RiskSettings() {
             </label>
             <input
               type="number"
-              defaultValue={15}
+              value={maxDrawdown}
+              onChange={(e) => { const v = parseFloat(e.target.value) || 0; setMaxDrawdown(v); saveSetting('risk.maxDrawdown', v) }}
               className="input w-32"
             />
           </div>
@@ -333,14 +382,14 @@ function RiskSettings() {
         <ToggleSetting
           label="Auto-stop on daily loss limit"
           description="Automatically halt trading when daily loss limit is reached"
-          checked={true}
-          onChange={() => {}}
+          checked={autoStopLoss}
+          onChange={(v) => { setAutoStopLoss(v); saveSetting('risk.autoStopLoss', v) }}
         />
         <ToggleSetting
           label="Auto-stop on max drawdown"
           description="Halt trading when maximum drawdown is exceeded"
-          checked={true}
-          onChange={() => {}}
+          checked={autoStopDrawdown}
+          onChange={(v) => { setAutoStopDrawdown(v); saveSetting('risk.autoStopDrawdown', v) }}
         />
       </SettingSection>
     </div>
@@ -412,12 +461,16 @@ function DataSettings() {
     try {
       const { data, ok } = await apiV2.settings.getApiKeys()
       if (ok && data) {
-        // The API returns which keys are configured (boolean flags)
-        // Map to provider statuses
-        setProviders(prev => prev.map(p => ({
-          ...p,
-          status: (data as any)[p.id] ? 'connected' : 'disconnected'
-        })))
+        // API returns nested objects: { alpaca: { is_configured: true, ... }, ... }
+        const keysRecord = data as Record<string, { is_configured?: boolean } | boolean | undefined>
+        setProviders(prev => prev.map(p => {
+          const entry = keysRecord[p.id]
+          // Handle both nested object format and boolean format
+          const isConfigured = typeof entry === 'object' && entry !== null
+            ? entry.is_configured === true
+            : entry === true
+          return { ...p, status: isConfigured ? 'connected' as const : 'disconnected' as const }
+        }))
       }
     } catch (error) {
       console.error('Failed to load API keys:', error)
